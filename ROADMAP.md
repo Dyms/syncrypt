@@ -24,21 +24,23 @@ coding agent) can implement without further design decisions.
 
 **Exit criteria:** tag `spec-v1.0`.
 
-## M1 — Core engine (headless)
+## M1 — Core engine (headless) — ✅ done
 
 Goal: a `@syncrypt/core` package that can sync a plain directory to an
 in-memory / local-disk provider, no encryption, no Obsidian.
 
-- ☐ Manifest model + read/write
-- ☐ Local scanner (hash + mtime) and change detection
-- ☐ Diff algorithm (local vs remote manifest → plan of operations)
-- ☐ `push` / `pull` executors
-- ☐ Deletion via tombstones
-- ☐ "Please pull first" safe-stop on divergent manifest
-- ☐ Deterministic, fully unit-tested (golden manifests, property tests)
+- ☑ Manifest model + read/write
+- ☑ Local scanner (hash + mtime) and change detection
+- ☑ Diff algorithm (local vs remote manifest → plan of operations)
+- ☑ `push` / `pull` executors
+- ☑ Deletion via tombstones
+- ☑ "Please pull first" safe-stop on divergent manifest
+- ☑ Deterministic, fully unit-tested (golden manifests, property tests)
 
 **Exit criteria:** two local directories converge correctly across a fuzzed set
 of edit/delete/rename sequences, with no data loss and no silent overwrite.
+*Met: `packages/providers/filesystem/test/e2e.two-devices.test.ts` (plus the
+in-memory fuzz in `packages/core/test/engine.fuzz.test.ts`).*
 
 ## M2 — Encryption
 

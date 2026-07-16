@@ -5,4 +5,6 @@ air-gapped copies, and as the reference implementation in tests (no network, ful
 deterministic). Passes the shared conformance suite.
 
 Spec: [RFC-0006](../../../docs/rfc/RFC-0006-Storage-Provider-API.md).
-Status: planned — a filesystem provider is also the natural test backend for M1.
+Status: **implemented (M1)** — passes the shared conformance suite in both
+capability modes (conditional writes on/off), plus a filesystem `VaultPort`
+adapter used by the two-device end-to-end fuzz.
