@@ -1,0 +1,21 @@
+{
+  "name": "syncrypt",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Simple, secure, predictable file sync for Obsidian — you own the data.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/sdk",
+    "packages/obsidian-plugin",
+    "packages/providers/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["obsidian", "sync", "encryption", "e2ee", "s3", "markdown"],
+  "scripts": {
+    "build": "echo \"No build yet — see ROADMAP.md (M1)\" && exit 0",
+    "test": "echo \"No tests yet — see ROADMAP.md (M1)\" && exit 0"
+  }
+}

@@ -1,0 +1,6 @@
+# Default owner for everything (update handle before first release)
+* @project-author
+
+/docs/ @project-author
+/packages/core/ @project-author
+/packages/providers/ @project-author
