@@ -27,3 +27,4 @@ editing it. See [PROJECT.md](../../PROJECT.md) for RFC vs ADR.
 | [0012](./ADR-0012-Conflict-Materialization.md) | Conflict mechanics: conflicted copies, edit-beats-delete | Accepted |
 | [0013](./ADR-0013-Bulk-Change-Breaker-Floor.md) | Bulk-change breaker floor (small vaults) | Proposed |
 | [0014](./ADR-0014-Keyfile-Parameter-Floor.md) | Keyfile KDF parameter floor (anti-downgrade) | Accepted |
+| [0015](./ADR-0015-S3-Client-Strategy.md) | S3 client: fetch + SigV4 (aws4fetch), not the AWS SDK | Accepted |
