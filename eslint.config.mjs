@@ -25,6 +25,13 @@ export default tseslint.config(
         "error",
         { allowNumber: true },
       ],
+      // Manifests are Record<VaultPath, …> maps by design (RFC-0007 §1);
+      // removing a path from them is normal, not a code smell.
+      "@typescript-eslint/no-dynamic-delete": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
   {

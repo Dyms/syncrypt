@@ -15,5 +15,13 @@
   },
   "dependencies": {
     "@noble/hashes": "^2.0.0"
+  },
+  "peerDependencies": {
+    "vitest": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
   }
 }

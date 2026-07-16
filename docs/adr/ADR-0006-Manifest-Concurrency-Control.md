@@ -51,6 +51,15 @@ If `capabilities().conditionalWrites` is true, step 3.4 uses
 created and forks are **prevented** rather than **detected**. This is a pure
 optimization layered on top of the universal protocol above.
 
+> **Erratum (found during M1 implementation, decision unchanged):** the
+> "prevented rather than detected" claim was overstated. Create-if-absent guards
+> only the *same* object key, and a fork consists of two *different* keys
+> (`<gen>-<idA>` vs `<gen>-<idB>`), so conditional writes cannot prevent
+> cross-device forks. The re-LIST fork-detection step (3.5) is therefore always
+> required and is the actual safety mechanism; `ifNoneMatch` remains a harmless
+> guard against a device overwriting its own manifest. See RFC-0006
+> §Manifest concurrency for the corrected wording.
+
 ## Options considered
 
 - **Rely on `If-Match` conditional PUT** — clean CAS, but not portable across

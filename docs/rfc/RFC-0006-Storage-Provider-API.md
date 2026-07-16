@@ -95,9 +95,13 @@ universal, the engine's baseline uses only `list` + `put` + `get`:
 - Full protocol in [ADR-0006](../adr/ADR-0006-Manifest-Concurrency-Control.md).
 
 If `capabilities().conditionalWrites` is true, the engine additionally uses
-`ifNoneMatch: "*"` on the manifest write to *prevent* forks rather than detect
-them — a pure optimization. The engine never relies on conditional writes for
-correctness, so it is safe on any S3.
+`ifNoneMatch: "*"` on the manifest write — a pure optimization. **Erratum
+(M1 implementation):** because manifests are per-device keys
+(`<gen>-<deviceId>.json`), create-if-absent guards only against overwriting the
+*same* key; it cannot prevent two devices creating *different* keys at the same
+generation. Forks between devices are therefore always handled by the re-LIST
+detection step, conditional writes or not. The engine never relies on
+conditional writes for correctness, so it is safe on any S3.
 
 ## S3 implementation notes (`@syncrypt/provider-s3`)
 
