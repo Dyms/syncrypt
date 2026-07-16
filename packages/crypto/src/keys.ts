@@ -40,13 +40,19 @@ export function base64Decode(text: string): Uint8Array {
 }
 
 /**
- * Upper bounds guard against a poisoned keyfile-params.json (an attacker with
- * bucket write access must not be able to OOM/hang a device via huge KDF
- * params). Derivation fails closed instead.
+ * Bounds guard against a poisoned keyfile-params.json (threat-model A3 has
+ * bucket write access; the keyfile is stored in the clear, unauthenticated).
+ * Upper bounds: huge params must not OOM/hang a device.
+ * Lower FLOOR (ADR-0014, anti-downgrade): a seeded weak keyfile must not make
+ * a fresh vault cheap to brute-force offline. Floor = the OWASP reference
+ * minimum for Argon2id. Derivation fails closed either way.
  */
 const MAX_MEMORY_KIB = 1024 * 1024; // 1 GiB
 const MAX_ITERATIONS = 100;
 const MAX_PARALLELISM = 16;
+export const MIN_MEMORY_KIB = 19456; // 19 MiB — OWASP Argon2id reference minimum
+export const MIN_ITERATIONS = 2;
+export const MIN_PARALLELISM = 1;
 
 export function validateKdfParams(params: KdfParams): void {
   const bad = (detail: string): SyncError =>
@@ -59,24 +65,28 @@ export function validateKdfParams(params: KdfParams): void {
   if (version !== 1) throw bad(`unsupported version ${String(version)}`);
   if (
     !Number.isInteger(params.parallelism) ||
-    params.parallelism < 1 ||
+    params.parallelism < MIN_PARALLELISM ||
     params.parallelism > MAX_PARALLELISM
   ) {
     throw bad(`parallelism ${String(params.parallelism)}`);
   }
   if (
     !Number.isInteger(params.iterations) ||
-    params.iterations < 1 ||
+    params.iterations < MIN_ITERATIONS ||
     params.iterations > MAX_ITERATIONS
   ) {
-    throw bad(`iterations ${String(params.iterations)}`);
+    throw bad(
+      `iterations ${String(params.iterations)} (below the ADR-0014 floor or above the anti-DoS cap)`,
+    );
   }
   if (
     !Number.isInteger(params.memoryKiB) ||
-    params.memoryKiB < 8 * params.parallelism ||
+    params.memoryKiB < MIN_MEMORY_KIB ||
     params.memoryKiB > MAX_MEMORY_KIB
   ) {
-    throw bad(`memoryKiB ${String(params.memoryKiB)}`);
+    throw bad(
+      `memoryKiB ${String(params.memoryKiB)} (below the ADR-0014 floor or above the anti-DoS cap)`,
+    );
   }
   let salt: Uint8Array;
   try {

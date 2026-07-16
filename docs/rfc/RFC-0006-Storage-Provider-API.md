@@ -116,6 +116,16 @@ conditional writes for correctness, so it is safe on any S3.
 - **Retries:** exponential backoff with jitter on `Transient`/`RateLimited`.
 - **Credentials** come from user config; they are secrets and are never logged or
   placed in the manifest.
+- **Addressing style:** support both **virtual-hosted** and **path-style**
+  (`forcePathStyle`) URLs. Many S3-compatible backends (MinIO, Ceph RGW, some
+  self-hosted/regional S3) require path-style; expose it in config and default to
+  the mode the endpoint needs.
+- **Client:** to stay portable to the Obsidian mobile webview (M5), the reference
+  provider uses a lightweight `fetch`-based SigV4 signer (aws4fetch) rather than
+  the heavyweight, Node-leaning AWS SDK (ADR-0015). Implications the impl must get
+  right: `x-amz-content-sha256` payload hashing (per-part for multipart), correct
+  request date (SigV4 is clock-sensitive), and its own minimal `ListObjectsV2`
+  XML parsing (covered by unit tests + live MinIO conformance).
 
 ## Conformance test suite
 

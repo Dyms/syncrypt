@@ -37,12 +37,14 @@ framing focused on what matters for a personal, encrypted file sync.
 | A1 reads note contents | Client-side AES-256-GCM; provider sees ciphertext only (RFC-0005) | Sizes, object counts, timing still visible |
 | A1 reads folder structure | Manifest encrypted; object keys are HMAC of content, not paths | Number of objects & size distribution leak |
 | A2 tampers with data in flight | GCM auth tag + TLS to storage; tampered blobs fail to decrypt (fail-closed) | DoS by dropping/altering traffic (availability, not confidentiality) |
-| A2/A1 rolls back to an old manifest | `generation` monotonicity + conditional publish; a stale manifest is detectable; optional manifest history | A determined A3 with write access can attempt rollback — see below |
+| A2/A1 rolls back to an old manifest | `generation` monotonicity + immutable per-generation manifests with LIST fork detection (ADR-0006); a stale manifest is detectable; optional manifest history | A determined A3 with write access can attempt rollback — see below |
 | A3 deletes/overwrites data | Recommend **bucket versioning** + separate backup; tombstone GC respects grace window | With full write creds, an attacker can still damage availability; encryption still protects confidentiality |
 | A3 forges data | Cannot produce valid GCM tags without the key; forged objects fail to decrypt | Availability only |
 | A4 steals unlocked device | Keys live in memory/OS keystore only; lock screen protects at rest | If unlocked and app open, notes are readable (inherent) |
 | A5 reads plugin memory | Keep secrets minimal & short-lived; no secrets in logs | Shared-process isolation is limited in Obsidian — documented |
 | Passphrase brute force | Argon2id with strong params raises cost; strong-passphrase guidance | Weak passphrases remain the user's risk |
+| A3 seeds a weak/oversized `keyfile-params.json` (KDF downgrade / resource DoS) | Fail-closed parameter bounds: ADR-0014 floor (≥ 19 MiB, ≥ 2 iterations) and anti-DoS ceiling (≤ 1 GiB, ≤ 100 iterations); params outside are refused | For an existing vault, altered params = join-time DoS only (wrong key, fail-closed); authenticated keyfile deferred (ADR-0014) |
+| A3 seeds a **weak keyfile** (KDF downgrade) | Keyfile param **floor** rejects weak Argon2id (ADR-0014); on an existing vault, changed params fail to decrypt (fail-closed) | Fresh-bootstrap window before first device; floor closes it |
 
 ## Explicit non-goals (v1)
 

@@ -26,3 +26,4 @@ editing it. See [PROJECT.md](../../PROJECT.md) for RFC vs ADR.
 | [0011](./ADR-0011-Base-State-Persistence.md) | Base-manifest persistence via StateStorePort | Accepted |
 | [0012](./ADR-0012-Conflict-Materialization.md) | Conflict mechanics: conflicted copies, edit-beats-delete | Accepted |
 | [0013](./ADR-0013-Bulk-Change-Breaker-Floor.md) | Bulk-change breaker floor (small vaults) | Proposed |
+| [0014](./ADR-0014-Keyfile-Parameter-Floor.md) | Keyfile KDF parameter floor (anti-downgrade) | Accepted |

@@ -24,8 +24,10 @@ Principle: **boring, vetted primitives; never roll our own.**
   brute-force cost than the OWASP floor while keeping WASM heap growth safe on
   modest hardware; the mobile profile trades memory (webview limits) for an
   extra pass. Re-run `node scripts/bench-argon2id.mjs` to re-tune.
-  Implementations MUST reject absurd parameters from a poisoned keyfile
-  (bounds: memory ≤ 1 GiB, iterations ≤ 100, parallelism ≤ 16) — fail closed
+  Implementations MUST reject out-of-range parameters from a poisoned keyfile,
+  fail closed. Upper (anti-DoS) bounds: memory ≤ 1 GiB, iterations ≤ 100,
+  parallelism ≤ 16. Lower (anti-downgrade, ADR-0014) floor: memory ≥ 19 MiB
+  (19456 KiB), iterations ≥ 2 — a keyfile weaker than the OWASP reference is refused
   instead of OOM.
 - **Alternatives:** scrypt (older, fine), PBKDF2 (weak against GPUs — rejected as
   primary).
@@ -50,23 +52,4 @@ Principle: **boring, vetted primitives; never roll our own.**
 
 ### Content hashing — BLAKE3
 - **Why:** very fast, parallel, modern; used for change detection (over plaintext)
-  and, keyed (HMAC-style), for object keys. Fast hashing matters when scanning
-  1,000+ notes and large attachments.
-- **Note:** the change-detection hash is over **plaintext** so a device can detect
-  its own edits without decrypting anything; privacy implications are analyzed in
-  RFC-0005 and the threat model.
-
-## What the crypto does NOT hide (v1)
-
-Object **sizes**, object **counts**, and **timing** of operations remain visible to
-the storage operator. Padding/obfuscation is deferred (RFC-0005 §Metadata
-trade-offs). This is stated openly so users with a stricter threat model can add
-their own controls.
-
-## Implementation rules
-
-- Use platform crypto (WebCrypto `SubtleCrypto`) for AES-GCM and HKDF; a vetted
-  WASM/native library for Argon2id and BLAKE3.
-- Never log keys, passphrases, or nonces-with-plaintext.
-- Zeroize key material where the platform allows; keep secrets short-lived.
-- Version the crypto format (`version` byte) so we can evolve safely.
+  and, keyed (HMAC-style), for object keys. Fast hashing matters when sc

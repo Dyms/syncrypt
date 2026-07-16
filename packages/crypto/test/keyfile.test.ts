@@ -55,6 +55,20 @@ describe("KdfParams (de)serialization", () => {
     );
     expectAuthError(() => parseKdfParams(enc({ ...TEST_PARAMS, iterations: 10_000 })));
   });
+
+  it("enforces the ADR-0014 anti-downgrade floor (fail closed)", () => {
+    const enc = (v: unknown): Uint8Array =>
+      new TextEncoder().encode(JSON.stringify(v));
+    // A seeded-weak keyfile (threat-model A3) is refused, not adopted.
+    expectAuthError(() => parseKdfParams(enc({ ...TEST_PARAMS, memoryKiB: 8 })));
+    expectAuthError(() => parseKdfParams(enc({ ...TEST_PARAMS, memoryKiB: 19455 })));
+    expectAuthError(() => parseKdfParams(enc({ ...TEST_PARAMS, iterations: 1 })));
+    expectAuthError(() => parseKdfParams(enc({ ...TEST_PARAMS, parallelism: 0 })));
+    // Exactly at the floor is accepted; shipped presets sit above it.
+    expect(() => parseKdfParams(enc(TEST_PARAMS))).not.toThrow();
+    expect(TEST_PARAMS.memoryKiB).toBe(19456);
+    expect(TEST_PARAMS.iterations).toBe(2);
+  });
 });
 
 describe("openVaultCrypto", () => {

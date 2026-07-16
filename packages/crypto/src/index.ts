@@ -9,6 +9,9 @@ export {
   HKDF_INFO_CONTENT,
   HKDF_INFO_MANIFEST,
   HKDF_INFO_NAMES,
+  MIN_MEMORY_KIB,
+  MIN_ITERATIONS,
+  MIN_PARALLELISM,
 } from "./keys.js";
 export * from "./crypto.js";
 export * from "./keyfile.js";
