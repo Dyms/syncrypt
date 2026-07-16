@@ -7,6 +7,21 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added (M3 — S3 provider + SDK)
+- `@syncrypt/provider-s3`: fetch+SigV4 S3 client (ADR-0015), universal subset,
+  honestly PROBED conditional writes, multipart upload with abort-on-failure,
+  retries with backoff + jitter, RFC-0007 error taxonomy, credential-free error
+  messages. Passes the shared conformance suite against live MinIO in both
+  capability modes (CI runs a MinIO service).
+- `@syncrypt/sdk`: `openSyncEngine` — storage + vault + passphrase → ready
+  `SyncEngine` (keyfile bootstrap included); encrypted two-device e2e over a
+  live S3 bucket with ciphertext-only assertion.
+
+### Security (M3, ADR-0014)
+- `@syncrypt/crypto` enforces the Argon2id anti-downgrade floor
+  (`memoryKiB ≥ 19456`, `iterations ≥ 2`): a seeded-weak keyfile is refused
+  fail-closed; threat model updated.
+
 ### Added (M2 — encryption)
 - `@syncrypt/crypto`: reference `CryptoPort` — Argon2id (hash-wasm) → Master
   Key; HKDF-SHA256 → Content/Manifest/Name keys; AES-256-GCM blobs (format v1,

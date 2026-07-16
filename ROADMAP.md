@@ -59,22 +59,25 @@ fails safely; corrupted blobs are detected, not silently accepted.
 assertion, passphrase-only join, fail-closed) and
 `packages/crypto/test/recovery.test.ts` (manual recovery, FR-13).*
 
-## M3 — S3 provider
+## M3 — S3 provider — ✅ done
 
 Goal: `@syncrypt/provider-s3` implementing the StorageProvider contract against
 S3-compatible backends. Validated against several vendors (AWS S3, MinIO, and the
 user's own S3) to prove portability — **the user never has to verify capabilities
 themselves**; the provider probes and adapts.
 
-- ☐ put / get / list / delete / stat (the universal subset)
-- ☐ Manifest concurrency via LIST + immutable generation objects (works anywhere)
-- ☐ Optional conditional-write fast path when the vendor supports it
-- ☐ Multipart upload for large attachments
-- ☐ Retry / backoff / partial-failure semantics
-- ☐ Provider conformance test suite (shared across providers)
+- ☑ put / get / list / delete / stat (the universal subset)
+- ☑ Manifest concurrency via LIST + immutable generation objects (works anywhere)
+- ☑ Optional conditional-write fast path when the vendor supports it (probed)
+- ☑ Multipart upload for large attachments
+- ☑ Retry / backoff / partial-failure semantics
+- ☑ Provider conformance test suite (shared across providers)
 
 **Exit criteria:** core + encryption run end-to-end against a live S3 backend and
 pass the conformance suite.
+*Met against live MinIO (RELEASE.2025-09-07), both capability modes; encrypted
+SDK e2e in `packages/sdk/test/e2e.s3-encrypted.test.ts`. Validation against
+AWS S3 / the user's own S3 endpoint remains a manual step (same env vars).*
 
 ## M4 — Obsidian plugin (desktop)
 
