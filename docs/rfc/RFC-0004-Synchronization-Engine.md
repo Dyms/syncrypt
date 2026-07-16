@@ -113,6 +113,18 @@ For each path in the union of the three views, classify by comparing
 | ⌀ | ⌀ | B | new remote file | **Download B** |
 | B | ⌀ | C | independently created same path | **Conflict** |
 | ⌀ | A | † | deleted both sides | none (converge tombstone) |
+| B | A | † | edited locally, deleted remotely | **Conflict (edit-vs-delete)** |
+| ⌀ | A | B | deleted locally, edited remotely | **Conflict (edit-vs-delete)** |
+
+Tombstones in `base` behave like absence for comparison purposes (a recreated
+file after a known deletion is a *new* file), with the tombstone carried in the
+manifest for propagation.
+
+**Edit-vs-delete rule:** an edit always survives a delete. When one side edited
+a file and the other deleted it, the engine keeps (or restores) the edited
+version and surfaces a conflict — it never deletes an edited file and never
+loses the edit. The deletion can be repeated by the user after seeing the
+conflict.
 
 Rules:
 

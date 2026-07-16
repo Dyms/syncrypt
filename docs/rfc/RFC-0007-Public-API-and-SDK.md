@@ -165,6 +165,21 @@ export interface LogPort {
 }
 ```
 
+### 2.5 StateStorePort (optional; ADR-0011)
+
+Persists the device-local base manifest between runs. Purely a cache: if absent
+or lost, the engine rebuilds by full reconcile against the remote manifest
+(RFC-0004 §Local state).
+
+```ts
+export interface StateStorePort {
+  /** Load the persisted engine state blob, or null if none. */
+  load(): Promise<Uint8Array | null>;
+  /** Persist the engine state blob (atomic where possible). */
+  save(data: Uint8Array): Promise<void>;
+}
+```
+
 ## 3. The plan (pure output of the planner)
 
 ```ts
@@ -254,6 +269,7 @@ export enum ReasonCode {
   DeletedLocally      = "deleted locally → tombstoned remotely",
   ConflictBothChanged = "changed on both sides → conflict (not merged)",
   ConflictSamePath    = "same path created independently → conflict",
+  ConflictEditDelete  = "edited on one side, deleted on the other → conflict",
   ConvergedNoop       = "already in sync → nothing to do",
 }
 ```
@@ -289,6 +305,7 @@ export interface SyncEngineConfig {
   crypto: CryptoPort;
   clock?: ClockPort;
   log?: LogPort;
+  state?: StateStorePort;        // base-manifest persistence (ADR-0011); in-memory if omitted
   deviceId: DeviceId;
   storagePrefix: string;         // bucket key prefix for this vault
   safeSync?: Partial<PlanOptions> & { versionsToKeep?: number };
@@ -343,7 +360,9 @@ export function createSyncEngine(config: SyncEngineConfig): SyncEngine;
 
 ## 9. Unresolved questions
 
-- Exact incremental-hash cache key and its persistence (memory vs. small on-disk index).
+- Exact incremental-hash cache key and its persistence (memory vs. small on-disk
+  index). Base-manifest persistence is resolved by ADR-0011 (`StateStorePort`);
+  the hash cache remains in-memory for M1.
 - Whether `history` retention lives in the manifest (as above) or as a side index
   to keep the manifest small on very large vaults.
 - Streaming API for very large attachments (chunked encrypt/put) — likely a v1.1
