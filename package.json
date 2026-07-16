@@ -5,17 +5,35 @@
   "description": "Simple, secure, predictable file sync for Obsidian — you own the data.",
   "license": "MIT",
   "workspaces": [
-    "packages/core",
-    "packages/sdk",
-    "packages/obsidian-plugin",
+    "packages/*",
     "packages/providers/*"
   ],
   "engines": {
     "node": ">=20"
   },
-  "keywords": ["obsidian", "sync", "encryption", "e2ee", "s3", "markdown"],
+  "keywords": [
+    "obsidian",
+    "sync",
+    "encryption",
+    "e2ee",
+    "s3",
+    "markdown"
+  ],
   "scripts": {
-    "build": "echo \"No build yet — see ROADMAP.md (M1)\" && exit 0",
-    "test": "echo \"No tests yet — see ROADMAP.md (M1)\" && exit 0"
+    "build": "npm run typecheck",
+    "typecheck": "tsc -p packages/core/tsconfig.json && tsc -p packages/providers/filesystem/tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "fast-check": "^4.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }
