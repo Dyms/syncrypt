@@ -40,9 +40,11 @@ Master Key (MK, 256-bit)
 ```
 
 - **Argon2id** derives the Master Key from the passphrase. Parameters (memory,
-  iterations, parallelism) and a random 128-bit **salt** are stored **in the
-  clear** in `meta/keyfile-params.json` — they are not secret; only the passphrase
-  is. Defaults and rationale in [cryptography.md](../security/cryptography.md).
+  iterations, parallelism) and a random 128-bit **salt** (encoded as standard
+  **base64**) are stored **in the clear** in `meta/keyfile-params.json` — they
+  are not secret; only the passphrase is. Defaults (desktop: 128 MiB / t=3 /
+  p=1; mobile: 32 MiB / t=4 / p=1), benchmark data and poisoned-keyfile bounds
+  in [cryptography.md](../security/cryptography.md).
 - **HKDF-SHA-256** separates subkeys so a single primitive's misuse is contained
   and roles are independent.
 - The passphrase and MK exist only in memory. They are **never** written to disk,
@@ -82,10 +84,13 @@ read your folder structure from the manifest.
 The storage object key must not reveal the plaintext path. Options and the
 default:
 
-- **Default (v1):** object key = `HMAC-BLAKE3(NK, contentHash)` (content-addressed
-  under the Name Key). This yields immutable, dedup-friendly objects whose keys
-  reveal neither the path nor the plaintext, while letting the manifest map
-  `path → contentHash → objectKey`.
+- **Default (v1, final):** object key = keyed BLAKE3 under the Name Key
+  (BLAKE3's native keyed mode — the standard MAC construction for BLAKE3,
+  what "HMAC-BLAKE3" denotes here). Precisely:
+  `hex = BLAKE3(key = NK, message = raw 32 bytes of the content hash)` and the
+  storage key is `objects/<hex[0:2]>/<hex[2:4]>/<hex>`. This yields immutable,
+  dedup-friendly objects whose keys reveal neither the path nor the plaintext,
+  while letting the manifest map `path → contentHash → objectKey`.
 - The **manifest** (encrypted) holds the `path → {hash,size,mtime}` mapping; the
   provider sees only opaque object keys plus one opaque `manifest.json`.
 
@@ -132,8 +137,8 @@ what "user owns the data" means in practice.
 
 ## Unresolved questions
 
-- Final object-key strategy (content-addressed vs. path-mapped) — coupled to
-  RFC-0004 §Object keys.
 - Whether to offer optional size padding as an advanced, opt-in privacy mode.
-- Exact Argon2id default parameters per platform (desktop vs. Android memory
-  limits) — benchmarked before M2.
+
+Resolved in M2: object-key strategy (content-addressed, keyed BLAKE3 — see
+§Object keys); Argon2id defaults + salt encoding (see §Key hierarchy and
+[cryptography.md](../security/cryptography.md)).

@@ -9,9 +9,24 @@ Principle: **boring, vetted primitives; never roll our own.**
 - **Why:** memory-hard KDF, winner of the Password Hashing Competition, resistant
   to GPU/ASIC brute force. `id` variant balances resistance to side-channel and
   GPU attacks.
-- **Parameters:** tuned per platform (desktop can afford more memory than Android).
-  Benchmarked before M2. Salt is a random 128-bit value stored in the clear
-  (non-secret) in `meta/keyfile-params.json`.
+- **Parameters (final, M2):** salt is a random **128-bit** value stored in the
+  clear (non-secret) in `meta/keyfile-params.json`, **base64-encoded** (standard
+  alphabet, with padding). Defaults, chosen by benchmark (hash-wasm WASM,
+  Node 24, Intel i7-8700K @ 3.7 GHz, single thread — 2026-07-16):
+
+  | preset | memory | iterations | parallelism | measured |
+  |---|---|---|---|---|
+  | **desktop (default)** | 128 MiB (`memoryKiB: 131072`) | 3 | 1 | ~431 ms |
+  | **mobile profile** | 32 MiB (`memoryKiB: 32768`) | 4 | 1 | ~136 ms (desktop; expect 2–4× on phones) |
+  | OWASP minimum (reference) | 19 MiB | 2 | 1 | ~41 ms |
+
+  Rationale: unlock happens once per session, so we buy substantially more
+  brute-force cost than the OWASP floor while keeping WASM heap growth safe on
+  modest hardware; the mobile profile trades memory (webview limits) for an
+  extra pass. Re-run `node scripts/bench-argon2id.mjs` to re-tune.
+  Implementations MUST reject absurd parameters from a poisoned keyfile
+  (bounds: memory ≤ 1 GiB, iterations ≤ 100, parallelism ≤ 16) — fail closed
+  instead of OOM.
 - **Alternatives:** scrypt (older, fine), PBKDF2 (weak against GPUs — rejected as
   primary).
 

@@ -25,11 +25,11 @@ const SALT_LENGTH = 16; // 128-bit random salt (RFC-0005)
  */
 export type KdfPreset = Omit<KdfParams, "salt">;
 
-/** Desktop default: ~0.5–1 s unlock on a mid-range 2020s laptop. */
+/** Desktop default: ~0.4–1 s unlock (benchmarked; see cryptography.md). */
 export const DESKTOP_KDF_PRESET: KdfPreset = {
   kdf: "argon2id",
   version: 1,
-  memoryKiB: 65536, // 64 MiB
+  memoryKiB: 131072, // 128 MiB
   iterations: 3,
   parallelism: 1,
 };
