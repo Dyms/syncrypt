@@ -1,0 +1,19 @@
+{
+  "name": "@syncrypt/crypto",
+  "version": "0.1.0",
+  "description": "Reference CryptoPort implementation: Argon2id + HKDF-SHA256 key hierarchy, AES-256-GCM blobs, BLAKE3 hashing (RFC-0005). Browser + mobile safe.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@syncrypt/core": "0.1.0",
+    "hash-wasm": "^4.12.0"
+  }
+}

@@ -81,6 +81,72 @@ Begin with the plan.
 - Approve the plan it proposes before it writes code; it is instructed to ask.
 - Keep encryption (M2) and the S3 provider (M3) out of this first pass — M1 is
   deliberately crypto-free so the sync logic is proven in isolation.
-- When M1 is green, the M2 prompt is: "Implement RFC-0005 encryption behind the
-  existing CryptoPort; storage must hold only ciphertext; add round-trip and
-  wrong-passphrase tests."
+- When M1 is green, use the M2 prompt below.
+
+---
+
+# Handoff prompt for Claude Code — M2 (encryption)
+
+M1 is complete and green. Now implement end-to-end encryption per RFC-0005 behind
+the existing `CryptoPort`, without changing the sync logic.
+
+```text
+You are the implementer for Syncrypt, continuing from a green M1. The spec is the
+contract; propose an ADR rather than guessing if a decision is missing.
+
+READ FIRST: CLAUDE.md; docs/rfc/RFC-0005-Encryption-Model.md;
+docs/security/cryptography.md; docs/architecture/threat-model.md;
+docs/user-guide/manual-recovery.md; docs/rfc/RFC-0007 (CryptoPort);
+docs/adr/ADR-0003.
+
+GOAL — Milestone M2: real client-side encryption. Storage must hold ONLY
+ciphertext. The engine, planner, and providers do not change behavior.
+
+SCOPE:
+1. New package @syncrypt/crypto (reference impl of CryptoPort), browser+mobile
+   safe: WebCrypto (SubtleCrypto) for AES-256-GCM and HKDF-SHA256; a vetted
+   WASM/native lib for Argon2id and BLAKE3. No Node-only APIs.
+2. Key hierarchy (RFC-0005): Argon2id(passphrase, salt, params) -> MasterKey;
+   HKDF -> ContentKey / ManifestKey / NameKey. Keys are memory-only, never logged
+   or persisted in plaintext.
+3. Blob format v1: magic "SYNC" | version(1) | alg(1=AES-256-GCM) | nonce(12,
+   random per encryption) | ciphertext | tag(16); header bound as AAD. hash() is
+   BLAKE3 over PLAINTEXT; objectKeyFor = HMAC-BLAKE3(NameKey, contentHash).
+4. Encrypt content objects with ContentKey and the manifest with ManifestKey.
+   Upload keyfile-params.json (salt + KDF params, non-secret) so a new device
+   derives the same keys from the passphrase alone.
+5. Fail closed: any GCM tag failure / wrong passphrase -> CryptoAuthError; never
+   apply the data (assert this in tests).
+6. Finalize and TEST the manual-recovery reference script in
+   docs/user-guide/manual-recovery.md against real engine output (fix the salt
+   encoding placeholder). It MUST decrypt a real manifest + objects with only the
+   passphrase.
+7. Benchmark and set Argon2id defaults (desktop; note a mobile profile). Record
+   final params + salt encoding in RFC-0005 / cryptography.md.
+
+TESTS (part of done):
+- Round-trip encrypt/decrypt for content and manifest.
+- Wrong passphrase and tampered blob both raise CryptoAuthError (fail-closed).
+- Cross-device: device B derives keys from passphrase + keyfile-params and decrypts
+  device A's data.
+- objectKeyFor is deterministic and reveals neither path nor plaintext.
+- Storage-only-ciphertext assertion: no plaintext bytes appear in any stored object
+  or in the stored manifest.
+- The manual-recovery script restores a vault end-to-end.
+- All M1 tests stay green (planner tests may keep the identity CryptoPort; engine
+  e2e now runs with real crypto).
+
+INVARIANTS (unchanged): storage sees only ciphertext; fail closed on crypto errors;
+core/ and sdk/ use no Node-only APIs (crypto lives in @syncrypt/crypto, injected);
+never log secrets; no telemetry.
+
+WAY OF WORKING: propose a short plan + package layout for approval BEFORE coding;
+implement in small tested steps with Conventional Commits referencing RFC-0005 /
+ADR-0003; if you find a better design, propose an ADR (pros/cons/consequences).
+
+M2 EXIT: storage holds only ciphertext; wrong passphrase fails safely; tamper is
+detected; a new device decrypts from the passphrase; the manual-recovery script
+works; npm test + lint + typecheck green.
+
+Begin with the plan.
+```

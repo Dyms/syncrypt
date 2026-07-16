@@ -12,3 +12,6 @@ Cite these in code comments and PRs. Full text in `docs/adr/`.
 - ADR-0008 License: MIT (Accepted)
 - ADR-0009 Name "Syncrypt" + namespacing (Accepted)
 - ADR-0010 Data-safety guard rails / Safe Sync: local sync-trash, deferred deletes, version retention, bulk-change circuit breaker (Accepted)
+- ADR-0011 Base-manifest persistence via StateStorePort (Accepted, M1)
+- ADR-0012 Conflict mechanics: conflicted copies + edit-beats-delete (Accepted, M1) — supersedes report-only sketch in RFC-0004
+- ADR-0013 Bulk-change breaker floor for small vaults (Proposed, target M4)
