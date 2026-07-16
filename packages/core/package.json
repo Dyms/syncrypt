@@ -8,7 +8,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing/index.ts"
+    "./testing": "./src/testing/index.ts",
+    "./testing/conformance": "./src/testing/conformance.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

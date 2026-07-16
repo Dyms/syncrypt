@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src", "test", "../core/src/globals.d.ts"]
+  "include": ["src", "../core/src/globals.d.ts"]
 }

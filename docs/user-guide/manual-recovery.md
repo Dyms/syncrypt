@@ -4,10 +4,11 @@ This is the concrete proof of **"user owns the data"**: given your passphrase an
 the documented on-storage format, you can decrypt your manifest and every file
 with a short, dependency-light script — no Syncrypt install required.
 
-> Status: reference implementation. The crypto format
-> ([RFC-0005](../rfc/RFC-0005-Encryption-Model.md)) is versioned; this script
-> targets crypto format **version 1**. It is documentation-grade and will be
-> shipped and tested with M2.
+> Status: **shipped and tested (M2).** The crypto format
+> ([RFC-0005](../rfc/RFC-0005-Encryption-Model.md)) is versioned; the scripts
+> below target crypto format **version 1**. The Node script
+> ([`recover.mjs`](./recover.mjs)) is exercised in CI against a real encrypted
+> vault on every test run.
 
 ## What you need
 
@@ -39,19 +40,35 @@ The 18-byte header `magic|version|alg|nonce` is the GCM **AAD**.
 
 ```
 MasterKey = Argon2id(passphrase, salt, memoryKiB, iterations, parallelism)  → 32 bytes
-ContentKey  = HKDF-SHA256(MasterKey, info="syncrypt/content",  len=32)
-ManifestKey = HKDF-SHA256(MasterKey, info="syncrypt/manifest", len=32)
+ContentKey  = HKDF-SHA256(MasterKey, salt=∅, info="syncrypt/content",  len=32)
+ManifestKey = HKDF-SHA256(MasterKey, salt=∅, info="syncrypt/manifest", len=32)
 ```
 
-You do not need the Name key for recovery: the decrypted manifest already lists
-each file's `objectKey`.
+The Argon2id `salt` in `keyfile-params.json` is **standard base64** (with
+padding). HKDF uses an empty salt (RFC 5869 default). You do not need the Name
+key for recovery: the decrypted manifest already lists each file's `objectKey`.
 
-## Reference script (Python 3)
+## Picking the newest manifest
+
+Manifests are named `manifests/<zero-padded generation>-<deviceId>.json`. Take
+the highest generation; in the rare case two devices share it (a fork), take
+the **smallest deviceId** — that is the canonical winner (ADR-0006).
+
+## Option A — Node.js script (tested in CI)
+
+[`recover.mjs`](./recover.mjs) needs Node ≥ 20 and one package:
+
+```bash
+npm install hash-wasm
+SYNCRYPT_PASSPHRASE='your passphrase' node recover.mjs ./downloaded-prefix ./restored
+```
+
+## Option B — Python 3 script
 
 ```python
 #!/usr/bin/env python3
 # Dependencies: pip install argon2-cffi cryptography
-import json, os, sys, struct
+import base64, json, os, re, sys
 from argon2.low_level import hash_secret_raw, Type
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -62,8 +79,9 @@ OUT  = sys.argv[2] if len(sys.argv) > 2 else "restored"
 passphrase = os.environ["SYNCRYPT_PASSPHRASE"].encode()  # avoid shell history
 
 def derive_keys(passphrase, p):
+    assert p["kdf"] == "argon2id" and p["version"] == 1, "unsupported keyfile-params"
     mk = hash_secret_raw(
-        secret=passphrase, salt=bytes.fromhex_or_b64(p["salt"]),
+        secret=passphrase, salt=base64.b64decode(p["salt"]),   # salt is standard base64
         time_cost=p["iterations"], memory_cost=p["memoryKiB"],
         parallelism=p["parallelism"], hash_len=32, type=Type.ID)
     def sub(info): return HKDF(SHA256(), 32, None, info.encode()).derive(mk)
@@ -79,8 +97,12 @@ def decrypt(blob, key):
 params = json.load(open(os.path.join(ROOT, "meta", "keyfile-params.json")))
 content_key, manifest_key = derive_keys(passphrase, params)
 
-# newest manifest = highest generation in manifests/
-newest = sorted(os.listdir(os.path.join(ROOT, "manifests")))[-1]
+# newest manifest = highest generation; on a fork, smallest deviceId wins (ADR-0006)
+refs = [(int(m.group(1)), m.group(2), n)
+        for n in os.listdir(os.path.join(ROOT, "manifests"))
+        if (m := re.match(r"^(\d+)-(.+)\.json$", n))]
+top = max(g for g, _, _ in refs)
+newest = min((r for r in refs if r[0] == top), key=lambda r: r[1])[2]
 manifest = json.loads(decrypt(open(os.path.join(ROOT, "manifests", newest), "rb").read(),
                               manifest_key))
 
@@ -92,12 +114,11 @@ for path, entry in manifest["files"].items():
     open(dest, "wb").write(data)
     print("restored", path)
 
-print("done →", OUT)
+print("done ->", OUT)  # ASCII on purpose: Windows consoles with legacy code pages
 ```
 
-> `bytes.fromhex_or_b64` is a stand-in: the salt encoding (hex vs base64) is fixed
-> when the format is finalized in M2; the script and `keyfile-params.json` will
-> agree. A Node.js equivalent (WebCrypto + `argon2` WASM) ships alongside.
+> Verified against real Syncrypt output (M2): both scripts restore a vault
+> byte-identically, including non-ASCII paths and superseded generations.
 
 ## Why this matters
 

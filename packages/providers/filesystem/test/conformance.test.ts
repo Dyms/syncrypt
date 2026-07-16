@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-import { describeStorageConformance } from "@syncrypt/core/testing";
+import { describeStorageConformance } from "@syncrypt/core/testing/conformance";
 import type { StoragePort } from "@syncrypt/core";
 
 import { FilesystemStorage } from "../src/index.js";
