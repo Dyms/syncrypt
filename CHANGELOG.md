@@ -7,6 +7,27 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added (M2 — encryption)
+- `@syncrypt/crypto`: reference `CryptoPort` — Argon2id (hash-wasm) → Master
+  Key; HKDF-SHA256 → Content/Manifest/Name keys; AES-256-GCM blobs (format v1,
+  header as AAD, fresh random nonces); BLAKE3 plaintext hashing; object keys
+  via keyed BLAKE3 under the Name Key; `meta/keyfile-params.json` bootstrap
+  (`openVaultCrypto`) with fail-closed, DoS-bounded parsing. No Node-only APIs.
+- Benchmark-backed Argon2id defaults (desktop 128 MiB/t=3, mobile profile
+  32 MiB/t=4; `scripts/bench-argon2id.mjs`); salt encoding fixed as base64.
+- Manual recovery finalized and TESTED: `docs/user-guide/recover.mjs` runs in
+  CI against a real encrypted vault; the Python variant verified against real
+  output (fork-aware manifest pick, base64 salt).
+- Tests: ciphertext-only-storage assertion, passphrase-only device join, wrong
+  passphrase / tamper fail-closed, fuzzed encrypted convergence.
+
+### Changed (M2)
+- RFC-0005: object-key construction and Argon2id defaults finalized (resolved
+  two open questions); cryptography.md records benchmark data and
+  poisoned-keyfile bounds.
+- `@syncrypt/core/testing` no longer imports vitest; the RFC-0006 conformance
+  suite moved to the `@syncrypt/core/testing/conformance` subpath.
+
 ### Added (M1 — core engine, headless)
 - `@syncrypt/core`: RFC-0007 types/ports/errors/reasons; manifest model with
   canonical serialization and fail-closed parsing; NFC path canonicalization

@@ -42,19 +42,22 @@ of edit/delete/rename sequences, with no data loss and no silent overwrite.
 *Met: `packages/providers/filesystem/test/e2e.two-devices.test.ts` (plus the
 in-memory fuzz in `packages/core/test/engine.fuzz.test.ts`).*
 
-## M2 — Encryption
+## M2 — Encryption — ✅ done
 
 Goal: end-to-end encryption per [RFC-0005](./docs/rfc/RFC-0005-Encryption-Model.md).
 
-- ☐ Argon2id key derivation from passphrase
-- ☐ AES-256-GCM per-file encryption with random nonces
-- ☐ Encrypted manifest / path handling decision implemented
-- ☐ Key file format + versioned crypto header
-- ☐ Tamper detection (GCM auth tag) surfaced as a clear error
-- ☐ Round-trip and cross-device decryption tests
+- ☑ Argon2id key derivation from passphrase
+- ☑ AES-256-GCM per-file encryption with random nonces
+- ☑ Encrypted manifest / path handling decision implemented
+- ☑ Key file format + versioned crypto header
+- ☑ Tamper detection (GCM auth tag) surfaced as a clear error
+- ☑ Round-trip and cross-device decryption tests
 
 **Exit criteria:** storage backend holds only ciphertext; a wrong passphrase
 fails safely; corrupted blobs are detected, not silently accepted.
+*Met: `packages/crypto/test/e2e.encrypted-sync.test.ts` (ciphertext-only
+assertion, passphrase-only join, fail-closed) and
+`packages/crypto/test/recovery.test.ts` (manual recovery, FR-13).*
 
 ## M3 — S3 provider
 
