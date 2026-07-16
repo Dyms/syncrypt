@@ -9,7 +9,9 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ["*.config.ts"],
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -24,5 +26,10 @@ export default tseslint.config(
         { allowNumber: true },
       ],
     },
+  },
+  {
+    // Root config files sit outside the package tsconfigs; lint them untyped.
+    files: ["*.config.ts"],
+    extends: [tseslint.configs.disableTypeChecked],
   },
 );
