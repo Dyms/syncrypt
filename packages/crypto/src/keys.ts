@@ -26,6 +26,16 @@ export function zeroize(bytes: Uint8Array): void {
   bytes.fill(0);
 }
 
+/**
+ * Type-only narrowing for WebCrypto call sites: current DOM lib types demand
+ * ArrayBuffer-backed views (`Uint8Array<ArrayBuffer>`). Nothing in this
+ * package ever allocates from a SharedArrayBuffer, so the assertion is sound
+ * and costs no copy.
+ */
+export function asBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  return bytes as Uint8Array<ArrayBuffer>;
+}
+
 export function base64Encode(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
@@ -131,7 +141,7 @@ async function hkdfSubkey(hkdfKey: CryptoKey, info: string): Promise<Uint8Array>
       name: "HKDF",
       hash: "SHA-256",
       salt: new Uint8Array(0),
-      info: new TextEncoder().encode(info),
+      info: asBufferSource(new TextEncoder().encode(info)),
     },
     hkdfKey,
     SUBKEY_LENGTH * 8,
@@ -140,7 +150,7 @@ async function hkdfSubkey(hkdfKey: CryptoKey, info: string): Promise<Uint8Array>
 }
 
 function importAesKey(raw: Uint8Array): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", asBufferSource(raw), { name: "AES-GCM" }, false, [
     "encrypt",
     "decrypt",
   ]);
@@ -151,7 +161,7 @@ export async function deriveKeyRing(masterKey: Uint8Array): Promise<KeyRing> {
   if (masterKey.length !== MASTER_KEY_LENGTH) {
     throw new SyncError("CryptoAuthError", "invalid master key length");
   }
-  const hkdfKey = await crypto.subtle.importKey("raw", masterKey, "HKDF", false, [
+  const hkdfKey = await crypto.subtle.importKey("raw", asBufferSource(masterKey), "HKDF", false, [
     "deriveBits",
   ]);
   const contentRaw = await hkdfSubkey(hkdfKey, HKDF_INFO_CONTENT);

@@ -1,0 +1,22 @@
+{
+  "name": "@syncrypt/obsidian",
+  "version": "0.1.0",
+  "description": "Syncrypt Obsidian plugin: E2E-encrypted vault sync over your own S3 (desktop, M4).",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node esbuild.config.mjs"
+  },
+  "dependencies": {
+    "@syncrypt/core": "0.1.0",
+    "@syncrypt/crypto": "0.1.0",
+    "@syncrypt/provider-s3": "0.1.0",
+    "@syncrypt/sdk": "0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.7.2"
+  }
+}

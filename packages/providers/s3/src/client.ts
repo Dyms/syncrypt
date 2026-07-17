@@ -50,11 +50,14 @@ export class S3Client {
   /** Sign + send. Network failures normalize to StorageTransient. */
   async send(req: S3Request): Promise<Response> {
     try {
+      // The cast keeps strict DOM lib types happy: our Uint8Arrays are always
+      // ArrayBuffer-backed, which is a valid BodyInit.
+      const body = (req.body ?? null) as string | Uint8Array<ArrayBuffer> | null;
       return await this.aws.fetch(this.urlFor(req.key, req.query), {
         method: req.method,
         headers: req.headers ?? {},
         // aws4fetch hashes the body into x-amz-content-sha256 (SigV4).
-        body: req.body ?? null,
+        body,
       });
     } catch (e) {
       throw normalizeNetworkError(e, req.key, req.operation);

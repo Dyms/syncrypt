@@ -1,0 +1,9 @@
+{
+  "id": "syncrypt",
+  "name": "Syncrypt",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Simple, secure, predictable end-to-end-encrypted sync over your own S3-compatible storage — you own the data.",
+  "author": "Dmitriy Bogatov",
+  "isDesktopOnly": true
+}

@@ -38,3 +38,5 @@ jobs:
         run: npm run lint
       - name: Test
         run: npm test
+      - name: Build Obsidian plugin
+        run: npm run build -w @syncrypt/obsidian

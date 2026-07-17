@@ -22,7 +22,13 @@ import {
 } from "@syncrypt/core";
 
 import { encodeBlob, encodeHeader, NONCE_LENGTH, parseBlob, TAG_LENGTH } from "./format.js";
-import { deriveKeyRing, deriveMasterKeyBytes, zeroize, type KeyRing } from "./keys.js";
+import {
+  asBufferSource,
+  deriveKeyRing,
+  deriveMasterKeyBytes,
+  zeroize,
+  type KeyRing,
+} from "./keys.js";
 
 const HASH_PREFIX = "b3:";
 const HASH_HEX_RE = /^[0-9a-f]{64}$/;
@@ -76,9 +82,14 @@ export class SyncryptCrypto implements CryptoPort {
     const nonce = crypto.getRandomValues(new Uint8Array(NONCE_LENGTH));
     const header = encodeHeader(nonce);
     const ciphertextAndTag = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: nonce, additionalData: header, tagLength: TAG_LENGTH * 8 },
+      {
+        name: "AES-GCM",
+        iv: nonce,
+        additionalData: asBufferSource(header),
+        tagLength: TAG_LENGTH * 8,
+      },
       this.keyFor(role),
-      data,
+      asBufferSource(data),
     );
     return encodeBlob(nonce, new Uint8Array(ciphertextAndTag));
   }
@@ -89,12 +100,12 @@ export class SyncryptCrypto implements CryptoPort {
       const plaintext = await crypto.subtle.decrypt(
         {
           name: "AES-GCM",
-          iv: parts.nonce,
-          additionalData: parts.header,
+          iv: asBufferSource(parts.nonce),
+          additionalData: asBufferSource(parts.header),
           tagLength: TAG_LENGTH * 8,
         },
         this.keyFor(role),
-        parts.ciphertextAndTag,
+        asBufferSource(parts.ciphertextAndTag),
       );
       return new Uint8Array(plaintext);
     } catch (e) {
