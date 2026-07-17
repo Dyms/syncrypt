@@ -31,6 +31,10 @@ supersedes them. Typos and clarifications are fine.
 | [0005](./RFC-0005-Encryption-Model.md) | Encryption Model | Accepted |
 | [0006](./RFC-0006-Storage-Provider-API.md) | Storage Provider API | Accepted |
 | [0007](./RFC-0007-Public-API-and-SDK.md) | Public API & SDK Contract | Accepted |
+| [0008](./RFC-0008-Config-Sync.md) | Plugin & App Configuration Sync | Draft (post-1.0) |
+| [0009](./RFC-0009-Backup.md) | Local Backup & Snapshots | Draft (post-1.0) |
 
-> Status values here reflect the intended baseline (Syncrypt Specification v0.1).
-> The author ratifies by moving the linked ADRs from `Proposed` to `Accepted`.
+> Status values reflect the **Syncrypt Specification v1.0** baseline: RFC-0001…0007
+> and ADR-0001…0018 are Accepted and implemented (M1–M6). RFC-0008/0009 are
+> post-1.0 drafts. The `spec-v1.0` tag is cut after field sign-off — see
+> [spec-v1.0-readiness](../spec-v1.0-readiness.md).

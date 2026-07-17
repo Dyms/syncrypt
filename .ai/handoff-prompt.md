@@ -347,3 +347,65 @@ builds green.
 
 Begin with the plan.
 ```
+
+---
+
+# Handoff prompt for Claude Code — M7 (Beta release & BRAT distribution)
+
+M1–M6 are code-complete and green. Make the Obsidian plugin installable from
+GitHub via BRAT so the field validation (Windows -> S3 -> macOS) can run on real
+machines with a real network S3.
+
+```text
+You are the implementer for Syncrypt, continuing from green M1–M6. Spec is the
+contract; propose an ADR rather than guessing if a decision is missing.
+
+READ FIRST: CLAUDE.md; packages/obsidian-plugin/*; docs/spec-v1.0-readiness.md;
+ROADMAP.md; docs/developer-guide/android-validation.md.
+
+GOAL — Milestone M7: a BRAT-installable beta release of the Obsidian plugin, with
+a release pipeline and packaging tests. This enables (and becomes) the M4/M5 field
+validation via real installs instead of manual dist copying.
+
+SCOPE:
+1. Plugin manifest + versions. Finalize packages/obsidian-plugin/manifest.json:
+   id "syncrypt", name "Syncrypt", version "1.0.0-beta.1", minAppVersion (pick a
+   sane recent Obsidian, e.g. 1.5.0), description, author, authorUrl, and
+   isDesktopOnly=false. Add versions.json { "1.0.0-beta.1": "<minAppVersion>" }.
+   Mirror manifest.json + versions.json at the REPO ROOT (BRAT and the future
+   community store read these); add a test/CI check that root and package copies
+   stay identical.
+2. Build output. esbuild produces main.js (CJS, Obsidian format) + copies
+   manifest.json (+ styles.css if any) into a dist/ ready for release. Keep the
+   existing mobile/Node-API build guard.
+3. Release workflow (.github/workflows/release.yml): on a pushed tag matching the
+   plugin version (e.g. "1.0.0-beta.1" or "v1.0.0-beta.1"), run typecheck + lint +
+   tests + build, then create a GitHub Release and upload main.js, manifest.json,
+   versions.json, and styles.css (if present) as assets. Do NOT publish npm here.
+4. Packaging tests (expand the suite):
+   - manifest.json is valid: required fields present, id === "syncrypt",
+     isDesktopOnly === false, version matches versions.json and the package
+     version; root copy === package copy.
+   - the built main.js loads under a mock Obsidian `App`/`Plugin` and exports a
+     default class extending Plugin; onload/onunload wire up without throwing.
+   - reassert the bundle guard (no require("node:*")/fs/electron) on the RELEASE
+     bundle specifically.
+5. Docs: docs/user-guide/install-via-brat.md — exact BRAT steps for Windows and
+   macOS (install BRAT, "Add beta plugin" -> Dyms/syncrypt, enable, configure S3,
+   unlock, Sync now). Update the M4 two-desktop and M5 Android checklists to use
+   BRAT install. Note least-privilege S3 creds and that requestUrl handles CORS.
+
+CONSTRAINTS: this milestone does not change engine/crypto/provider behavior — it is
+packaging, CI, and docs. Keep all M1–M6 suites green. The human cuts the actual
+GitHub Release (tag); the workflow fills its assets.
+
+WAY OF WORKING: propose a short plan (manifest fields, version scheme, workflow
+outline) for approval BEFORE coding. Conventional Commits. If BRAT needs a repo
+layout choice (root manifest vs release-only), record it as a short ADR.
+
+M7 EXIT: pushing a version tag produces a GitHub Release whose assets BRAT can
+install; packaging tests + build guard green; install-via-brat.md written;
+field checklists updated. npm test + lint + typecheck + build green.
+
+Begin with the plan.
+```

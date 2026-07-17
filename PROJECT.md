@@ -78,9 +78,12 @@ captured as ADRs so they are easy to find and cite from code and PRs.
 
 ## Status & versioning
 
-- Current phase: **Specification (pre-alpha).**
-- The specification is versioned as **Syncrypt Specification v0.1** and will be
-  tagged `spec-v1.0` when the six foundational RFCs are accepted.
+- Current phase: **implementation complete (M1–M6); pending field sign-off + `spec-v1.0` tag.**
+- The specification baseline is **Syncrypt Specification v1.0**: RFC-0001…0007 and
+  ADR-0001…0018 are all Accepted and implemented. The `spec-v1.0` tag is cut once
+  the manual field validations (two-desktop + Android) are signed off — see
+  [docs/spec-v1.0-readiness.md](./docs/spec-v1.0-readiness.md). RFC-0008/0009 are
+  post-1.0 drafts.
 - Architectural changes after v1.0 are made via new RFCs/ADRs, never by silent
   edits. This keeps the design auditable a year or two from now when new
   providers or features are added.

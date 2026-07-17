@@ -20,7 +20,7 @@ coding agent) can implement without further design decisions.
 - ☑ RFC-0005 Encryption Model
 - ☑ RFC-0006 Storage Provider API
 - ☑ Threat model + cryptography rationale
-- ☐ Foundational decisions ratified (ADR-0001…0009 moved from Proposed → Accepted)
+- ☑ Foundational decisions ratified (ADR-0001…0018 all Accepted; RFC-0001…0007 Accepted)
 
 **Exit criteria:** tag `spec-v1.0`.
 
@@ -133,6 +133,12 @@ folder / external drive.
 **More clients (one core, many editors):** Logseq · VS Code · Foam · Zettlr ·
 other Markdown editors · a headless **CLI** (also great for hand-recovery and
 testing) · a **Docker** / self-hosted runner for scheduled sync.
+
+**Config sync (RFC-0008, Draft):** per-plugin opt-in settings sync with secret/
+device-specific safety rails.
+
+**Backup (RFC-0009, Draft):** scheduled/on-demand local backups — plaintext vault
+snapshot + incremental encrypted repo mirror (3-2-1).
 
 **Other:** multiple vaults · hardware keys · per-folder selective sync ·
 versioned snapshots / point-in-time recovery (cheap given immutable manifests) ·
