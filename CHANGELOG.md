@@ -7,6 +7,23 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added (M5 — Android / mobile)
+- Injectable HTTP transport in `@syncrypt/provider-s3` (RFC-0006): signing
+  (AwsV4Signer, real `x-amz-content-sha256` payload hash) decoupled from
+  dispatch; the plugin routes signed requests through Obsidian `requestUrl()`
+  — no webview CORS on desktop or mobile.
+- ADR-0018: cross-device KDF creation default (32 MiB/t=4), desktop-only
+  opt-in, fail-closed per-device affordability ceiling (mobile: 128 MiB).
+- Mobile plugin: `isDesktopOnly: false`; wifi-only + 120 s min-interval
+  defaults, foreground-only with best-effort background push; build-time
+  guard against Node/Electron API leaking into the bundle.
+- Android on-device validation checklist
+  (`docs/developer-guide/android-validation.md`).
+
+### Fixed (M5)
+- `x-amz-content-sha256` was `UNSIGNED-PAYLOAD` (aws4fetch's S3 default) —
+  now a real payload hash; stricter backends/policies accept the requests.
+
 ### Added (M4 — Obsidian desktop plugin)
 - `@syncrypt/obsidian`: VaultPort over the Obsidian DataAdapter (NFC bridging,
   sync-trash per ADR-0010, profile globs), StateStorePort (ADR-0011), trigger

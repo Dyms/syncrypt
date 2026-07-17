@@ -95,16 +95,23 @@ Goal: usable plugin on macOS + Windows Obsidian desktop.
 *Automated part met (adapter/scheduler/integration tests, loadable build in
 CI); the daily-use criterion is a manual sign-off on real machines.*
 
-## M5 — Android
+## M5 — Android — ◐ code complete, on-device validation pending
 
 Goal: the plugin works within Obsidian mobile constraints on Android.
 
-- ☐ Validate crypto + S3 within the mobile plugin sandbox (no Node APIs)
-- ☐ Manual + on-open/close sync (background execution is limited — see
+- ☑ Injectable transport: signed requests via Obsidian `requestUrl()` (no CORS)
+- ☑ Mobile-safe bundle (`isDesktopOnly: false`; Node/Electron leak guard in the build)
+- ☑ Cross-device KDF default + affordability ceiling (ADR-0018)
+- ☑ Resource-aware triggers: wifi-only ON, min-interval 120 s, foreground-only,
+  best-effort background push (see
   [compatibility matrix](./docs/architecture/overview.md#compatibility-matrix))
-- ☐ Battery / data-usage sanity
+- ☑ Battery / data-usage sanity by construction (delta-only; idle sync = one
+  LIST + one GET; no polling)
+- ☐ On-device validation: [checklist](./docs/developer-guide/android-validation.md)
 
 **Exit criteria:** three-device loop (Windows ↔ macOS ↔ Android) converges.
+*Automated part met (transport seam, KDF guard, mobile defaults, live-S3
+suites); the three-device loop is a manual sign-off on real hardware.*
 
 ## M6 — Migration & polish
 
