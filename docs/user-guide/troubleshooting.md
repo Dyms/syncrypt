@@ -39,3 +39,31 @@ nothing was changed — and investigate (wrong profile, wrong device, etc.).
 Check `.obsidian/sync-trash/` on the device where it disappeared — Safe Sync keeps
 a local copy before deleting. Retained previous versions and the remote tombstone
 grace window are additional recovery paths.
+
+**"Unauthorized" from storage although the credentials are correct.**
+SigV4 signing is clock-sensitive: a device clock skewed by more than a few
+minutes makes every request fail authentication. Fix the device's date/time
+(enable automatic time), then retry. If the error mentions
+`SignatureDoesNotMatch`, also re-check the secret key for stray whitespace.
+
+**My phone refuses to unlock the vault ("above this device's memory budget").**
+The vault was created with the **desktop-only** KDF profile (128 MiB Argon2id),
+which mobile devices refuse rather than crash
+([ADR-0018](../adr/ADR-0018-Cross-Device-KDF-Params.md)). Unlock on a desktop,
+or recreate the vault with the default cross-device profile (same passphrase;
+the data re-uploads on the next sync).
+
+**Status bar says "waiting for Wi-Fi".**
+You are on cellular and **Wi-Fi only** is enabled (the default on mobile).
+Your edits are safe locally and will sync on Wi-Fi; **Sync now** always works
+regardless.
+
+**A warning about LiveSync / another sync plugin appeared at unlock.**
+The migration preflight found a second sync system pointed at this vault.
+Syncrypt never touches other plugins — disable/remove the other system
+yourself; see [the migration guide](./migration-from-livesync.md).
+
+**Sync fails immediately inside Obsidian but works from a script.**
+Make sure you run the current plugin build: storage requests must go through
+Obsidian's native transport (webview `fetch` is blocked by CORS on S3/MinIO
+and most WebDAV servers). Current builds do this automatically.

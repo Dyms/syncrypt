@@ -61,17 +61,24 @@ export class ObsidianVault implements VaultPort {
   }
 
   async write(path: VaultPath, data: Uint8Array): Promise<void> {
-    // NOTE: a direct writeBinary (single adapter call) is deliberately chosen
-    // over tmp+remove+rename: Obsidian's rename refuses existing targets, and
-    // a remove-then-rename window would make a crashed sync look like a local
-    // deletion to the next scan. Worst case here is one partial local file,
-    // recoverable from storage.
+    // ADR-0017 (accepted fallback): direct writeBinary — no absent-window the
+    // watcher could misread as a deletion — plus MANDATORY read-back
+    // verification. A completed-but-corrupted write fails loudly here; the
+    // residual risk (hard crash mid-syscall) is documented in the ADR and is
+    // never silent thanks to scan + Safe-Sync version history.
     const native = this.toNative(path);
     try {
       await this.ensureParentFolders(native);
       await this.adapter.writeBinary(native, toArrayBuffer(data));
     } catch (e) {
       throw new SyncError("VaultWriteFailed", `cannot write ${path}: ${String(e)}`, e);
+    }
+    const readBack = new Uint8Array(await this.adapter.readBinary(native));
+    if (!bytesEqual(readBack, data)) {
+      throw new SyncError(
+        "VaultWriteFailed",
+        `write verification failed for ${path}: the file on disk does not match what was written (ADR-0017)`,
+      );
     }
   }
 
@@ -131,6 +138,12 @@ export class ObsidianVault implements VaultPort {
 function basename(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 function toArrayBuffer(data: Uint8Array): ArrayBuffer {

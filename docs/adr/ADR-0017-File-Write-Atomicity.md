@@ -1,9 +1,8 @@
 # ADR-0017: File write atomicity in the vault adapter
 
-- **Status:** Proposed
-- **Date:** 2026-07-16
+- **Status:** Accepted (M6 — fallback variant with mandatory read-back verification)
+- **Date:** 2026-07-16 (resolved 2026-07-17)
 - **Related:** RFC-0007 (VaultPort.write), RFC-0004, ADR-0010
-- **Target:** revisit before v1.0. M4 shipped a direct write (documented below).
 
 ## Context
 
@@ -18,35 +17,49 @@ The trade-off: a direct write is **not crash-safe** — if the process dies mid-
 (power loss, kill), the note can be left truncated. That conflicts with the project's
 durability-first prime directive ("never lose data").
 
-## Decision (proposed)
+## Decision (accepted — fallback with mandatory verification)
 
-Prefer a **crash-safe write that avoids the absent-window**:
+The preferred temp+rename-over shape is **not implementable** through the
+public `DataAdapter`: `rename` refuses an existing target (on mobile too), and
+reaching for Node `fs` on desktop would violate the no-Node-API rule that
+keeps the client mobile-portable. Therefore:
 
-1. Write to a temp path with a reserved suffix (e.g. `<name>.syncrypt-tmp`) that is
-   (a) in the hard-exclude set and (b) ignored by the scanner — so no watcher/scan
-   ever treats it as vault content.
-2. **Atomically replace** the target via rename-over (POSIX `rename`, Windows
-   `ReplaceFile`/`MoveFileEx`). Rename-over never removes the target first, so there
-   is **no absent window** for the watcher to misread — this beats both the M4
-   direct write (crash-unsafe) and a naive remove+rename (absent window).
-3. Serialize writes under the engine apply-lock so scans never observe intermediates.
+1. **Direct `writeBinary` stays**, avoiding the absent-window the watcher
+   could misread as a deletion.
+2. **Mandatory read-back verification** (this is a REQUIRED element of the
+   fallback, not an optimization): after every write, the adapter reads the
+   file back and verifies content equality with what was written
+   (hash-equivalent, byte-exact — no crypto dependency in the adapter). Any
+   mismatch throws `VaultWriteFailed` loudly; the engine does not advance past
+   a failed write.
+3. **Residual risk, documented honestly:** a hard crash exactly during the
+   write syscall can leave ONE truncated local file, and the verification
+   never runs. On the next scan the truncated file looks like a local edit
+   (hash differs from base) and would be uploaded as such — visibly, in the
+   log, with the prior version retained by Safe-Sync version history
+   (ADR-0010 §3) and recoverable from storage. No SILENT loss is possible;
+   a truncation is always either caught at write time or surfaced as an
+   ordinary, recoverable, logged change.
 
-Feasibility caveat: this depends on Obsidian's `DataAdapter` exposing an atomic
-rename-over. If it does not (or on mobile it behaves differently), fall back to the
-direct write and document the residual crash-truncation risk. Hence **Proposed** —
-validate the adapter capability, then accept or record the fallback.
+Revisit if Obsidian ships an atomic rename-over/`ReplaceFile` API.
 
 ## Options considered
 
-- **Direct writeBinary (M4)** — simplest, no window; not crash-safe.
+- **Direct writeBinary, unverified (M4)** — simplest, no window; not crash-safe
+  and a completed-but-corrupted write would go unnoticed; superseded.
 - **Temp + remove + rename** — crash-safe target, but an absent window the watcher
   can misread as a delete; rejected.
-- **Temp (excluded suffix) + atomic rename-over (chosen shape)** — crash-safe AND no
-  absent window; best if the adapter supports it.
+- **Temp (excluded suffix) + atomic rename-over** — crash-safe AND no absent
+  window; NOT available through the public DataAdapter (rename refuses existing
+  targets; Node fs is off-limits in the client); shelved until Obsidian exposes it.
+- **Direct write + mandatory read-back verification (chosen)** — no absent
+  window, corrupted-but-completed writes caught immediately, residual risk
+  narrowed to a hard crash mid-syscall and made non-silent by scan+history.
 
 ## Consequences
 
-- Closes a data-durability gap consistent with the prime directive.
-- Requires verifying `DataAdapter` rename-over semantics on desktop and (later) mobile.
-- Until adopted, `RFC-0007 VaultPort.write` is annotated to match the shipped M4
-  behavior and reference this ADR (no silent spec/impl divergence).
+- One extra read per downloaded file (downloads are not the hot path).
+- The residual crash-truncation risk is explicit, bounded to one file, and
+  never silent (log + version retention + storage copy).
+- `RFC-0007 VaultPort.write`'s "atomically (temp + rename where possible)"
+  reads with this ADR as the definition of "where possible" for Obsidian.

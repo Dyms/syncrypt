@@ -70,6 +70,20 @@ describe("ObsidianVault (VaultPort over DataAdapter)", () => {
       code: "VaultFileNotFound",
     });
   });
+
+  it("write verifies the read-back and fails LOUD on corruption (ADR-0017)", async () => {
+    const adapter = new MockDataAdapter();
+    // A byzantine adapter that truncates every write.
+    const original = adapter.writeBinary.bind(adapter);
+    adapter.writeBinary = async (path, data) => original(path, data.slice(0, 2));
+    const vault = new ObsidianVault(adapter, DEFAULT_PROFILE);
+    await expect(vault.write("note.md", enc("full content"))).rejects.toMatchObject({
+      code: "VaultWriteFailed",
+    });
+    await expect(vault.write("note.md", enc("full content"))).rejects.toThrow(
+      /write verification failed/,
+    );
+  });
 });
 
 describe("ProfileMatcher", () => {

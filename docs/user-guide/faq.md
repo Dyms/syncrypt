@@ -24,14 +24,24 @@ passphrase in a password manager.
 No. Only the object storage you already have. There is no Syncrypt server.
 
 **Which storage works?**
-S3-compatible first (e.g. REG.RU S3, AWS S3). WebDAV, R2, OneDrive, and a local
-folder are planned via the provider abstraction
-([RFC-0006](../rfc/RFC-0006-Storage-Provider-API.md)).
+Any S3-compatible service (AWS S3, MinIO, R2, REG.RU S3, …) and **WebDAV**
+(Nextcloud, Apache mod_dav, …) — both providers pass the same conformance
+suite ([RFC-0006](../rfc/RFC-0006-Storage-Provider-API.md)). WebDAV needs no
+conditional-write support at all: manifest safety uses the portable LIST-based
+protocol. More providers (consumer clouds, local folder) are additive.
 
 **Does it work on Android?**
-That's a v1 target, within Obsidian mobile limits (no background daemon; sync on
-open/close/manual). See the compatibility matrix in
-[overview](../architecture/overview.md#compatibility-matrix).
+Yes, within Obsidian mobile limits: no background daemon; sync on open, on
+going to background (best-effort), debounced while editing, and manual. Wi-Fi
+only is the default on mobile. Keep the default cross-device KDF profile so
+phones can join the vault
+([ADR-0018](../adr/ADR-0018-Cross-Device-KDF-Params.md)); see the
+[compatibility matrix](../architecture/overview.md#compatibility-matrix).
+
+**Why does auto-sync sometimes wait?**
+Resource-aware guards: it waits for edits to settle, keeps a minimum interval
+between runs, and (on mobile) skips cellular. An idle check costs a single
+LIST + one small GET — a few KB. **Sync now** bypasses all guards.
 
 **Is there telemetry?**
 None. Ever. See the [privacy policy](../security/privacy-policy.md).
