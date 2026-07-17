@@ -31,6 +31,9 @@ Ship these guard rails in v1, enabled by default (part of Safe Mode):
    more than a threshold (default: **> 20 files, or > 10% of the vault**,
    whichever is smaller), **pause and require explicit confirmation**, showing the
    full list. This catches "something went very wrong" before it propagates.
+   > The threshold shape in this item is **superseded by ADR-0013** (M4): an
+   > absolute floor of 5 destructive operations below which the breaker never
+   > fires, keeping the cap-and-fraction protection above it.
 
 All thresholds are configurable; the *defaults* are conservative.
 

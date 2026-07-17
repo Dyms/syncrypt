@@ -1,9 +1,9 @@
 # ADR-0013: Bulk-change circuit-breaker floor for small vaults
 
-- **Status:** Proposed
+- **Status:** Accepted (M4)
 - **Date:** 2026-07-16
-- **Related:** ADR-0010, RFC-0004, RFC-0007
-- **Target:** M4 (client UX). Not implemented in M1 — M1 follows ADR-0010 literally.
+- **Related:** ADR-0010 (threshold text superseded by this ADR), RFC-0004, RFC-0007
+- **Target:** M4 (client UX). Not implemented in M1 — M1 followed ADR-0010 literally.
 
 ## Context
 

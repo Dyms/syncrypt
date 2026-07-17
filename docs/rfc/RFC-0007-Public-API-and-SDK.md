@@ -225,9 +225,10 @@ export function plan(
 ): SyncPlan;
 
 export interface PlanOptions {
-  /** Safe-Sync bulk-change thresholds (ADR-0010). */
-  bulkChangeMaxFiles: number;    // default 20
-  bulkChangeMaxFraction: number; // default 0.10
+  /** Safe-Sync bulk-change thresholds (ADR-0010, floor per ADR-0013). */
+  bulkChangeFloor: number;       // default 5 — at or below: never prompt
+  bulkChangeMaxFiles: number;    // default 20 — at or above: always prompt
+  bulkChangeMaxFraction: number; // default 0.10 — in between: prompt if ≥ this vault fraction
 }
 ```
 

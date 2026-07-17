@@ -25,6 +25,6 @@ editing it. See [PROJECT.md](../../PROJECT.md) for RFC vs ADR.
 | [0010](./ADR-0010-Data-Safety-Guard-Rails.md) | Data-safety guard rails ("Safe Sync") | Accepted |
 | [0011](./ADR-0011-Base-State-Persistence.md) | Base-manifest persistence via StateStorePort | Accepted |
 | [0012](./ADR-0012-Conflict-Materialization.md) | Conflict mechanics: conflicted copies, edit-beats-delete | Accepted |
-| [0013](./ADR-0013-Bulk-Change-Breaker-Floor.md) | Bulk-change breaker floor (small vaults) | Proposed |
+| [0013](./ADR-0013-Bulk-Change-Breaker-Floor.md) | Bulk-change breaker floor (small vaults) | Accepted |
 | [0014](./ADR-0014-Keyfile-Parameter-Floor.md) | Keyfile KDF parameter floor (anti-downgrade) | Accepted |
-| [0015](./ADR-0015-S3-Client-Strategy.md) | S3 client: fetch + SigV4 (aws4fetch), not the AWS SDK | Accepted |
+| [0015](./ADR-0015-S3-Client-Strategy.md) | S3 client — fetch + SigV4, not the AWS SDK | Accepted |

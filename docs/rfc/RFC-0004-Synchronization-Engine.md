@@ -224,10 +224,12 @@ containment. Safe Sync is **on by default** (ADR-0010) and adds four rails:
    changed file (default 3). Cheap given immutable per-generation manifests
    (ADR-0006); enables point-in-time recovery.
 4. **Bulk-change circuit breaker.** If a single sync would delete or overwrite
-   more than a threshold — default **> 20 files or > 10 % of the vault**,
-   whichever is smaller — **pause and require explicit confirmation**, showing the
-   full list first. This catches "something went very wrong" before it propagates
-   to other devices.
+   more than a threshold, **pause and require explicit confirmation**, showing
+   the full list first. Per ADR-0013: at or below a **floor of 5** destructive
+   operations the sync is routine and never prompts; at or above **20** it
+   always prompts; in between it prompts when the change is **≥ 10 % of the
+   vault**. This catches "something went very wrong" before it propagates to
+   other devices without nagging on everyday single-file deletions.
 
 Thresholds are configurable; defaults are conservative. `.obsidian/sync-trash/`
 is in the default exclude set.

@@ -43,12 +43,14 @@ export interface SyncPlan {
 }
 
 export interface PlanOptions {
-  /** Safe-Sync bulk-change thresholds (ADR-0010). */
-  bulkChangeMaxFiles: number; // default 20
-  bulkChangeMaxFraction: number; // default 0.10
+  /** Safe-Sync bulk-change thresholds (ADR-0010 + ADR-0013 floor). */
+  bulkChangeFloor: number; // default 5 — at or below: never prompt (routine)
+  bulkChangeMaxFiles: number; // default 20 — at or above: always prompt
+  bulkChangeMaxFraction: number; // default 0.10 — in between: prompt if ≥ 10% of vault
 }
 
 export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
+  bulkChangeFloor: 5,
   bulkChangeMaxFiles: 20,
   bulkChangeMaxFraction: 0.1,
 };
@@ -221,20 +223,21 @@ export function plan(
     conflicts: operations.filter((o) => o.kind === "conflict").length,
   };
 
-  // Safe-Sync bulk-change circuit breaker (ADR-0010 §4): count DESTRUCTIVE ops —
-  // deletions plus downloads that replace an existing local file. New-file
-  // downloads and uploads never destroy local bytes.
+  // Safe-Sync bulk-change circuit breaker (ADR-0010 §4, ADR-0013 floor):
+  // count DESTRUCTIVE ops — deletions plus downloads that replace an existing
+  // local file. New-file downloads and uploads never destroy local bytes.
+  // ≤ floor: routine, never prompt. ≥ maxFiles: always prompt. In between:
+  // prompt when the change is a large fraction of the vault.
   const destructive = operations.filter(
     (o) =>
       o.kind === "delete-local" ||
       o.kind === "delete-remote" ||
       (o.kind === "download" && o.localHash !== undefined),
   ).length;
-  const threshold = Math.min(
-    opts.bulkChangeMaxFiles,
-    opts.bulkChangeMaxFraction * local.length,
-  );
-  const requiresConfirmation = destructive > threshold;
+  const requiresConfirmation =
+    destructive > opts.bulkChangeFloor &&
+    (destructive >= opts.bulkChangeMaxFiles ||
+      destructive >= opts.bulkChangeMaxFraction * local.length);
 
   const pullFirst =
     remote !== null && remote.generation > (base?.generation ?? 0);
@@ -247,9 +250,8 @@ export function plan(
   };
   if (requiresConfirmation) {
     result.confirmationReason =
-      `this sync would delete or overwrite ${destructive} files ` +
-      `(threshold: ${Math.floor(threshold)} of ${local.length} local files) — ` +
-      `confirm to proceed`;
+      `this sync would delete or overwrite ${destructive} of ${local.length} ` +
+      `local files — confirm to proceed`;
   }
   return result;
 }

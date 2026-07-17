@@ -60,10 +60,19 @@ sync:
     - ".obsidian/workspaces.json"
     - ".obsidian/app.json"
     - ".obsidian/plugins/**"      # anything not explicitly included above
+    - ".obsidian/sync-trash/**"   # local Safe Sync trash — never sync
 ```
 
 Rules: `exclude` wins over `include`. Paths are matched after Unicode
 normalization ([ADR-0007](../adr/ADR-0007-Unicode-Path-Normalization.md)).
+
+## Credential safety (unconditional)
+
+Independently of your profile, Syncrypt **always hard-excludes its own settings
+file** — `.obsidian/plugins/syncrypt/data.json`, which holds your S3 credentials —
+from sync. Even if you add plugin data to `include`, those credentials never leave
+the device through Syncrypt (ADR-0016). The passphrase is never written to disk at
+all: it is entered at unlock and kept in memory only.
 
 ## Hotkeys and per-device settings
 

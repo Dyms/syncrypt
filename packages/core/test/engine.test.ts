@@ -122,9 +122,9 @@ describe("divergence guard (ADR-0002 / FR-8)", () => {
   });
 });
 
-// NOTE: several fixtures below raise bulkChangeMaxFraction — with the strict
-// ADR-0010 default (10% of the vault), ANY deletion in a vault of <10 files
-// trips the breaker, which is not what those tests exercise.
+// NOTE: kept from the pre-ADR-0013 era (strict 10%-of-vault breaker); with the
+// floor of 5 these fixtures would pass without it, but the relaxed settings
+// keep the tests focused on their actual subject regardless of breaker tuning.
 const relaxedBreaker = { safeSync: { bulkChangeMaxFraction: 1 } };
 
 describe("deletions (tombstones + trash, ADR-0010)", () => {

@@ -150,3 +150,72 @@ works; npm test + lint + typecheck green.
 
 Begin with the plan.
 ```
+
+---
+
+# Handoff prompt for Claude Code — M4 (Obsidian plugin, desktop)
+
+M1–M3 are green (core, crypto, S3 provider, sdk). Now build the first real client:
+the Obsidian desktop plugin. Mobile (Android) is M5 — build mobile-aware but do not
+target it yet.
+
+```text
+You are the implementer for Syncrypt, continuing from green M1–M3. The spec is the
+contract; propose an ADR rather than guessing if a decision is missing.
+
+READ FIRST: CLAUDE.md; docs/rfc/RFC-0003 (layering), RFC-0004 (triggers, Safe Sync),
+RFC-0007 (SyncEngine, VaultPort, StateStorePort); docs/adr/ADR-0007, ADR-0010,
+ADR-0011, ADR-0012, ADR-0013; docs/architecture/threat-model.md; docs/ui/.
+
+GOAL — Milestone M4: a daily-drivable Obsidian DESKTOP plugin (macOS + Windows)
+that syncs one vault through @syncrypt/sdk over S3, with a transparent UI.
+
+SCOPE:
+1. @syncrypt/obsidian: VaultPort over the Obsidian API (Vault DataAdapter:
+   read/writeBinary, list, stat, remove, rename). trash() moves files to
+   .obsidian/sync-trash/ — a Syncrypt-controlled, NEVER-synced folder (ADR-0010) —
+   NOT Obsidian's own trash. Bridge canonical<->native paths with NFC normalization
+   (ADR-0007; macOS may hand NFD).
+2. StateStorePort impl: persist the base manifest between sessions (plugin data or a
+   file) so a restart does not force a full reconcile (ADR-0011).
+3. Triggers (RFC-0004): pull on layout-ready; best-effort push on unload/quit;
+   a "Sync now" command; debounced while-active sync on vault-modify events with the
+   resource-aware guards (min interval, debounce). Desktop may be aggressive; keep
+   the knobs so M5 can tighten them.
+4. Settings UI: choose provider + config (endpoint, region, bucket, prefix,
+   forcePathStyle, credentials); sync profile (include/exclude, ADR-0010 defaults);
+   Safe Sync toggles. Passphrase unlock flow.
+5. SECRET STORAGE — decide explicitly and record as an ADR (propose first):
+   Obsidian persists plugin settings to data.json in PLAINTEXT and has no OS
+   keychain API. Recommended default: the PASSPHRASE is never persisted — prompt on
+   unlock each session, keep only the derived key in memory (optional "remember for
+   this session"). S3 credentials are stored in data.json (unavoidable: they are
+   needed to fetch the keyfile before any key exists) — warn the user in the UI and
+   recommend least-privilege, single-bucket credentials. Update the threat model.
+6. Human-readable sync log: a view/panel rendering SyncReport entries (one line per
+   file: ReasonCode + message). This is a product surface — never show secrets.
+7. Safe Sync UX: when a plan returns requiresConfirmation (bulk-change breaker),
+   show a modal listing every affected file; on approval call confirmAndApply.
+   Surface conflicts (conflicted-copy files) with a clear notice.
+8. ADR-0013: move it to Accepted and implement the breaker FLOOR (default 5) so a
+   single delete on a small vault does not nag; keep the mass-change protection.
+
+INVARIANTS: never surprise the user — every applied change is in the log with a
+reason; delete-local via trash; storage sees only ciphertext (the plugin never
+handles plaintext beyond the vault it already owns); no secrets in logs; no
+telemetry; keep code portable toward the mobile build (no Node-only APIs that would
+block M5).
+
+WAY OF WORKING: propose a short plan + the secret-storage ADR for approval BEFORE
+coding. Keep the Obsidian API behind VaultPort so the adapter is thin and
+unit-testable against a mock DataAdapter (heavy logic is already tested in core).
+Conventional Commits referencing the RFC/ADR. Better design -> ADR with
+pros/cons/consequences.
+
+M4 EXIT: two desktops (macOS + Windows) sharing one vault over S3 converge in daily
+use; conflicts and Safe Sync confirmations are surfaced; the sync log is readable;
+passphrase is session-only; npm test + lint + typecheck green; the plugin builds
+into a loadable Obsidian plugin.
+
+Begin with the plan and the secret-storage ADR.
+```

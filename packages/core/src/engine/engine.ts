@@ -112,6 +112,8 @@ class Engine implements SyncEngine {
       key: (relative: ObjectKey): ObjectKey =>
         prefix === "" ? relative : `${prefix}/${relative}`,
       planOptions: {
+        bulkChangeFloor:
+          config.safeSync?.bulkChangeFloor ?? DEFAULT_PLAN_OPTIONS.bulkChangeFloor,
         bulkChangeMaxFiles:
           config.safeSync?.bulkChangeMaxFiles ?? DEFAULT_PLAN_OPTIONS.bulkChangeMaxFiles,
         bulkChangeMaxFraction:

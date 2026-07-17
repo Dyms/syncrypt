@@ -206,7 +206,7 @@ describe("Safe-Sync circuit breaker (ADR-0010)", () => {
     expect(p.confirmationReason).toContain("25");
   });
 
-  it("a small deletion below threshold does not", () => {
+  it("a small deletion below the floor never prompts (ADR-0013)", () => {
     const files = vault(100);
     const kept = Object.fromEntries(Object.entries(files).slice(3));
     const p = plan(
@@ -218,7 +218,22 @@ describe("Safe-Sync circuit breaker (ADR-0010)", () => {
     expect(p.requiresConfirmation).toBe(false);
   });
 
-  it("a local wipe (scan came back empty) always requires confirmation", () => {
+  it("between floor and cap, the fraction decides (ADR-0013)", () => {
+    const files = vault(100);
+    const wipe = (n: number) => {
+      const kept = Object.fromEntries(Object.entries(files).slice(n));
+      return plan(
+        localFiles(files),
+        manifest({ generation: 1, files }),
+        manifest({ generation: 2, files: kept, tombstones: Object.keys(files).slice(0, n) }),
+        DEFAULT_PLAN_OPTIONS,
+      );
+    };
+    expect(wipe(8).requiresConfirmation).toBe(false); // 8 < 10% of 100
+    expect(wipe(12).requiresConfirmation).toBe(true); // 12 ≥ 10% of 100
+  });
+
+  it("a wipe of a tiny vault (≤ floor) is treated as routine — the documented ADR-0013 edge", () => {
     const files = vault(5);
     const p = plan(
       [],
@@ -227,6 +242,26 @@ describe("Safe-Sync circuit breaker (ADR-0010)", () => {
       DEFAULT_PLAN_OPTIONS,
     );
     expect(p.summary.deletions).toBe(5);
+    expect(p.requiresConfirmation).toBe(false);
+    // Strict pre-ADR-0013 behavior stays available via bulkChangeFloor: 0.
+    const strict = plan(
+      [],
+      manifest({ generation: 1, files }),
+      manifest({ generation: 1, files }),
+      { ...DEFAULT_PLAN_OPTIONS, bulkChangeFloor: 0 },
+    );
+    expect(strict.requiresConfirmation).toBe(true);
+  });
+
+  it("a wipe of a larger vault always prompts (≥ cap)", () => {
+    const files = vault(30);
+    const p = plan(
+      [],
+      manifest({ generation: 1, files }),
+      manifest({ generation: 1, files }),
+      DEFAULT_PLAN_OPTIONS,
+    );
+    expect(p.summary.deletions).toBe(30);
     expect(p.requiresConfirmation).toBe(true);
   });
 
@@ -295,8 +330,7 @@ describe("plan shape", () => {
       ["delete-remote", "gone-local.md"],
     ]);
     expect(p.summary).toEqual({ uploads: 2, downloads: 2, deletions: 2, conflicts: 1 });
-    // 3 destructive ops (replace-download, delete-local, delete-remote) in a
-    // 6-file vault trips the ADR-0010 breaker: 3 > min(20, 0.6).
-    expect(p.requiresConfirmation).toBe(true);
+    // 3 destructive ops are at or below the ADR-0013 floor (5) — routine.
+    expect(p.requiresConfirmation).toBe(false);
   });
 });
