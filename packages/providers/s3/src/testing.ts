@@ -8,7 +8,6 @@ import { S3Storage } from "./storage.js";
 export async function createBucket(config: S3Config): Promise<void> {
   const client = new S3Client(config);
   const res = await client.send({ method: "PUT", key: "", operation: "create-bucket" });
-  await res.body?.cancel();
   if (!res.ok && res.status !== 409) {
     // 409 BucketAlreadyOwnedByYou is fine for tests
     throw new Error(`create-bucket "${config.bucket}" failed: HTTP ${res.status}`);
@@ -21,6 +20,5 @@ export async function deleteBucketRecursive(config: S3Config): Promise<void> {
   for await (const stat of storage.list("")) keys.push(stat.key);
   for (const key of keys) await storage.delete(key);
   const client = new S3Client(config);
-  const res = await client.send({ method: "DELETE", key: "", operation: "delete-bucket" });
-  await res.body?.cancel();
+  await client.send({ method: "DELETE", key: "", operation: "delete-bucket" });
 }

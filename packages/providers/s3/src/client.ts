@@ -1,13 +1,13 @@
-// Thin SigV4-signed fetch wrapper (ADR-0015: aws4fetch instead of the AWS SDK
-// so the same provider can run in the Obsidian mobile webview).
-//
-// This layer only signs, sends, and normalizes failures. Retries live in
-// storage.ts; XML in xml.ts. Credentials never leave the signer.
+// SigV4 signing + dispatch through an injectable transport (ADR-0015,
+// RFC-0006 §Injectable transport). This layer signs, sends, and normalizes
+// failures. Retries live in storage.ts; XML in xml.ts. Credentials never
+// leave the signer.
 
-import { AwsClient } from "aws4fetch";
+import { AwsV4Signer } from "aws4fetch";
 
 import { S3_DEFAULTS, type S3Config } from "./config.js";
 import { normalizeNetworkError, normalizeS3Error, s3ErrorCode } from "./errors.js";
+import { fetchTransport, type HttpTransport } from "./transport.js";
 
 export interface S3Request {
   method: "GET" | "PUT" | "POST" | "DELETE" | "HEAD";
@@ -19,18 +19,49 @@ export interface S3Request {
   operation: string;
 }
 
+/** Normalized response: body fully read, header names lowercased. */
+export class S3Response {
+  constructor(
+    readonly status: number,
+    private readonly headers: Record<string, string>,
+    private readonly bodyBytes: Uint8Array,
+  ) {}
+
+  get ok(): boolean {
+    return this.status >= 200 && this.status < 300;
+  }
+
+  header(name: string): string | null {
+    return this.headers[name.toLowerCase()] ?? null;
+  }
+
+  bytes(): Uint8Array {
+    return this.bodyBytes;
+  }
+
+  text(): string {
+    return new TextDecoder().decode(this.bodyBytes);
+  }
+}
+
 export class S3Client {
-  private readonly aws: AwsClient;
+  private readonly credentials: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken?: string;
+  };
+  private readonly region: string;
   private readonly baseUrl: string;
+  private readonly transport: HttpTransport;
 
   constructor(config: S3Config) {
-    this.aws = new AwsClient({
+    this.credentials = {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
       ...(config.sessionToken !== undefined ? { sessionToken: config.sessionToken } : {}),
-      service: "s3",
-      region: config.region ?? S3_DEFAULTS.region,
-    });
+    };
+    this.region = config.region ?? S3_DEFAULTS.region;
+    this.transport = config.transport ?? fetchTransport;
     const url = new URL(config.endpoint);
     const pathStyle = config.forcePathStyle ?? S3_DEFAULTS.forcePathStyle;
     this.baseUrl = pathStyle
@@ -47,29 +78,55 @@ export class S3Client {
     return `${this.baseUrl}/${encodedKey}${q === "" ? "" : `?${q}`}`;
   }
 
-  /** Sign + send. Network failures normalize to StorageTransient. */
-  async send(req: S3Request): Promise<Response> {
+  /** Sign, then dispatch via the transport. Network failures → Transient. */
+  async send(req: S3Request): Promise<S3Response> {
+    const url = this.urlFor(req.key, req.query);
+    const body =
+      typeof req.body === "string" ? new TextEncoder().encode(req.body) : req.body;
     try {
-      // The cast keeps strict DOM lib types happy: our Uint8Arrays are always
-      // ArrayBuffer-backed, which is a valid BodyInit.
-      const body = (req.body ?? null) as string | Uint8Array<ArrayBuffer> | null;
-      return await this.aws.fetch(this.urlFor(req.key, req.query), {
+      // Sign only — the transport does the I/O (RFC-0006: decouple signing
+      // from dispatch so Obsidian can route through requestUrl()).
+      // x-amz-content-sha256 is computed HERE as a real payload hash and
+      // pre-set before signing: aws4fetch would otherwise default S3 requests
+      // to UNSIGNED-PAYLOAD, which stricter backends/policies reject.
+      const signer = new AwsV4Signer({
+        url,
         method: req.method,
-        headers: req.headers ?? {},
-        // aws4fetch hashes the body into x-amz-content-sha256 (SigV4).
-        body,
+        headers: {
+          ...req.headers,
+          "x-amz-content-sha256": await sha256Hex(body ?? new Uint8Array(0)),
+        },
+        body: (body ?? null) as Uint8Array<ArrayBuffer> | null,
+        service: "s3",
+        region: this.region,
+        ...this.credentials,
       });
+      const signed = await signer.sign();
+      const headers: Record<string, string> = {};
+      signed.headers.forEach((value, name) => {
+        headers[name] = value;
+      });
+      const res = await this.transport({
+        url: signed.url.toString(),
+        method: req.method,
+        headers,
+        ...(body !== undefined ? { body } : {}),
+      });
+      return new S3Response(res.status, res.headers, res.body);
     } catch (e) {
       throw normalizeNetworkError(e, req.key, req.operation);
     }
   }
 
   /** Send and demand success; on failure throw the normalized typed error. */
-  async sendOk(req: S3Request): Promise<Response> {
+  async sendOk(req: S3Request): Promise<S3Response> {
     const res = await this.send(req);
     if (res.ok) return res;
-    // HEAD responses have no body; otherwise the body may carry <Code>.
-    const body = req.method === "HEAD" ? "" : await res.text().catch(() => "");
-    throw normalizeS3Error(res.status, s3ErrorCode(body), req.key, req.operation);
+    throw normalizeS3Error(res.status, s3ErrorCode(res.text()), req.key, req.operation);
   }
+}
+
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

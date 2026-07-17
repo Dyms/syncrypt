@@ -2,6 +2,8 @@
 // Credentials are SECRETS: they live only here and in signed request headers —
 // never in logs, error messages, or the manifest.
 
+import type { HttpTransport } from "./transport.js";
+
 export interface S3RetryConfig {
   /** Retries after the first attempt (default 4). */
   maxRetries?: number;
@@ -34,6 +36,12 @@ export interface S3Config {
   /** Multipart part size (default 16 MiB; S3 minimum is 5 MiB per part). */
   partSizeBytes?: number;
   retry?: S3RetryConfig;
+  /**
+   * HTTP transport for the SIGNED requests (RFC-0006 §Injectable transport).
+   * Default: global fetch. Obsidian clients must inject a requestUrl()-backed
+   * transport — webview fetch is blocked by CORS on S3/MinIO.
+   */
+  transport?: HttpTransport;
 }
 
 export const S3_DEFAULTS = {

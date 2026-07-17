@@ -100,7 +100,9 @@ export interface VaultPort {
   /** Read plaintext bytes of a file. Rejects VaultFileNotFound if missing. */
   read(path: VaultPath): Promise<Uint8Array>;
 
-  /** Create/overwrite a file atomically (temp + rename where possible). */
+  /** Create/overwrite a file. SHOULD be crash-safe (temp + atomic rename-over
+   *  where the adapter supports it); the M4 Obsidian adapter currently does a
+   *  direct write — see ADR-0017 (write atomicity, to be resolved before v1.0). */
   write(path: VaultPath, data: Uint8Array): Promise<void>;
 
   /** Move a file into local Safe-Sync trash instead of hard-deleting (ADR-0010). */

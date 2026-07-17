@@ -2,6 +2,7 @@
 
 export * from "./config.js";
 export * from "./storage.js";
-export { S3Client } from "./client.js";
+export * from "./transport.js";
+export { S3Client, S3Response } from "./client.js";
 export { normalizeS3Error, s3ErrorCode } from "./errors.js";
 export { withRetry, isRetryable, type RetryOptions } from "./retry.js";

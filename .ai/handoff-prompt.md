@@ -219,3 +219,66 @@ into a loadable Obsidian plugin.
 
 Begin with the plan and the secret-storage ADR.
 ```
+
+---
+
+# Handoff prompt for Claude Code — M5 (Android / Obsidian mobile)
+
+M1–M4 are green. Make the plugin work on Obsidian mobile (Android), and fix the
+transport gap that also blocks the desktop live-S3 test.
+
+```text
+You are the implementer for Syncrypt, continuing from green M1–M4. Spec is the
+contract; propose an ADR rather than guessing if a decision is missing.
+
+READ FIRST: CLAUDE.md; RFC-0006 (S3 notes — injectable transport / CORS), RFC-0005
+(KDF), RFC-0004 (resource-aware triggers); docs/architecture/overview.md
+(compatibility matrix); ADR-0014, ADR-0017.
+
+GOAL — Milestone M5: the Obsidian plugin runs on Android within mobile limits;
+three-device loop (Windows <-> macOS <-> Android) converges within a sane
+battery/data budget.
+
+SCOPE:
+1. INJECTABLE TRANSPORT (do this first — it also unblocks the M4 live-S3 test).
+   provider-s3 must accept an injectable HTTP transport (default: global fetch).
+   Inside Obsidian (desktop AND mobile) renderer fetch is subject to CORS and
+   S3/MinIO don't send permissive CORS headers, so raw fetch is blocked. Decouple
+   signing from dispatch: use aws4fetch sign() to build a signed request, then send
+   it via the transport. The Obsidian client supplies a transport backed by
+   Obsidian's requestUrl() (bypasses CORS). Add a unit test for the transport seam.
+2. isDesktopOnly=false in the plugin manifest. Validate the whole stack in the
+   mobile webview: Argon2id WASM + BLAKE3 + WebCrypto AES-GCM/HKDF load and run; no
+   Node-only API sneaks in (the build already forbids it).
+3. KDF CROSS-DEVICE PARAMS (decide + record an ADR). The vault-wide Argon2id params
+   live in keyfile-params.json and every joining device MUST use them. A phone
+   joining a vault created with the 128 MiB desktop profile must run 128 MiB
+   Argon2id — which can OOM/lag low-end Android. Resolve: make the DEFAULT
+   vault-creation profile cross-device-safe (mobile-affordable), and offer the
+   heavier desktop profile only as an explicit opt-in ("desktop-only vault"), or
+   prompt at creation. Never let a device silently pick params another device can't
+   afford. Stay within the ADR-0014 floor.
+4. Resource-aware triggers for mobile (RFC-0004): wifi-only default ON, longer min
+   interval, foreground-only, NO background daemon; best-effort push on
+   background/close. Keep desktop behavior unchanged (parametrized).
+5. Battery/data sanity: delta-only transfers (already), debounce + min interval,
+   no polling loops; a no-change sync stays a single list + manifest get.
+
+TESTS: transport-seam unit test; KDF-params selection/guard test (mobile can't be
+forced into unaffordable params; joining uses the vault's params); keep all
+M1–M4 suites green. Real-device Android testing is manual — provide an on-device
+checklist.
+
+INVARIANTS: storage sees only ciphertext; no Node-only APIs anywhere in shipped
+code; never log secrets; no telemetry; never surprise the user.
+
+WAY OF WORKING: land the transport fix first (unblocks desktop + mobile), then
+mobile validation, then the KDF-params ADR + guard. Conventional Commits
+referencing RFC/ADR. Better design -> ADR with pros/cons/consequences.
+
+M5 EXIT: three-device loop converges over live S3 via requestUrl transport (no CORS
+errors); Android stays within battery/data budget; KDF params are cross-device-safe;
+npm test + lint + typecheck + plugin build green.
+
+Begin with the plan and the KDF-params ADR.
+```

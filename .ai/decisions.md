@@ -17,3 +17,5 @@ Cite these in code comments and PRs. Full text in `docs/adr/`.
 - ADR-0013 Bulk-change breaker floor for small vaults (Proposed, target M4)
 - ADR-0014 Keyfile KDF parameter floor — reject weak Argon2id params (anti-downgrade), target M3 (Accepted)
 - ADR-0015 S3 client: fetch + SigV4 (aws4fetch), not AWS SDK — portable to Obsidian mobile, tiny bundle (Accepted, M3)
+- ADR-0016 Client secret storage: passphrase session-only (memory, Lock clears); S3 creds in data.json w/ UI warning; plugin data.json hard-excluded from sync (Accepted, M4)
+- ADR-0017 File write atomicity — prefer temp(excluded)+atomic rename-over; M4 shipped direct write (Proposed, revisit before v1.0)

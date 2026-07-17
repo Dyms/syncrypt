@@ -89,8 +89,7 @@ export class S3Storage implements StoragePort {
         },
         body: data,
       });
-      await res.body?.cancel();
-      return { etag: res.headers.get("etag") ?? "" };
+      return { etag: res.header("etag") ?? "" };
     }, this.retryOpts);
   }
 
@@ -107,7 +106,7 @@ export class S3Storage implements StoragePort {
         operation: "multipart-initiate",
         headers: contentType !== undefined ? { "content-type": contentType } : {},
       });
-      return parseInitiateMultipartUpload(await res.text());
+      return parseInitiateMultipartUpload(res.text());
     }, this.retryOpts);
     if (initiate === null) {
       throw new SyncError("StorageTransient", `S3 multipart-initiate "${key}": no UploadId`);
@@ -125,8 +124,7 @@ export class S3Storage implements StoragePort {
             operation: `multipart-part-${n}`,
             body: chunk,
           });
-          await res.body?.cancel();
-          return res.headers.get("etag") ?? "";
+          return res.header("etag") ?? "";
         }, this.retryOpts);
         parts.push({ partNumber: n, etag });
       }
@@ -140,7 +138,7 @@ export class S3Storage implements StoragePort {
           headers: { "content-type": "application/xml" },
           body: buildCompleteMultipartUpload(parts),
         });
-        const text = await res.text();
+        const text = res.text();
         const embedded = embeddedErrorCode(text); // 200-with-error is a thing
         if (embedded !== null) {
           throw normalizeS3Error(res.status, embedded, key, "multipart-complete");
@@ -160,19 +158,18 @@ export class S3Storage implements StoragePort {
   async get(key: ObjectKey): Promise<Uint8Array> {
     return withRetry(async () => {
       const res = await this.client.sendOk({ method: "GET", key, operation: "get" });
-      return new Uint8Array(await res.arrayBuffer());
+      return res.bytes();
     }, this.retryOpts);
   }
 
   async stat(key: ObjectKey): Promise<ObjectStat> {
     return withRetry(async () => {
       const res = await this.client.sendOk({ method: "HEAD", key, operation: "stat" });
-      await res.body?.cancel();
-      const lastModified = res.headers.get("last-modified");
+      const lastModified = res.header("last-modified");
       return {
         key,
-        size: Number(res.headers.get("content-length") ?? "0"),
-        etag: res.headers.get("etag") ?? "",
+        size: Number(res.header("content-length") ?? "0"),
+        etag: res.header("etag") ?? "",
         lastModified:
           lastModified !== null ? Math.floor(Date.parse(lastModified) / 1000) : 0,
       };
@@ -196,7 +193,7 @@ export class S3Storage implements StoragePort {
           query,
           operation: "list",
         });
-        return parseListObjectsV2(await res.text());
+        return parseListObjectsV2(res.text());
       }, this.retryOpts);
       for (const obj of page.contents) {
         yield { key: obj.key, size: obj.size, etag: obj.etag, lastModified: obj.lastModified };
@@ -210,10 +207,8 @@ export class S3Storage implements StoragePort {
       const res = await this.client.send({ method: "DELETE", key, operation: "delete" });
       // Idempotent by contract: a missing key is success (S3 returns 204 anyway).
       if (!res.ok && res.status !== 404) {
-        const body = await res.text().catch(() => "");
-        throw normalizeS3Error(res.status, s3ErrorCode(body), key, "delete");
+        throw normalizeS3Error(res.status, s3ErrorCode(res.text()), key, "delete");
       }
-      await res.body?.cancel();
     }, this.retryOpts);
   }
 
@@ -245,17 +240,16 @@ export async function probeConditionalWrites(
   const key = `.syncrypt-capability-probe-${randomHex(8)}`;
   const payload = new TextEncoder().encode("syncrypt capability probe — safe to delete");
   try {
-    await withRetry(async () => {
-      const res = await client.sendOk({ method: "PUT", key, operation: "probe-create", body: payload });
-      await res.body?.cancel();
-    }, retryOpts);
+    await withRetry(
+      () => client.sendOk({ method: "PUT", key, operation: "probe-create", body: payload }),
+      retryOpts,
+    );
 
     const rejected = async (headers: Record<string, string>): Promise<boolean> => {
       const res = await withRetry(
         () => client.send({ method: "PUT", key, operation: "probe-conditional", headers, body: payload }),
         retryOpts,
       );
-      await res.body?.cancel().catch(() => undefined);
       if (res.ok) return false; // header ignored → no conditional support
       if (res.status === 412) return true;
       // 501/400/etc.: the backend refuses the header rather than honoring it.
@@ -268,7 +262,6 @@ export async function probeConditionalWrites(
   } finally {
     await client
       .send({ method: "DELETE", key, operation: "probe-cleanup" })
-      .then((r) => r.body?.cancel())
       .catch(() => undefined);
   }
 }

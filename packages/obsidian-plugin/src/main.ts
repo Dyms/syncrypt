@@ -13,6 +13,7 @@ import { S3Storage } from "@syncrypt/provider-s3";
 
 import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
+import { obsidianTransport } from "./obsidian-transport.js";
 import { LogBuffer } from "./log-buffer.js";
 import { SyncLogView, SYNC_LOG_VIEW_TYPE } from "./log-view.js";
 import { AutoSyncScheduler } from "./scheduler.js";
@@ -102,6 +103,8 @@ export default class SyncryptPlugin extends Plugin {
         accessKeyId: s.s3.accessKeyId,
         secretAccessKey: s.s3.secretAccessKey,
         forcePathStyle: s.s3.forcePathStyle,
+        // requestUrl() bypasses webview CORS (RFC-0006 §Injectable transport).
+        transport: obsidianTransport,
       });
       const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
       this.engine = await openSyncEngine({

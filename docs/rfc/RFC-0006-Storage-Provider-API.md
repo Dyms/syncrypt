@@ -126,6 +126,15 @@ conditional writes for correctness, so it is safe on any S3.
   right: `x-amz-content-sha256` payload hashing (per-part for multipart), correct
   request date (SigV4 is clock-sensitive), and its own minimal `ListObjectsV2`
   XML parsing (covered by unit tests + live MinIO conformance).
+- **Injectable transport (CORS):** the provider MUST accept an injectable HTTP
+  transport (default: global `fetch`). Inside Obsidian (desktop **and** mobile) the
+  renderer/webview `fetch` is subject to **CORS**, and S3/MinIO buckets do not send
+  permissive CORS headers by default — so a raw `fetch` to storage is blocked. The
+  Obsidian client MUST supply a transport backed by Obsidian's `requestUrl()`, which
+  issues a native request and bypasses CORS. Decouple **signing** from **dispatch**:
+  use aws4fetch's `sign()` to produce a signed request, then send it through the
+  injected transport. This is required for the M4 live-S3 validation to work at all
+  and is mandatory on mobile (M5).
 
 ## Conformance test suite
 
