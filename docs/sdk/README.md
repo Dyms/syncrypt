@@ -1,6 +1,6 @@
 # SDK Documentation
 
-Reference for `@syncrypt/sdk` and the public API contract. The normative contract
-(types, ports, engine methods) lives in
-[RFC-0007](../rfc/RFC-0007-Public-API-and-SDK.md). This section will hold worked
-examples and usage recipes as the SDK is implemented.
+Reference for `@syncrypt/sdk` — the programmatic way to drive Syncrypt outside
+Obsidian (scripts, a future CLI, other editors). See the
+[package README](../../packages/sdk/README.md) for the quick-start snippet;
+worked examples and usage recipes will accumulate here.

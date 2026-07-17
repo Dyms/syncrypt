@@ -4,8 +4,7 @@ This is the concrete proof of **"user owns the data"**: given your passphrase an
 the documented on-storage format, you can decrypt your manifest and every file
 with a short, dependency-light script — no Syncrypt install required.
 
-> Status: **shipped and tested (M2).** The crypto format
-> ([RFC-0005](../rfc/RFC-0005-Encryption-Model.md)) is versioned; the scripts
+> Status: **shipped and tested.** The crypto format is versioned; the scripts
 > below target crypto format **version 1**. The Node script
 > ([`recover.mjs`](./recover.mjs)) is exercised in CI against a real encrypted
 > vault on every test run.
@@ -52,7 +51,7 @@ key for recovery: the decrypted manifest already lists each file's `objectKey`.
 
 Manifests are named `manifests/<zero-padded generation>-<deviceId>.json`. Take
 the highest generation; in the rare case two devices share it (a fork), take
-the **smallest deviceId** — that is the canonical winner (ADR-0006).
+the **smallest deviceId** — that is the canonical winner.
 
 ## Option A — Node.js script (tested in CI)
 
@@ -117,15 +116,14 @@ for path, entry in manifest["files"].items():
 print("done ->", OUT)  # ASCII on purpose: Windows consoles with legacy code pages
 ```
 
-> Verified against real Syncrypt output (M2): both scripts restore a vault
+> Verified against real Syncrypt output: both scripts restore a vault
 > byte-identically, including non-ASCII paths and superseded generations.
 
 ## Why this matters
 
 If Syncrypt is ever unavailable, abandoned, or you simply distrust it, your data
 is still fully recoverable with ~30 lines of standard code and your passphrase.
-No lock-in, no proprietary format, no hidden database — as promised in
-[RFC-0001](../rfc/RFC-0001-Vision.md).
+No lock-in, no proprietary format, no hidden database — as promised.
 
 > This is a sensitive operation: keep your passphrase out of shell history (use an
 > environment variable as shown), and run recovery on a trusted machine.

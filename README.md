@@ -1,100 +1,82 @@
 # Syncrypt
 
-> Simple. Secure. Predictable file sync for Obsidian — you own the data.
+> Simple. Secure. Predictable sync for Obsidian — you own the data.
 
-**Syncrypt** is a small, explainable synchronization engine for
-[Obsidian](https://obsidian.md) vaults. It keeps your notes identical across
-macOS, Windows and Android using storage **you already own** (S3-compatible
-object storage first; more providers later), with **client-side end-to-end
-encryption**.
+**Русская версия: [README.ru.md](./README.ru.md)**
 
-It is deliberately *not* a real-time collaboration tool. It does one thing well:
-move your Markdown files between your own devices and your own storage, safely,
-in a way you can always understand and repair by hand.
+I built Syncrypt because a sync tool once deleted and duplicated about a
+thousand of my notes, and I promised myself that would never happen again.
 
----
+Syncrypt keeps an [Obsidian](https://obsidian.md) vault identical across
+macOS, Windows and Android using storage **you already own** — any
+S3-compatible bucket (AWS, MinIO, R2, a hosting provider's S3) or a WebDAV
+server (e.g. Nextcloud). Everything is **encrypted on your device before
+upload**; the storage never sees a single readable byte of your notes.
 
-## Why it exists
+It is deliberately *not* a real-time collaboration tool. It does one thing
+well: move your files between your devices and your storage, safely, in a way
+you can always understand — and, if everything else fails, repair by hand.
 
-Real-time CRDT-based sync (e.g. Self-hosted LiveSync) is powerful but solves a
-*different* problem. For a single user who never edits the same note on two
-devices at the same instant, a hidden database, a revision tree and automatic
-conflict resolution add risk (silent duplication, data loss on corruption)
-without adding value.
+## What makes it different
 
-Syncrypt takes the opposite bet:
+- **No surprises.** Every change Syncrypt applies is written to a
+  human-readable sync log with a one-sentence reason. Want to see what a sync
+  *would* do first? There's a dry-run.
+- **No silent data loss — by construction.** If a note changed on two devices,
+  you get *both* versions side by side, never a guess. Deletions go to a local
+  trash folder, never straight to oblivion. A sync that would touch an
+  unusually large number of files pauses and shows you the full list before
+  doing anything.
+- **Your keys, your data.** Encryption keys come from your passphrase and
+  never leave your device. The passphrase is never written to disk.
+- **No lock-in, no server, no telemetry.** There is no Syncrypt service to
+  trust or to die. With your passphrase and a ~40-line script you can decrypt
+  your entire vault without Syncrypt installed —
+  [see for yourself](./docs/user-guide/manual-recovery.md).
+- **Boring, vetted cryptography.** Argon2id, AES-256-GCM, nothing invented
+  here. [How security works](./docs/security.md).
 
-- The **source of truth is your Markdown files**, not a database.
-- Sync is just **upload** and **download**, coordinated by a plain JSON
-  `manifest`.
-- There is **no magic**: every action is explainable in one sentence
-  (*"remote version is newer"*, *"local hash differs from manifest"*,
-  *"file marked as deleted"*).
-- If something goes wrong, you can open, restore or download any file by hand.
+## Get started
 
-## Principles
+1. [Install via BRAT](./docs/install.md) on each device (Windows, macOS,
+   Android).
+2. Point it at your bucket or WebDAV folder, pick a passphrase.
+3. **Sync now.** Other devices need only the same storage settings and the
+   same passphrase.
 
-- **Simple. Secure. Predictable.**
-- **User owns the data** — no vendor lock-in, no proprietary format, no hidden database.
-- **No magic** — every synchronization step is explainable.
-- **Offline first** — losing the network is a non-event.
-- **Markdown first** — plain files are the contract.
-- **Zero telemetry** — Syncrypt never phones home.
+Full setup guide: [docs/install.md](./docs/install.md) ·
+[Getting started](./docs/user-guide/getting-started.md) ·
+[Configuration](./docs/user-guide/configuration.md)
 
-Prime directive: **Syncrypt should never surprise the user.**
+## Learn more
+
+| | |
+|---|---|
+| Why I built it, goals & non-goals | [docs/about.md](./docs/about.md) |
+| How security works | [docs/security.md](./docs/security.md) |
+| Install & setup (BRAT) | [docs/install.md](./docs/install.md) |
+| Migrating from Self-hosted LiveSync | [docs/user-guide/migration-from-livesync.md](./docs/user-guide/migration-from-livesync.md) |
+| FAQ | [docs/user-guide/faq.md](./docs/user-guide/faq.md) |
+| Troubleshooting | [docs/user-guide/troubleshooting.md](./docs/user-guide/troubleshooting.md) |
+| Recover your data without Syncrypt | [docs/user-guide/manual-recovery.md](./docs/user-guide/manual-recovery.md) |
+| Plans | [ROADMAP.md](./ROADMAP.md) |
 
 ## Status
 
-**Pre-alpha — specification phase.** This repository currently contains the
-architecture specification (RFCs, ADRs, threat model). Implementation follows
-the specification. See [`ROADMAP.md`](./ROADMAP.md) and
-[`docs/rfc/`](./docs/rfc/).
+Beta. The engine, encryption, and both storage providers are covered by an
+extensive automated test suite (property-based tests assert *no data loss* and
+*no silent overwrite* over randomized sync histories, against real storage
+backends). I use it on my own vault daily. Beta means: keep a backup — which
+is good advice with any sync tool, including this one.
 
-## Documentation
+## Contributing
 
-| Area | Start here |
-|------|------------|
-| Vision & scope | [RFC-0001 Vision](./docs/rfc/RFC-0001-Vision.md) |
-| What it must do | [RFC-0002 Product Requirements](./docs/rfc/RFC-0002-Product-Requirements.md) |
-| How it is built | [RFC-0003 Architecture](./docs/rfc/RFC-0003-Architecture.md) |
-| Sync engine | [RFC-0004 Synchronization Engine](./docs/rfc/RFC-0004-Synchronization-Engine.md) |
-| Encryption | [RFC-0005 Encryption Model](./docs/rfc/RFC-0005-Encryption-Model.md) |
-| Storage backends | [RFC-0006 Storage Provider API](./docs/rfc/RFC-0006-Storage-Provider-API.md) |
-| API / SDK contract | [RFC-0007 Public API & SDK](./docs/rfc/RFC-0007-Public-API-and-SDK.md) |
-| Decisions log | [docs/adr/](./docs/adr/) |
-| Threat model | [docs/architecture/threat-model.md](./docs/architecture/threat-model.md) |
-| Using it | [docs/user-guide/getting-started.md](./docs/user-guide/getting-started.md) |
-| Manual recovery | [docs/user-guide/manual-recovery.md](./docs/user-guide/manual-recovery.md) |
-| Русская документация | [README.ru.md](./README.ru.md) · [docs/ru/](./docs/ru/) |
-| For AI agents | [CLAUDE.md](./CLAUDE.md) · [.ai/project.md](./.ai/project.md) |
-
-## Repository layout
-
-```
-syncrypt/
-├── docs/                 # Specification: RFCs, ADRs, architecture, security, guides
-├── packages/
-│   ├── core/             # Platform-agnostic sync engine (manifest, diff, crypto orchestration)
-│   ├── sdk/              # Public TypeScript API consumed by clients
-│   ├── obsidian-plugin/  # Obsidian integration (desktop + mobile) — first client
-│   └── providers/
-│       ├── s3/           # S3-compatible StorageProvider (first backend)
-│       ├── r2/           # Cloudflare R2 (planned)
-│       ├── webdav/       # WebDAV / Nextcloud (planned)
-│       └── filesystem/   # Local folder / external drive (also the test backend)
-├── examples/             # Runnable examples (once the SDK exists)
-├── tests/                # Cross-package & end-to-end tests
-├── scripts/              # Build / release / recovery / GC scripts
-├── design/               # UX sketches & brand assets
-└── .ai/                  # Machine-readable project context for AI coding agents
-```
+Bug reports with reproduction steps are gold. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) — and please report security issues
+privately per [SECURITY.md](./SECURITY.md).
 
 ## License
 
-MIT — see [LICENSE](./LICENSE) and [ADR-0008](./docs/adr/ADR-0008-License.md).
+MIT — see [LICENSE](./LICENSE).
 
-## A note on the name
-
-An unrelated, now-defunct Python project was also called *syncrypt*. This
-project is independent; the npm scope `@syncrypt` is reserved. See
-[ADR-0009](./docs/adr/ADR-0009-Naming.md) for positioning.
+*Syncrypt is an independent open-source project, not affiliated with Obsidian.*

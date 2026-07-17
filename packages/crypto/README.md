@@ -13,6 +13,5 @@ The reference `CryptoPort` implementation (RFC-0005, ADR-0003):
 No Node-only APIs — runs in browsers, Node ≥ 20, and mobile webviews. Keys are
 memory-only and never logged or persisted.
 
-Spec: [RFC-0005](../../docs/rfc/RFC-0005-Encryption-Model.md) ·
-rationale: [cryptography.md](../../docs/security/cryptography.md) ·
+Rationale: [cryptography.md](../../docs/security/cryptography.md) ·
 recovery: [manual-recovery.md](../../docs/user-guide/manual-recovery.md).

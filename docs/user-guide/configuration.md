@@ -64,7 +64,7 @@ sync:
 ```
 
 Rules: `exclude` wins over `include`. Paths are matched after Unicode
-normalization ([ADR-0007](../adr/ADR-0007-Unicode-Path-Normalization.md)).
+normalization (ADR-0007).
 
 ## Credential safety (unconditional)
 

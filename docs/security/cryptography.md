@@ -1,6 +1,6 @@
 # Cryptography Rationale
 
-Why each primitive was chosen. Normative spec: [RFC-0005](../rfc/RFC-0005-Encryption-Model.md).
+Why each cryptographic primitive was chosen.
 Principle: **boring, vetted primitives; never roll our own.**
 
 ## Primitives

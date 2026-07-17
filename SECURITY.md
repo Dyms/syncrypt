@@ -26,8 +26,7 @@ provide and operate, and your device/OS security.
 - **End-to-end encryption**: data is encrypted on the client (AES-256-GCM) with a
   key derived from your passphrase (Argon2id) before it leaves the device. The
   storage backend is treated as untrusted. See
-  [RFC-0005](./docs/rfc/RFC-0005-Encryption-Model.md) and the
-  [threat model](./docs/architecture/threat-model.md).
+  [how security works](./docs/security.md).
 - **No secrets in logs**: passphrases and keys are never written to the sync log
   or telemetry (there is no telemetry).
 - **Fail closed**: on authentication-tag failure or ambiguous state, Syncrypt

@@ -1,5 +1,5 @@
 # Examples
 
-Runnable examples once the SDK exists (M1+): a minimal headless sync against the
-filesystem provider, an encrypted round-trip, and a manual-recovery script. See
+Runnable examples: a minimal headless sync against the filesystem provider, an
+encrypted round-trip, and manual recovery. The tested recovery scripts live in
 [docs/user-guide/manual-recovery.md](../docs/user-guide/manual-recovery.md).

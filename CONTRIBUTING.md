@@ -1,47 +1,36 @@
 # Contributing to Syncrypt
 
-Thanks for considering a contribution. Syncrypt is a specification-first project:
-the documentation is the contract, and code implements it.
+Thanks for considering a contribution. A few principles keep this project what
+it is:
 
-## Golden rules
-
-1. **Design changes go through RFC/ADR, not straight into code.** If a PR changes
-   *behavior or architecture*, it must reference (or add) the RFC/ADR that
-   justifies it. See [`PROJECT.md`](./PROJECT.md) for the RFC vs ADR distinction.
-2. **No magic.** Every sync action must be explainable in one sentence and must
+1. **No surprises.** Every sync action must be explainable in one sentence and
    appear in the human-readable sync log. If you can't explain it simply, it
    doesn't ship.
-3. **Data safety beats convenience.** When in doubt, stop and ask the user to
-   `pull first` rather than guessing a merge.
-4. **Zero telemetry.** No analytics, no crash phone-home, no "anonymous usage".
+2. **Data safety beats convenience.** When in doubt, stop and ask the user
+   rather than guessing.
+3. **Zero telemetry.** No analytics, no crash phone-home, no "anonymous usage".
+4. **Boring cryptography.** Vetted primitives and implementations only; never
+   anything invented here.
 
-## Workflow
+## How to contribute
 
-1. Open an issue describing the problem or proposal.
-2. For anything architectural, submit an RFC (`docs/rfc/RFC-000N-*.md`) or an
-   ADR (`docs/adr/ADR-000N-*.md`) using the templates. Discuss until `Accepted`.
-3. Implement against the accepted spec. Reference the RFC/ADR in the PR.
-4. Add tests. The core engine and providers must stay deterministic and covered.
+- **Bug reports** are the most valuable contribution: exact steps, what you
+  expected, what happened, and the relevant lines from the sync log. For
+  anything security-related, use [SECURITY.md](./SECURITY.md) instead of a
+  public issue.
+- **Feature ideas**: open an issue describing the *problem* first. Behavior
+  and architecture changes get discussed before code — expect design
+  questions; sync tools earn trust slowly.
+- **Pull requests**: open an issue first for anything non-trivial. Keep one
+  logical change per PR, add tests (the engine and providers are heavily
+  test-covered — new behavior needs the same), and update docs in the same PR.
 
-## Commit / PR conventions
+## Practicalities
 
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
-- One logical change per PR. Keep diffs reviewable.
-- Update docs in the same PR as the behavior they describe.
-
-## Working with AI coding agents
-
-This repo is intentionally AI-friendly. If you use an agent (Claude Code, Codex,
-etc.), point it at [`.ai/project.md`](./.ai/project.md) and the relevant RFC.
-The agent must still follow the golden rules above; treat its output like any
-other contributor's — reviewed, tested, and traceable to a decision.
-
-## Code style
-
-See [`.ai/coding-style.md`](./.ai/coding-style.md). TypeScript, strict mode,
-no implicit `any`, pure functions in `core`, side effects at the edges.
-
-## Local setup
-
-The monorepo uses workspaces. Setup instructions will land with M1; until then
-this repository is specification-only.
+- TypeScript strict mode; the core engine is pure (no I/O) with effects at the
+  edges; no Node-only APIs in code the mobile plugin ships.
+- `npm install && npm test` runs everything, including live-backend suites
+  against an in-process WebDAV server; S3 suites additionally run when you
+  point `SYNCRYPT_S3_TEST_ENDPOINT` at a MinIO (CI does this automatically).
+- `npm run lint`, `npm run typecheck`, `npm run build` must stay green.

@@ -22,6 +22,4 @@ const report = await engine.sync();
 Contains no logic of its own and **no Node-only APIs** — safe for desktop,
 browser, and mobile clients.
 
-Spec: [RFC-0003](../../docs/rfc/RFC-0003-Architecture.md),
-[RFC-0007 §7](../../docs/rfc/RFC-0007-Public-API-and-SDK.md).
-Status: **implemented (M3)**.
+Status: **implemented**.

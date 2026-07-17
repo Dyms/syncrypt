@@ -15,8 +15,8 @@ Syncrypt refuses to apply it (fail-closed). Check the passphrase first; if corre
 the stored object is damaged — restore it from a bucket version or backup.
 
 **Duplicate-looking notes across macOS and Windows.**
-Almost always a Unicode/case path mismatch. Syncrypt normalizes paths centrally
-([ADR-0007](../adr/ADR-0007-Unicode-Path-Normalization.md)); if you see this,
+Almost always a Unicode/case path mismatch. Syncrypt normalizes paths
+centrally; if you see this,
 report it with the two exact filenames (their byte encodings) so we can reproduce.
 
 **Initial upload is slow.**
@@ -48,8 +48,7 @@ minutes makes every request fail authentication. Fix the device's date/time
 
 **My phone refuses to unlock the vault ("above this device's memory budget").**
 The vault was created with the **desktop-only** KDF profile (128 MiB Argon2id),
-which mobile devices refuse rather than crash
-([ADR-0018](../adr/ADR-0018-Cross-Device-KDF-Params.md)). Unlock on a desktop,
+which mobile devices refuse rather than crash. Unlock on a desktop,
 or recreate the vault with the default cross-device profile (same passphrase;
 the data re-uploads on the next sync).
 

@@ -21,7 +21,7 @@ Your passphrase and encryption keys **never** leave the device in any form.
 
 Because encryption is client-side, your provider sees ciphertext. It can still
 observe object sizes, counts, and timing (see the
-[threat model](../architecture/threat-model.md)). Choose a provider you are
+threat model). Choose a provider you are
 comfortable with on that basis.
 
 ## Third parties

@@ -35,3 +35,8 @@ npm-debug.log*
 
 # Obsidian test vaults used during development
 /test-vaults/
+
+# Internal design deliberation & AI-agent context — local-only, never published
+/_internal/
+/CLAUDE.md
+/.ai/

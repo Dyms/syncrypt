@@ -1,147 +1,47 @@
-# ROADMAP — Syncrypt
+# Roadmap
 
-Milestone-based, not date-based. Each milestone is shippable and testable on its
-own. The ordering encodes dependencies: durability and correctness come before
-convenience.
+What Syncrypt can do today, and where it's heading. No dates — things ship
+when they're safe.
 
-Legend: ☐ todo · ◐ in progress · ☑ done
+## Done
 
----
+- **The sync engine**: files are the truth; upload/download coordinated by a
+  small encrypted manifest; conflicts kept as two versions, never merged
+  silently; deletions via local trash; bulk changes require confirmation.
+  Property-based tests assert *no data loss* and *no silent overwrite* over
+  randomized sync histories.
+- **End-to-end encryption**: Argon2id + AES-256-GCM, keys only in memory,
+  documented format with tested recovery scripts —
+  [how security works](./docs/security.md).
+- **Storage backends**: any S3-compatible service and WebDAV — both pass the
+  same conformance test suite against real servers.
+- **Obsidian plugin**: desktop (Windows/macOS) and Android, with a readable
+  sync log, dry-run, Safe-Sync confirmations, migration warnings, and
+  battery/data-friendly mobile defaults.
 
-## M0 — Specification (current)
+## Now (beta)
 
-Goal: a complete, internally consistent specification an engineer (or an AI
-coding agent) can implement without further design decisions.
+- Field-testing across real devices and real storage providers.
+- BRAT-installable beta releases with a proper release pipeline.
+- Polishing rough edges that only daily use finds — the FAQ and
+  troubleshooting pages grow from real reports.
 
-- ☑ RFC-0001 Vision
-- ☑ RFC-0002 Product Requirements
-- ☑ RFC-0003 Architecture
-- ☑ RFC-0004 Synchronization Engine
-- ☑ RFC-0005 Encryption Model
-- ☑ RFC-0006 Storage Provider API
-- ☑ Threat model + cryptography rationale
-- ☑ Foundational decisions ratified (ADR-0001…0018 all Accepted; RFC-0001…0007 Accepted)
+## Next
 
-**Exit criteria:** tag `spec-v1.0`.
+- Community-store submission once the beta has soaked.
+- Point-in-time recovery UI (the storage format already retains history).
+- Optional sync for chosen Obsidian settings (with safety rails for secrets
+  and device-specific files).
+- Scheduled local backups — sync is not a backup, so let's make backups easy
+  too.
 
-## M1 — Core engine (headless) — ✅ done
+## Someday, maybe
 
-Goal: a `@syncrypt/core` package that can sync a plain directory to an
-in-memory / local-disk provider, no encryption, no Obsidian.
+- More storage providers (Dropbox, Google Drive, OneDrive, local folder) —
+  the provider interface is designed for this.
+- More editors than Obsidian, and a headless CLI; the engine doesn't care
+  who's driving it.
+- Hardware-key support; optional metadata padding; compression.
 
-- ☑ Manifest model + read/write
-- ☑ Local scanner (hash + mtime) and change detection
-- ☑ Diff algorithm (local vs remote manifest → plan of operations)
-- ☑ `push` / `pull` executors
-- ☑ Deletion via tombstones
-- ☑ "Please pull first" safe-stop on divergent manifest
-- ☑ Deterministic, fully unit-tested (golden manifests, property tests)
-
-**Exit criteria:** two local directories converge correctly across a fuzzed set
-of edit/delete/rename sequences, with no data loss and no silent overwrite.
-*Met: `packages/providers/filesystem/test/e2e.two-devices.test.ts` (plus the
-in-memory fuzz in `packages/core/test/engine.fuzz.test.ts`).*
-
-## M2 — Encryption — ✅ done
-
-Goal: end-to-end encryption per [RFC-0005](./docs/rfc/RFC-0005-Encryption-Model.md).
-
-- ☑ Argon2id key derivation from passphrase
-- ☑ AES-256-GCM per-file encryption with random nonces
-- ☑ Encrypted manifest / path handling decision implemented
-- ☑ Key file format + versioned crypto header
-- ☑ Tamper detection (GCM auth tag) surfaced as a clear error
-- ☑ Round-trip and cross-device decryption tests
-
-**Exit criteria:** storage backend holds only ciphertext; a wrong passphrase
-fails safely; corrupted blobs are detected, not silently accepted.
-*Met: `packages/crypto/test/e2e.encrypted-sync.test.ts` (ciphertext-only
-assertion, passphrase-only join, fail-closed) and
-`packages/crypto/test/recovery.test.ts` (manual recovery, FR-13).*
-
-## M3 — S3 provider — ✅ done
-
-Goal: `@syncrypt/provider-s3` implementing the StorageProvider contract against
-S3-compatible backends. Validated against several vendors (AWS S3, MinIO, and the
-user's own S3) to prove portability — **the user never has to verify capabilities
-themselves**; the provider probes and adapts.
-
-- ☑ put / get / list / delete / stat (the universal subset)
-- ☑ Manifest concurrency via LIST + immutable generation objects (works anywhere)
-- ☑ Optional conditional-write fast path when the vendor supports it (probed)
-- ☑ Multipart upload for large attachments
-- ☑ Retry / backoff / partial-failure semantics
-- ☑ Provider conformance test suite (shared across providers)
-
-**Exit criteria:** core + encryption run end-to-end against a live S3 backend and
-pass the conformance suite.
-*Met against live MinIO (RELEASE.2025-09-07), both capability modes; encrypted
-SDK e2e in `packages/sdk/test/e2e.s3-encrypted.test.ts`. Validation against
-AWS S3 / the user's own S3 endpoint remains a manual step (same env vars).*
-
-## M4 — Obsidian plugin (desktop) — ◐ code complete, in field validation
-
-Goal: usable plugin on macOS + Windows Obsidian desktop.
-
-- ☑ Vault adapter (read/write via Obsidian API)
-- ☑ Sync triggers: on open (pull), on close (push), manual "Sync now"
-- ☑ Sync profiles (include/exclude), Safe Mode default
-- ☑ Human-readable sync log ("what happened and why")
-- ☑ Settings UI (provider config, passphrase handling — ADR-0016)
-- ☑ Safe-Sync confirmation UX + ADR-0013 breaker floor
-- ☐ Field validation: daily use on two desktops (manual)
-
-**Exit criteria:** daily-drivable on two desktops sharing one vault.
-*Automated part met (adapter/scheduler/integration tests, loadable build in
-CI); the daily-use criterion is a manual sign-off on real machines.*
-
-## M5 — Android — ◐ code complete, on-device validation pending
-
-Goal: the plugin works within Obsidian mobile constraints on Android.
-
-- ☑ Injectable transport: signed requests via Obsidian `requestUrl()` (no CORS)
-- ☑ Mobile-safe bundle (`isDesktopOnly: false`; Node/Electron leak guard in the build)
-- ☑ Cross-device KDF default + affordability ceiling (ADR-0018)
-- ☑ Resource-aware triggers: wifi-only ON, min-interval 120 s, foreground-only,
-  best-effort background push (see
-  [compatibility matrix](./docs/architecture/overview.md#compatibility-matrix))
-- ☑ Battery / data-usage sanity by construction (delta-only; idle sync = one
-  LIST + one GET; no polling)
-- ☐ On-device validation: [checklist](./docs/developer-guide/android-validation.md)
-
-**Exit criteria:** three-device loop (Windows ↔ macOS ↔ Android) converges.
-*Automated part met (transport seam, KDF guard, mobile defaults, live-S3
-suites); the three-device loop is a manual sign-off on real hardware.*
-
-## M6 — Migration & polish — ✅ done
-
-- ☑ Migration guide + tooling from Self-hosted LiveSync (preflight check —
-  warns, never auto-fixes)
-- ☑ Troubleshooting + FAQ hardened from real usage
-- ☑ Conformance for a second provider (**WebDAV**) to prove the abstraction —
-  shared suite + encrypted e2e against a real server with
-  `conditionalWrites=false` (the ADR-0006 LIST protocol carries safety)
-- ☑ ADR-0017 resolved (verified direct write); spec-v1.0 readiness note:
-  [docs/spec-v1.0-readiness.md](./docs/spec-v1.0-readiness.md)
-
-## Post-1.0 ideas (not committed)
-
-**More storage providers (no engine changes):** Cloudflare R2 · Backblaze B2 ·
-MinIO · Wasabi · WebDAV (Nextcloud) · Dropbox · Google Drive · OneDrive · local
-folder / external drive.
-
-**More clients (one core, many editors):** Logseq · VS Code · Foam · Zettlr ·
-other Markdown editors · a headless **CLI** (also great for hand-recovery and
-testing) · a **Docker** / self-hosted runner for scheduled sync.
-
-**Config sync (RFC-0008, Draft):** per-plugin opt-in settings sync with secret/
-device-specific safety rails.
-
-**Backup (RFC-0009, Draft):** scheduled/on-demand local backups — plaintext vault
-snapshot + incremental encrypted repo mirror (3-2-1).
-
-**Other:** multiple vaults · hardware keys · per-folder selective sync ·
-versioned snapshots / point-in-time recovery (cheap given immutable manifests) ·
-optional size padding for metadata privacy · optional compression.
-
-All deferred so they can be added later via RFCs without breaking the v1 concept.
+Have a need that isn't listed? Open an issue — real use cases steer this
+list.
