@@ -31,7 +31,8 @@
     "fast-check": "^4.0.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "webdav-server": "^2.6.2"
   },
   "allowScripts": {
     "esbuild@0.28.1": true
