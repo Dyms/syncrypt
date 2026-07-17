@@ -165,6 +165,25 @@ export class SyncryptSettingTab extends PluginSettingTab {
       (v) => (s.safeSync.versionsToKeep = Math.floor(v)),
     );
 
+    // --- Vault creation profile (ADR-0018) -----------------------------------
+    new Setting(containerEl)
+      .setName("Vault KDF profile")
+      .setDesc(
+        "Used only when THIS device creates the vault. Cross-device (default) " +
+          "is joinable from phones; desktop-only is stronger but mobile devices " +
+          "will refuse to join it.",
+      )
+      .addDropdown((d) =>
+        d
+          .addOption("cross-device", "Cross-device (recommended)")
+          .addOption("desktop-only", "Desktop-only (128 MiB Argon2id)")
+          .setValue(s.kdfProfile)
+          .onChange(async (v) => {
+            s.kdfProfile = v === "desktop-only" ? "desktop-only" : "cross-device";
+            await this.plugin.saveSettings();
+          }),
+      );
+
     // --- Auto-sync -----------------------------------------------------------
     new Setting(containerEl).setName("Auto-sync").setHeading();
     new Setting(containerEl)
@@ -175,6 +194,15 @@ export class SyncryptSettingTab extends PluginSettingTab {
           s.autoSync.enabled = v;
           await this.plugin.saveSettings();
           this.plugin.reconfigureScheduler();
+        }),
+      );
+    new Setting(containerEl)
+      .setName("Wi-Fi only")
+      .setDesc("Skip automatic syncs on cellular data (manual Sync now always works).")
+      .addToggle((t) =>
+        t.setValue(s.autoSync.wifiOnly).onChange(async (v) => {
+          s.autoSync.wifiOnly = v;
+          await this.plugin.saveSettings();
         }),
       );
     num(

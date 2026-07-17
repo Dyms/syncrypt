@@ -22,6 +22,7 @@ interface HkdfParams {
 }
 
 interface SubtleCrypto {
+  digest(algorithm: "SHA-256", data: Uint8Array): Promise<ArrayBuffer>;
   importKey(
     format: "raw",
     keyData: Uint8Array,

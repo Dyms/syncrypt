@@ -32,6 +32,8 @@ export interface OpenSyncEngineOptions {
   safeSync?: Partial<PlanOptions> & { versionsToKeep?: number };
   /** KDF preset used only when this vault has no keyfile yet (first device). */
   kdfDefaults?: KdfPreset;
+  /** Device KDF affordability ceiling (ADR-0018) — mobile clients pass it. */
+  affordability?: { maxMemoryKiB: number };
 }
 
 /**
@@ -47,6 +49,7 @@ export async function openSyncEngine(opts: OpenSyncEngineOptions): Promise<SyncE
     storagePrefix,
     passphrase: opts.passphrase,
     ...(opts.kdfDefaults !== undefined ? { defaults: opts.kdfDefaults } : {}),
+    ...(opts.affordability !== undefined ? { affordability: opts.affordability } : {}),
   });
   return createSyncEngine({
     storage: opts.storage,
@@ -64,6 +67,7 @@ export async function openSyncEngine(opts: OpenSyncEngineOptions): Promise<SyncE
 // The full engine surface, re-exported so clients need one dependency.
 export * from "@syncrypt/core";
 export {
+  CROSS_DEVICE_KDF_PRESET,
   DESKTOP_KDF_PRESET,
   MOBILE_KDF_PRESET,
   SyncryptCrypto,

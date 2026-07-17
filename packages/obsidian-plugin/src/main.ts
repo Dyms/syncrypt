@@ -5,10 +5,14 @@
 // Triggers (RFC-0004): pull on layout-ready; debounced while-active sync;
 // best-effort push on quit; manual "Sync now".
 
-import { Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import { Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 
 import type { SyncEngine, SyncReport } from "@syncrypt/sdk";
-import { openSyncEngine } from "@syncrypt/sdk";
+import {
+  CROSS_DEVICE_KDF_PRESET,
+  DESKTOP_KDF_PRESET,
+  openSyncEngine,
+} from "@syncrypt/sdk";
 import { S3Storage } from "@syncrypt/provider-s3";
 
 import type { DataAdapterLike } from "./adapter-types.js";
@@ -16,6 +20,7 @@ import { ConfirmSyncModal } from "./confirm-modal.js";
 import { obsidianTransport } from "./obsidian-transport.js";
 import { LogBuffer } from "./log-buffer.js";
 import { SyncLogView, SYNC_LOG_VIEW_TYPE } from "./log-view.js";
+import { autoSyncAllowed, currentConnection } from "./network.js";
 import { AutoSyncScheduler } from "./scheduler.js";
 import { DEFAULT_SETTINGS, settingsComplete, withDefaults, type SyncryptSettings } from "./settings.js";
 import { SyncryptSettingTab } from "./settings-tab.js";
@@ -32,7 +37,7 @@ export default class SyncryptPlugin extends Plugin {
   private syncing = false;
 
   override async onload(): Promise<void> {
-    this.settings = withDefaults(await this.loadData());
+    this.settings = withDefaults(await this.loadData(), { mobile: Platform.isMobile });
     await this.saveSettings(); // persist a generated deviceId on first run
 
     this.addSettingTab(new SyncryptSettingTab(this.app, this));
@@ -71,6 +76,16 @@ export default class SyncryptPlugin extends Plugin {
     this.registerDomEvent(window, "beforeunload", () => {
       if (this.engine !== null && !this.syncing) void this.engine.push();
     });
+
+    // Mobile: best-effort push when the app goes to background (RFC-0004 —
+    // no daemon; this is the only "on close" signal Android reliably gives).
+    if (Platform.isMobile) {
+      this.registerDomEvent(document, "visibilitychange", () => {
+        if (document.visibilityState === "hidden" && this.engine !== null && !this.syncing) {
+          void this.engine.push();
+        }
+      });
+    }
   }
 
   override onunload(): void {
@@ -116,6 +131,11 @@ export default class SyncryptPlugin extends Plugin {
         state: new AdapterStateStore(adapter),
         log: this.log,
         safeSync: s.safeSync,
+        // ADR-0018: creation profile is an explicit setting; mobile devices
+        // refuse vaults above their Argon2id memory budget fail-closed.
+        kdfDefaults:
+          s.kdfProfile === "desktop-only" ? DESKTOP_KDF_PRESET : CROSS_DEVICE_KDF_PRESET,
+        ...(Platform.isMobile ? { affordability: { maxMemoryKiB: 131072 } } : {}),
       });
       this.log.info("Syncrypt unlocked.");
       this.setStatus("idle");
@@ -175,6 +195,15 @@ export default class SyncryptPlugin extends Plugin {
       return;
     }
     if (this.syncing) return; // engine also serializes; skip queue pile-up
+    if (
+      origin === "auto" &&
+      !autoSyncAllowed(this.settings.autoSync.wifiOnly, currentConnection())
+    ) {
+      // RFC-0004 network policy: skip the AUTO sync; the change stays dirty
+      // and the next trigger (or a manual sync) picks it up.
+      this.setStatus("waiting for Wi-Fi");
+      return;
+    }
     this.syncing = true;
     this.scheduler?.noteSyncStarted();
     this.setStatus("syncing…");

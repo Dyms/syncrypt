@@ -127,6 +127,8 @@ export class S3Client {
 }
 
 async function sha256Hex(data: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  // Fresh copy: guaranteed ArrayBuffer-backed (a valid BufferSource under
+  // both the minimal and the Node/DOM WebCrypto typings).
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(data));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
