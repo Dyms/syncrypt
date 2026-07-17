@@ -44,6 +44,7 @@ framing focused on what matters for a personal, encrypted file sync.
 | A5 reads plugin memory | Keep secrets minimal & short-lived; no secrets in logs | Shared-process isolation is limited in Obsidian — documented |
 | Passphrase brute force | Argon2id with strong params raises cost; strong-passphrase guidance | Weak passphrases remain the user's risk |
 | A3 seeds a weak/oversized `keyfile-params.json` (KDF downgrade / resource DoS) | Fail-closed parameter bounds: ADR-0014 floor (≥ 19 MiB, ≥ 2 iterations) and anti-DoS ceiling (≤ 1 GiB, ≤ 100 iterations); params outside are refused | For an existing vault, altered params = join-time DoS only (wrong key, fail-closed); authenticated keyfile deferred (ADR-0014) |
+| A4/A5 reads the plugin's `data.json` (S3 credentials, ADR-0016) | Passphrase is never on disk (session-only keys); UI warns and recommends least-privilege creds + bucket versioning | Stolen creds = ciphertext access + availability damage (A3-equivalent), not note contents |
 | A3 seeds a **weak keyfile** (KDF downgrade) | Keyfile param **floor** rejects weak Argon2id (ADR-0014); on an existing vault, changed params fail to decrypt (fail-closed) | Fresh-bootstrap window before first device; floor closes it |
 
 ## Explicit non-goals (v1)
