@@ -7,6 +7,20 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added (M4 — Obsidian desktop plugin)
+- `@syncrypt/obsidian`: VaultPort over the Obsidian DataAdapter (NFC bridging,
+  sync-trash per ADR-0010, profile globs), StateStorePort (ADR-0011), trigger
+  scheduler (debounce + min-interval), settings UI with the ADR-0016
+  credential warning, passphrase unlock/lock (session-only keys), Safe-Sync
+  confirmation modal, conflict notices, human-readable sync log view; esbuild
+  bundle → loadable plugin (built in CI).
+- ADR-0016 (client secret storage) accepted; threat model updated.
+
+### Changed (M4)
+- ADR-0013 accepted and implemented: bulk-change breaker floor
+  (`bulkChangeFloor`, default 5) — routine small deletions no longer prompt;
+  RFC-0004/0007 and ADR-0010 updated.
+
 ### Added (M3 — S3 provider + SDK)
 - `@syncrypt/provider-s3`: fetch+SigV4 S3 client (ADR-0015), universal subset,
   honestly PROBED conditional writes, multipart upload with abort-on-failure,

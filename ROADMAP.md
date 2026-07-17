@@ -79,17 +79,21 @@ pass the conformance suite.
 SDK e2e in `packages/sdk/test/e2e.s3-encrypted.test.ts`. Validation against
 AWS S3 / the user's own S3 endpoint remains a manual step (same env vars).*
 
-## M4 — Obsidian plugin (desktop)
+## M4 — Obsidian plugin (desktop) — ◐ code complete, in field validation
 
 Goal: usable plugin on macOS + Windows Obsidian desktop.
 
-- ☐ Vault adapter (read/write via Obsidian API)
-- ☐ Sync triggers: on open (pull), on close (push), manual "Sync now"
-- ☐ Sync profiles (include/exclude), Safe Mode default
-- ☐ Human-readable sync log ("what happened and why")
-- ☐ Settings UI (provider config, passphrase handling)
+- ☑ Vault adapter (read/write via Obsidian API)
+- ☑ Sync triggers: on open (pull), on close (push), manual "Sync now"
+- ☑ Sync profiles (include/exclude), Safe Mode default
+- ☑ Human-readable sync log ("what happened and why")
+- ☑ Settings UI (provider config, passphrase handling — ADR-0016)
+- ☑ Safe-Sync confirmation UX + ADR-0013 breaker floor
+- ☐ Field validation: daily use on two desktops (manual)
 
 **Exit criteria:** daily-drivable on two desktops sharing one vault.
+*Automated part met (adapter/scheduler/integration tests, loadable build in
+CI); the daily-use criterion is a manual sign-off on real machines.*
 
 ## M5 — Android
 
