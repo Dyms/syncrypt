@@ -42,9 +42,12 @@ Master Key (MK, 256-bit)
 - **Argon2id** derives the Master Key from the passphrase. Parameters (memory,
   iterations, parallelism) and a random 128-bit **salt** (encoded as standard
   **base64**) are stored **in the clear** in `meta/keyfile-params.json` — they
-  are not secret; only the passphrase is. Defaults (desktop: 128 MiB / t=3 /
-  p=1; mobile: 32 MiB / t=4 / p=1), benchmark data and poisoned-keyfile bounds
-  in [cryptography.md](../security/cryptography.md).
+  are not secret; only the passphrase is. The parameters are vault-wide, so
+  the creation default is the cross-device profile (32 MiB / t=4 / p=1); the
+  heavier desktop-only profile (128 MiB / t=3) is an explicit opt-in, and
+  devices enforce an affordability ceiling fail-closed (ADR-0018). Benchmark
+  data and poisoned-keyfile bounds in
+  [cryptography.md](../security/cryptography.md).
 - **HKDF-SHA-256** separates subkeys so a single primitive's misuse is contained
   and roles are independent.
 - The passphrase and MK exist only in memory. They are **never** written to disk,

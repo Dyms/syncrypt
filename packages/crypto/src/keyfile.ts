@@ -25,7 +25,26 @@ const SALT_LENGTH = 16; // 128-bit random salt (RFC-0005)
  */
 export type KdfPreset = Omit<KdfParams, "salt">;
 
-/** Desktop default: ~0.4–1 s unlock (benchmarked; see cryptography.md). */
+/**
+ * Cross-device default (ADR-0018): affordable on low-end Android webviews,
+ * comfortably above the ADR-0014 floor. THE default for new vaults — every
+ * device the user owns must be able to run the vault's params.
+ */
+export const CROSS_DEVICE_KDF_PRESET: KdfPreset = {
+  kdf: "argon2id",
+  version: 1,
+  memoryKiB: 32768, // 32 MiB
+  iterations: 4,
+  parallelism: 1,
+};
+
+/** Alias kept for API continuity (ADR-0018). */
+export const MOBILE_KDF_PRESET: KdfPreset = CROSS_DEVICE_KDF_PRESET;
+
+/**
+ * Heavier desktop profile — EXPLICIT OPT-IN only ("desktop-only vault",
+ * ADR-0018): mobile devices will refuse to join a vault created with it.
+ */
 export const DESKTOP_KDF_PRESET: KdfPreset = {
   kdf: "argon2id",
   version: 1,
@@ -34,17 +53,8 @@ export const DESKTOP_KDF_PRESET: KdfPreset = {
   parallelism: 1,
 };
 
-/** Mobile profile: lower memory for webview limits; more passes to compensate. */
-export const MOBILE_KDF_PRESET: KdfPreset = {
-  kdf: "argon2id",
-  version: 1,
-  memoryKiB: 32768, // 32 MiB
-  iterations: 4,
-  parallelism: 1,
-};
-
 /** Fresh params: preset + a new random 128-bit salt. */
-export function generateKdfParams(preset: KdfPreset = DESKTOP_KDF_PRESET): KdfParams {
+export function generateKdfParams(preset: KdfPreset = CROSS_DEVICE_KDF_PRESET): KdfParams {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   return { ...preset, salt: base64Encode(salt) };
 }
@@ -99,8 +109,15 @@ export interface OpenVaultCryptoOptions {
   /** Same prefix the SyncEngine is configured with. */
   storagePrefix: string;
   passphrase: string;
-  /** Preset used only when the vault has no keyfile yet (first device). */
+  /** Preset used only when the vault has no keyfile yet (first device).
+   *  Default: CROSS_DEVICE_KDF_PRESET (ADR-0018). */
   defaults?: KdfPreset;
+  /**
+   * Device affordability ceiling (ADR-0018). Vault params above it are
+   * refused FAIL-CLOSED instead of OOM-crashing a webview. Mobile clients
+   * pass { maxMemoryKiB: 131072 }.
+   */
+  affordability?: { maxMemoryKiB: number };
 }
 
 /**
@@ -126,7 +143,10 @@ export async function openVaultCrypto(
   }
 
   if (stored === null) {
-    const fresh = serializeKdfParams(generateKdfParams(opts.defaults));
+    const preset = opts.defaults ?? CROSS_DEVICE_KDF_PRESET;
+    // The creation guard too: never create a vault THIS device cannot unlock.
+    assertAffordable(preset.memoryKiB, opts.affordability);
+    const fresh = serializeKdfParams(generateKdfParams(preset));
     try {
       await storage.put(
         key,
@@ -142,5 +162,25 @@ export async function openVaultCrypto(
     stored = await storage.get(key); // authoritative read-back
   }
 
-  return SyncryptCrypto.create(opts.passphrase, parseKdfParams(stored));
+  const params = parseKdfParams(stored);
+  // ADR-0018: joining always uses the VAULT's params — but if they exceed
+  // what this device can afford, refuse with an actionable message instead
+  // of letting Argon2id OOM the webview.
+  assertAffordable(params.memoryKiB, opts.affordability);
+  return SyncryptCrypto.create(opts.passphrase, params);
+}
+
+function assertAffordable(
+  memoryKiB: number,
+  affordability?: { maxMemoryKiB: number },
+): void {
+  if (affordability !== undefined && memoryKiB > affordability.maxMemoryKiB) {
+    throw new SyncError(
+      "CryptoAuthError",
+      `this vault's KDF needs ${Math.round(memoryKiB / 1024)} MiB of Argon2id memory, ` +
+        `above this device's ${Math.round(affordability.maxMemoryKiB / 1024)} MiB budget ` +
+        `(ADR-0018). Unlock it on a desktop, or recreate the vault with the ` +
+        `cross-device profile.`,
+    );
+  }
 }

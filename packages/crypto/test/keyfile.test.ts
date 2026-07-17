@@ -7,6 +7,7 @@ import { isSyncError, type KdfParams } from "@syncrypt/core";
 import { MemoryStorage } from "@syncrypt/core/testing";
 
 import {
+  CROSS_DEVICE_KDF_PRESET,
   DESKTOP_KDF_PRESET,
   generateKdfParams,
   KEYFILE_KEY,
@@ -35,9 +36,13 @@ describe("KdfParams (de)serialization", () => {
     expect(parseKdfParams(serializeKdfParams(p1))).toEqual(p1);
   });
 
-  it("presets are valid", () => {
+  it("presets are valid; cross-device is THE default (ADR-0018)", () => {
     expect(() => serializeKdfParams(generateKdfParams(DESKTOP_KDF_PRESET))).not.toThrow();
-    expect(() => serializeKdfParams(generateKdfParams(MOBILE_KDF_PRESET))).not.toThrow();
+    expect(() => serializeKdfParams(generateKdfParams(CROSS_DEVICE_KDF_PRESET))).not.toThrow();
+    expect(MOBILE_KDF_PRESET).toBe(CROSS_DEVICE_KDF_PRESET);
+    const defaulted = generateKdfParams();
+    expect(defaulted.memoryKiB).toBe(CROSS_DEVICE_KDF_PRESET.memoryKiB);
+    expect(defaulted.iterations).toBe(CROSS_DEVICE_KDF_PRESET.iterations);
   });
 
   it("fails closed on garbage, wrong kdf, and poisoned (oversized) params", () => {
@@ -116,6 +121,66 @@ describe("openVaultCrypto", () => {
     expect(text).not.toContain("super secret");
     const params = parseKdfParams(new TextEncoder().encode(text));
     expect(params.kdf).toBe("argon2id");
+  });
+
+  it("a fresh vault without explicit defaults is created cross-device-safe (ADR-0018)", async () => {
+    const storage = new MemoryStorage();
+    await openVaultCrypto({ storage, storagePrefix: "", passphrase: "p" });
+    const stored = parseKdfParams(await storage.get(KEYFILE_KEY));
+    expect(stored.memoryKiB).toBe(CROSS_DEVICE_KDF_PRESET.memoryKiB);
+    expect(stored.iterations).toBe(CROSS_DEVICE_KDF_PRESET.iterations);
+  });
+
+  it("affordability ceiling refuses unaffordable vault params FAIL-CLOSED (ADR-0018)", async () => {
+    // A vault created with the desktop-only profile…
+    const storage = new MemoryStorage();
+    await storage.put(
+      KEYFILE_KEY,
+      serializeKdfParams(generateKdfParams(DESKTOP_KDF_PRESET)),
+    );
+    // …refuses a device with a 64 MiB budget, with an actionable message.
+    try {
+      await openVaultCrypto({
+        storage,
+        storagePrefix: "",
+        passphrase: "p",
+        affordability: { maxMemoryKiB: 65536 },
+      });
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(isSyncError(e, "CryptoAuthError"), String(e)).toBe(true);
+      expect((e as Error).message).toContain("128 MiB");
+      expect((e as Error).message).toContain("64 MiB");
+    }
+    // The same ceiling accepts a cross-device vault (and never mutates params).
+    const okStorage = new MemoryStorage();
+    await okStorage.put(
+      KEYFILE_KEY,
+      serializeKdfParams({ ...TEST_PARAMS }),
+    );
+    const device = await openVaultCrypto({
+      storage: okStorage,
+      storagePrefix: "",
+      passphrase: "p",
+      affordability: { maxMemoryKiB: 65536 },
+    });
+    const blob = await device.encrypt("content", new TextEncoder().encode("ok"));
+    expect(blob.length).toBeGreaterThan(0);
+    expect(parseKdfParams(await okStorage.get(KEYFILE_KEY))).toEqual(TEST_PARAMS);
+  });
+
+  it("the ceiling also guards CREATION: a device never creates a vault it cannot unlock", async () => {
+    const storage = new MemoryStorage();
+    await expect(
+      openVaultCrypto({
+        storage,
+        storagePrefix: "",
+        passphrase: "p",
+        defaults: DESKTOP_KDF_PRESET,
+        affordability: { maxMemoryKiB: 65536 },
+      }),
+    ).rejects.toSatisfy((e) => isSyncError(e, "CryptoAuthError"));
+    expect(storage.keys()).toEqual([]); // nothing was written
   });
 
   it("two fresh devices racing to create the salt converge on the stored one", async () => {

@@ -16,14 +16,17 @@ Principle: **boring, vetted primitives; never roll our own.**
 
   | preset | memory | iterations | parallelism | measured |
   |---|---|---|---|---|
-  | **desktop (default)** | 128 MiB (`memoryKiB: 131072`) | 3 | 1 | ~431 ms |
-  | **mobile profile** | 32 MiB (`memoryKiB: 32768`) | 4 | 1 | ~136 ms (desktop; expect 2–4× on phones) |
+  | **cross-device (creation default, ADR-0018)** | 32 MiB (`memoryKiB: 32768`) | 4 | 1 | ~136 ms (desktop; expect 2–4× on phones) |
+  | **desktop-only (explicit opt-in)** | 128 MiB (`memoryKiB: 131072`) | 3 | 1 | ~431 ms |
   | OWASP minimum (reference) | 19 MiB | 2 | 1 | ~41 ms |
 
-  Rationale: unlock happens once per session, so we buy substantially more
-  brute-force cost than the OWASP floor while keeping WASM heap growth safe on
-  modest hardware; the mobile profile trades memory (webview limits) for an
-  extra pass. Re-run `node scripts/bench-argon2id.mjs` to re-tune.
+  Rationale: the parameters are VAULT-WIDE (every joining device must run
+  them), so the creation default must be affordable on the weakest device the
+  user owns — low-end Android webviews (ADR-0018). The heavier desktop-only
+  profile is an explicit opt-in; mobile clients refuse vaults above their
+  affordability ceiling (128 MiB) fail-closed instead of OOM-crashing. Unlock
+  happens once per session. Re-run `node scripts/bench-argon2id.mjs` to
+  re-tune.
   Implementations MUST reject out-of-range parameters from a poisoned keyfile,
   fail closed. Upper (anti-DoS) bounds: memory ≤ 1 GiB, iterations ≤ 100,
   parallelism ≤ 16. Lower (anti-downgrade, ADR-0014) floor: memory ≥ 19 MiB
