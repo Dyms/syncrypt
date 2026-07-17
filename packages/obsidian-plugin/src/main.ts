@@ -20,6 +20,7 @@ import { ConfirmSyncModal } from "./confirm-modal.js";
 import { obsidianTransport } from "./obsidian-transport.js";
 import { LogBuffer } from "./log-buffer.js";
 import { SyncLogView, SYNC_LOG_VIEW_TYPE } from "./log-view.js";
+import { migrationPreflight } from "./migration.js";
 import { autoSyncAllowed, currentConnection } from "./network.js";
 import { AutoSyncScheduler } from "./scheduler.js";
 import { DEFAULT_SETTINGS, settingsComplete, withDefaults, type SyncryptSettings } from "./settings.js";
@@ -139,6 +140,18 @@ export default class SyncryptPlugin extends Plugin {
       });
       this.log.info("Syncrypt unlocked.");
       this.setStatus("idle");
+
+      // Migration preflight (M6): warn about competing sync systems — never
+      // auto-fix (docs/user-guide/migration-from-livesync.md).
+      const warnings = await migrationPreflight(adapter);
+      for (const w of warnings) this.log.warn(w.message);
+      if (warnings.length > 0) {
+        new Notice(
+          `Syncrypt: ${warnings.length} migration warning(s) — see the sync log before continuing.`,
+          10000,
+        );
+      }
+
       this.reconfigureScheduler();
       this.registerVaultEvents();
       await this.syncNow("startup"); // the on-open pull (sync = pull+push)
