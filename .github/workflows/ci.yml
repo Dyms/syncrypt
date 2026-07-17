@@ -21,10 +21,21 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
+      webdav:
+        image: bytemark/webdav:latest
+        ports:
+          - 9800:80
+        env:
+          AUTH_TYPE: Basic
+          USERNAME: davuser
+          PASSWORD: davpass
     env:
       SYNCRYPT_S3_TEST_ENDPOINT: http://127.0.0.1:9000
       SYNCRYPT_S3_TEST_ACCESS_KEY: minioadmin
       SYNCRYPT_S3_TEST_SECRET_KEY: minioadmin
+      SYNCRYPT_WEBDAV_TEST_ENDPOINT: http://127.0.0.1:9800
+      SYNCRYPT_WEBDAV_TEST_USER: davuser
+      SYNCRYPT_WEBDAV_TEST_PASSWORD: davpass
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
