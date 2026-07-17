@@ -113,12 +113,16 @@ Goal: the plugin works within Obsidian mobile constraints on Android.
 *Automated part met (transport seam, KDF guard, mobile defaults, live-S3
 suites); the three-device loop is a manual sign-off on real hardware.*
 
-## M6 — Migration & polish
+## M6 — Migration & polish — ✅ done
 
-- ☐ Migration guide + tooling from Self-hosted LiveSync
-- ☐ Troubleshooting + FAQ hardened from real usage
-- ☐ Conformance for a second provider (WebDAV or Cloudflare R2) to prove the
-  abstraction
+- ☑ Migration guide + tooling from Self-hosted LiveSync (preflight check —
+  warns, never auto-fixes)
+- ☑ Troubleshooting + FAQ hardened from real usage
+- ☑ Conformance for a second provider (**WebDAV**) to prove the abstraction —
+  shared suite + encrypted e2e against a real server with
+  `conditionalWrites=false` (the ADR-0006 LIST protocol carries safety)
+- ☑ ADR-0017 resolved (verified direct write); spec-v1.0 readiness note:
+  [docs/spec-v1.0-readiness.md](./docs/spec-v1.0-readiness.md)
 
 ## Post-1.0 ideas (not committed)
 

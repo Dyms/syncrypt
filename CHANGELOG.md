@@ -7,6 +7,24 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added (M6 — second provider, migration, polish)
+- `@syncrypt/provider-webdav`: universal subset over WebDAV (GET/PUT/DELETE/
+  PROPFIND, MKCOL on demand, Basic/Bearer, injectable transport) with
+  `conditionalWrites: false` — the shared conformance suite and an encrypted
+  two-device e2e pass against a REAL WebDAV server (in-process everywhere,
+  Apache mod_dav container in CI), proving the ADR-0006 LIST-based manifest
+  concurrency on a second protocol.
+- Migration preflight in the plugin: warns about enabled/leftover LiveSync,
+  Remotely Save, Obsidian Git at unlock — read-only, never auto-fixes;
+  migration guide hardened.
+- HttpTransport types shared via `@syncrypt/core` (providers stay independent).
+
+### Changed (M6)
+- ADR-0017 accepted: direct vault write with MANDATORY read-back verification
+  (byte-exact); residual hard-crash risk documented, bounded, never silent.
+- Troubleshooting/FAQ folded in M4/M5 findings (clock skew, ADR-0018 mobile
+  refusal, wifi-only status, transport/CORS, preflight).
+
 ### Added (M5 — Android / mobile)
 - Injectable HTTP transport in `@syncrypt/provider-s3` (RFC-0006): signing
   (AwsV4Signer, real `x-amz-content-sha256` payload hash) decoupled from
