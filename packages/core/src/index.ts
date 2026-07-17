@@ -10,4 +10,5 @@ export * from "./manifest.js";
 export * from "./scan.js";
 export * from "./plan.js";
 export * from "./engine/engine.js";
+export * from "./transport.js";
 export { conflictedCopyPath } from "./engine/apply.js";

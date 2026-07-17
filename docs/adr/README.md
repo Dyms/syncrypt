@@ -31,4 +31,3 @@ editing it. See [PROJECT.md](../../PROJECT.md) for RFC vs ADR.
 | [0016](./ADR-0016-Client-Secret-Storage.md) | Obsidian client secret storage (passphrase session-only, creds in data.json) | Accepted |
 | [0017](./ADR-0017-File-Write-Atomicity.md) | Vault file write atomicity (rename-over) | Proposed |
 | [0018](./ADR-0018-Cross-Device-KDF-Params.md) | Cross-device Argon2id params (mobile-safe default, desktop opt-in, ceiling) | Accepted |
-| [0017](./ADR-0017-File-Write-Atomicity.md) | File write atomicity in the vault adapter | Proposed |

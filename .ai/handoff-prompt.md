@@ -282,3 +282,68 @@ npm test + lint + typecheck + plugin build green.
 
 Begin with the plan and the KDF-params ADR.
 ```
+
+---
+
+# Handoff prompt for Claude Code — M6 (migration + 2nd provider → spec-v1.0)
+
+M1–M5 are green. M6 proves the storage abstraction with a genuinely different
+backend, hardens migration, and readies the 1.0 spec tag.
+
+```text
+You are the implementer for Syncrypt, continuing from green M1–M5. Spec is the
+contract; propose an ADR rather than guessing if a decision is missing.
+
+READ FIRST: CLAUDE.md; RFC-0006 (StorageProvider, capabilities, injectable
+transport); ADR-0006 (LIST-based concurrency); docs/user-guide/
+migration-from-livesync.md; ADR-0017 (open — write atomicity).
+
+GOAL — Milestone M6: a second, protocol-different storage provider that passes the
+SAME conformance suite; hardened LiveSync migration; and spec-v1.0 readiness.
+
+SCOPE:
+1. @syncrypt/provider-webdav (recommended over R2 — it actually exercises the
+   abstraction: different protocol, capabilities().conditionalWrites=false, no
+   multipart). Implement the universal subset over WebDAV:
+   - get=GET, put=PUT, delete=DELETE, stat=PROPFIND(Depth:0);
+   - list(prefix)=PROPFIND(Depth:1) walked recursively (Depth:infinity is often
+     disabled); create intermediate collections with MKCOL as needed;
+   - auth: Basic and Bearer; injectable transport (Obsidian requestUrl on clients,
+     same seam as S3);
+   - capabilities(): conditionalWrites=false, objectVersioning=false,
+     maxSinglePutBytes tuned (no multipart — single PUT, stream large bodies).
+   It MUST pass the shared provider conformance suite with conditionalWrites=false,
+   against a REAL WebDAV server (dockerized Nextcloud or a webdav container) in CI.
+   This is the proof that manifest concurrency works with no conditional writes.
+2. Migration from Self-hosted LiveSync: harden docs/user-guide/
+   migration-from-livesync.md from real usage; add a preflight check that detects
+   leftover LiveSync artifacts / two sync systems pointed at one vault and warns
+   (never auto-fix). Keep "start clean" as the safe default.
+3. Polish: fold findings from the M4/M5 manual validations into FAQ +
+   troubleshooting. Resolve ADR-0017 (write atomicity): either implement
+   temp(excluded)+atomic rename-over if the Obsidian DataAdapter supports it, or
+   record the accepted fallback with the documented residual risk — move it off
+   "Proposed".
+4. spec-v1.0 readiness: verify every Accepted ADR is implemented and cited; RFC
+   statuses correct; CHANGELOG complete; ROADMAP M6 checked; tag readiness note.
+   Do NOT tag — list what remains for me to cut spec-v1.0.
+
+TESTS: WebDAV provider passes the shared conformance suite (both live + mocked);
+a two-device encrypted e2e over live WebDAV converges (ciphertext-only); migration
+preflight unit tests; all M1–M5 suites stay green.
+
+INVARIANTS: storage sees only ciphertext; manifest concurrency stays LIST-based and
+correct with conditionalWrites=false; no Node-only APIs in shipped client code;
+never log secrets; no telemetry; never surprise the user.
+
+WAY OF WORKING: propose a short plan (and the ADR-0017 resolution) for approval
+BEFORE coding. Small tested steps, Conventional Commits referencing RFC/ADR. If a
+WebDAV quirk forces a design choice, record it as an ADR (pros/cons/consequences).
+
+M6 EXIT: provider-webdav passes conformance + encrypted e2e against a live WebDAV
+server with conditionalWrites=false; migration guide hardened + preflight; ADR-0017
+resolved; spec-v1.0 readiness checklist produced; npm test + lint + typecheck +
+builds green.
+
+Begin with the plan.
+```

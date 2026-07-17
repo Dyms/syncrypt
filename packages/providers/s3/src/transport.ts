@@ -5,23 +5,12 @@
 // global fetch; the Obsidian client injects one backed by requestUrl(), which
 // issues a native request and bypasses webview CORS (S3/MinIO buckets do not
 // send permissive CORS headers).
+//
+// The types are shared across providers and live in @syncrypt/core;
+// re-exported here for API continuity.
 
-export interface HttpRequest {
-  url: string;
-  method: string;
-  /** All request headers, INCLUDING the SigV4 authorization headers. */
-  headers: Record<string, string>;
-  body?: Uint8Array;
-}
-
-export interface HttpResponse {
-  status: number;
-  /** Header names lowercased. */
-  headers: Record<string, string>;
-  body: Uint8Array;
-}
-
-export type HttpTransport = (req: HttpRequest) => Promise<HttpResponse>;
+export type { HttpRequest, HttpResponse, HttpTransport } from "@syncrypt/core";
+import type { HttpTransport } from "@syncrypt/core";
 
 /** Default transport: the platform's global fetch. */
 export const fetchTransport: HttpTransport = async (req) => {
