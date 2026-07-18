@@ -1,6 +1,6 @@
 {
   "name": "@syncrypt/obsidian",
-  "version": "0.1.0",
+  "version": "1.0.0-beta.1",
   "description": "Syncrypt Obsidian plugin: E2E-encrypted vault sync over your own S3 (desktop, M4).",
   "license": "MIT",
   "type": "module",

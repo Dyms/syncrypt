@@ -37,4 +37,6 @@ for (const re of banned) {
 
 await mkdir(join(root, "dist"), { recursive: true });
 await copyFile(join(root, "manifest.json"), join(root, "dist/manifest.json"));
+await copyFile(join(root, "versions.json"), join(root, "dist/versions.json"));
+// styles.css does not exist today; copy it here if the plugin ever ships one.
 console.log("dist/ ready (mobile-safe) — copy dist/* into <vault>/.obsidian/plugins/syncrypt/");
