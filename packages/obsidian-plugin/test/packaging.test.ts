@@ -97,7 +97,9 @@ describe("release bundle", () => {
 
     const app = {
       workspace: {
-        onLayoutReady: (cb: () => void) => cb(), // settings incomplete → log-info path
+        onLayoutReady: (cb: () => void) => {
+          cb(); // settings incomplete → log-info path
+        },
         getLeavesOfType: () => [],
         getRightLeaf: () => null,
         revealLeaf: () => Promise.resolve(),

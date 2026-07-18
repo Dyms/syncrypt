@@ -27,6 +27,7 @@ import { AutoSyncScheduler } from "./scheduler.js";
 import { DEFAULT_SETTINGS, settingsComplete, withDefaults, type SyncryptSettings } from "./settings.js";
 import { SyncryptSettingTab } from "./settings-tab.js";
 import { AdapterStateStore } from "./state-store.js";
+import { AddDeviceModal, ShareConnectionModal } from "./ticket-modals.js";
 import {
   classifyCounts,
   deriveSyncState,
@@ -87,6 +88,24 @@ export default class SyncryptPlugin extends Plugin {
       id: "show-log",
       name: "Show sync log",
       callback: () => void this.activateLogView(),
+    });
+    this.addCommand({
+      id: "share-connection",
+      name: "Share connection (create a ticket for another device)",
+      callback: () => {
+        if (!settingsComplete(this.settings)) {
+          new Notice("Syncrypt: configure and verify storage first.");
+          return;
+        }
+        new ShareConnectionModal(this.app, this).open();
+      },
+    });
+    this.addCommand({
+      id: "add-device",
+      name: "Add this device from a ticket",
+      callback: () => {
+        new AddDeviceModal(this.app, this).open();
+      },
     });
 
     // Pull on start (RFC-0004 §Triggers) — once the user unlocks.
@@ -167,6 +186,12 @@ export default class SyncryptPlugin extends Plugin {
       return;
     }
     new PassphraseModal(this.app, (passphrase) => void this.unlock(passphrase)).open();
+  }
+
+  /** Used by the Add-device flow: connect with a passphrase already in hand. */
+  async connectWithPassphrase(passphrase: string): Promise<void> {
+    if (this.isUnlocked()) this.lock(); // settings just changed — rebuild
+    await this.unlock(passphrase);
   }
 
   private async unlock(passphrase: string): Promise<void> {

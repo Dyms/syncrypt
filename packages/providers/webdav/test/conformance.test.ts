@@ -58,12 +58,7 @@ if (external === null) {
       await new WebDavClient(config).sendOk({ method: "MKCOL", key: "", operation: "mkcol-base" });
       return new WebDavStorage(config);
     },
-    async destroy(storage: StoragePort): Promise<void> {
-      // WebDAV DELETE on a collection is recursive.
-      const anyStorage = storage as WebDavStorage;
-      void anyStorage;
-      // Reconstructing the client is not possible from StoragePort — leave the
-      // per-run collection behind; runs are uniquely named and tiny.
-    },
+    // No destroy: per-run collections are uniquely named and tiny; external
+    // test servers are throwaway (CI containers), so leftovers are harmless.
   });
 }
