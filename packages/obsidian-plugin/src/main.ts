@@ -7,10 +7,11 @@
 
 import { Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 
-import type { SyncEngine, SyncReport } from "@syncrypt/sdk";
+import type { SyncEngine, SyncOutcome, SyncReport } from "@syncrypt/sdk";
 import {
   CROSS_DEVICE_KDF_PRESET,
   DESKTOP_KDF_PRESET,
+  isSyncError,
   openSyncEngine,
 } from "@syncrypt/sdk";
 import { S3Storage } from "@syncrypt/provider-s3";
@@ -26,16 +27,32 @@ import { AutoSyncScheduler } from "./scheduler.js";
 import { DEFAULT_SETTINGS, settingsComplete, withDefaults, type SyncryptSettings } from "./settings.js";
 import { SyncryptSettingTab } from "./settings-tab.js";
 import { AdapterStateStore } from "./state-store.js";
+import {
+  classifyCounts,
+  deriveSyncState,
+  type SyncCounts,
+  type SyncStateView,
+} from "./sync-state.js";
 import { PassphraseModal } from "./unlock.js";
 import { ObsidianVault, SYNC_TRASH_DIR } from "./vault-adapter.js";
 
 export default class SyncryptPlugin extends Plugin {
   settings: SyncryptSettings = DEFAULT_SETTINGS;
   private engine: SyncEngine | null = null;
+  private vaultPort: ObsidianVault | null = null;
   private scheduler: AutoSyncScheduler | null = null;
-  private readonly log = new LogBuffer();
+  readonly log = new LogBuffer();
   private statusEl: HTMLElement | null = null;
   private syncing = false;
+
+  // Facts feeding the honest status view (see sync-state.ts).
+  private lastOutcome: SyncOutcome | null = null;
+  private lastSyncAt: number | null = null;
+  private lastError: "network" | "other" | null = null;
+  private conflictsCount = 0;
+  private counts: SyncCounts | null = null;
+  private engineStatus: { baseGeneration: number | null; dirtyFiles: number } | null = null;
+  private syncStartLogLength = 0;
 
   override async onload(): Promise<void> {
     this.settings = withDefaults(await this.loadData(), { mobile: Platform.isMobile });
@@ -44,7 +61,12 @@ export default class SyncryptPlugin extends Plugin {
     this.addSettingTab(new SyncryptSettingTab(this.app, this));
     this.registerView(SYNC_LOG_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SyncLogView(leaf, this.log));
     this.statusEl = this.addStatusBarItem();
-    this.setStatus("locked");
+    this.statusEl.addEventListener("click", () => void this.syncNow("manual"));
+    // Live "syncing (n)" progress from applied-file log events.
+    this.log.onChange(() => {
+      if (this.syncing) this.renderStatus();
+    });
+    this.renderStatus();
 
     this.addCommand({
       id: "sync-now",
@@ -93,6 +115,45 @@ export default class SyncryptPlugin extends Plugin {
     this.lock();
   }
 
+  // -- status (honesty rule lives in sync-state.ts) --------------------------
+
+  getStatusView(): SyncStateView {
+    return deriveSyncState({
+      locked: this.engine === null,
+      syncing: this.syncing,
+      appliedSoFar: this.syncing
+        ? this.log.all().filter((l) => l.level === "entry").length - this.syncStartLogLength
+        : 0,
+      onLine: typeof navigator === "undefined" ? true : navigator.onLine,
+      status: this.engineStatus,
+      lastOutcome: this.lastOutcome,
+      lastSyncAt: this.lastSyncAt,
+      lastError: this.lastError,
+      conflicts: this.conflictsCount,
+      counts: this.counts,
+    });
+  }
+
+  private renderStatus(): void {
+    const view = this.getStatusView();
+    this.statusEl?.setText(view.label);
+    this.statusEl?.setAttr("aria-label", view.tooltip);
+    this.statusEl?.setAttr("title", view.tooltip);
+  }
+
+  /** Refresh status()/counts facts after a sync or unlock (no network I/O). */
+  private async refreshFacts(): Promise<void> {
+    if (this.engine === null || this.vaultPort === null) return;
+    const status = await this.engine.status();
+    this.engineStatus = {
+      baseGeneration: status.baseGeneration,
+      dirtyFiles: status.dirtyFiles,
+    };
+    const paths: string[] = [];
+    for await (const p of this.vaultPort.list()) paths.push(p);
+    this.counts = classifyCounts(paths);
+  }
+
   // -- unlock / lock (ADR-0016: keys are session-only) -----------------------
 
   isUnlocked(): boolean {
@@ -110,7 +171,7 @@ export default class SyncryptPlugin extends Plugin {
 
   private async unlock(passphrase: string): Promise<void> {
     try {
-      this.setStatus("unlocking…");
+      this.statusEl?.setText("Syncrypt: unlocking…");
       const s = this.settings;
       const storage = await S3Storage.create({
         endpoint: s.s3.endpoint,
@@ -123,9 +184,10 @@ export default class SyncryptPlugin extends Plugin {
         transport: obsidianTransport,
       });
       const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+      this.vaultPort = new ObsidianVault(adapter, s.profile);
       this.engine = await openSyncEngine({
         storage,
-        vault: new ObsidianVault(adapter, s.profile),
+        vault: this.vaultPort,
         passphrase,
         deviceId: s.deviceId,
         storagePrefix: s.s3.prefix,
@@ -139,7 +201,7 @@ export default class SyncryptPlugin extends Plugin {
         ...(Platform.isMobile ? { affordability: { maxMemoryKiB: 131072 } } : {}),
       });
       this.log.info("Syncrypt unlocked.");
-      this.setStatus("idle");
+      this.renderStatus();
 
       // Migration preflight (M6): warn about competing sync systems — never
       // auto-fix (docs/user-guide/migration-from-livesync.md).
@@ -157,9 +219,10 @@ export default class SyncryptPlugin extends Plugin {
       await this.syncNow("startup"); // the on-open pull (sync = pull+push)
     } catch (e) {
       this.engine = null;
-      this.setStatus("locked");
+      this.vaultPort = null;
       this.log.warn(`Unlock failed: ${String(e)}`);
       new Notice(`Syncrypt: unlock failed — ${String(e)}`, 8000);
+      this.renderStatus();
     }
   }
 
@@ -167,7 +230,9 @@ export default class SyncryptPlugin extends Plugin {
     this.scheduler?.dispose();
     this.scheduler = null;
     this.engine = null; // keys become unreachable; GC clears them
-    this.setStatus("locked");
+    this.vaultPort = null;
+    this.engineStatus = null;
+    this.renderStatus();
     this.log.info("Syncrypt locked — keys forgotten.");
   }
 
@@ -178,6 +243,7 @@ export default class SyncryptPlugin extends Plugin {
       // Our own trash moves and dot-file writes must not retrigger sync.
       if (path.startsWith(SYNC_TRASH_DIR) || path.startsWith(".")) return;
       this.scheduler?.noteChange();
+      this.renderStatus(); // dirty state may have changed → "pending"
     };
     this.registerEvent(this.app.vault.on("modify", (f) => { note(f.path); }));
     this.registerEvent(this.app.vault.on("create", (f) => { note(f.path); }));
@@ -202,7 +268,7 @@ export default class SyncryptPlugin extends Plugin {
 
   // -- sync -----------------------------------------------------------------
 
-  private async syncNow(origin: "manual" | "auto" | "startup"): Promise<void> {
+  async syncNow(origin: "manual" | "auto" | "startup"): Promise<void> {
     if (this.engine === null) {
       if (origin === "manual") this.promptUnlock();
       return;
@@ -214,24 +280,32 @@ export default class SyncryptPlugin extends Plugin {
     ) {
       // RFC-0004 network policy: skip the AUTO sync; the change stays dirty
       // and the next trigger (or a manual sync) picks it up.
-      this.setStatus("waiting for Wi-Fi");
+      this.statusEl?.setText("Syncrypt: waiting for Wi-Fi");
       return;
     }
     this.syncing = true;
+    this.syncStartLogLength = this.log.all().filter((l) => l.level === "entry").length;
     this.scheduler?.noteSyncStarted();
-    this.setStatus("syncing…");
+    this.renderStatus();
     try {
       let report = await this.engine.sync();
       if (report.outcome === "needs-confirmation") {
         report = await this.handleConfirmation(report);
       }
+      this.lastError = null;
       this.finishReport(report, origin);
     } catch (e) {
-      this.setStatus("error");
+      this.lastError =
+        isSyncError(e, "StorageTransient") || isSyncError(e, "StorageRateLimited")
+          ? "network"
+          : "other";
+      this.lastSyncAt = Date.now();
       this.log.warn(`Sync failed: ${String(e)}`);
       if (origin !== "auto") new Notice(`Syncrypt: sync failed — ${String(e)}`, 8000);
     } finally {
       this.syncing = false;
+      await this.refreshFacts().catch(() => undefined);
+      this.renderStatus();
     }
   }
 
@@ -249,17 +323,13 @@ export default class SyncryptPlugin extends Plugin {
   }
 
   private finishReport(report: SyncReport, origin: string): void {
+    this.lastOutcome = report.outcome;
+    this.lastSyncAt = Date.now();
+    this.conflictsCount = report.conflicts.length;
     if (report.conflicts.length > 0) {
-      this.setStatus(`conflicts: ${report.conflicts.length}`);
       new Notice(
         `Syncrypt: ${report.conflicts.length} conflict(s) — both versions kept, see the sync log.`,
         8000,
-      );
-    } else if (report.outcome === "needs-confirmation") {
-      this.setStatus("waiting for confirmation");
-    } else {
-      this.setStatus(
-        report.entries.length > 0 ? `synced ${report.entries.length} changes` : "idle",
       );
     }
     if (origin === "manual" && report.outcome === "no-op") {
@@ -267,7 +337,7 @@ export default class SyncryptPlugin extends Plugin {
     }
   }
 
-  private async activateLogView(): Promise<void> {
+  async activateLogView(): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(SYNC_LOG_VIEW_TYPE)[0];
     if (existing !== undefined) {
       await this.app.workspace.revealLeaf(existing);
@@ -277,10 +347,6 @@ export default class SyncryptPlugin extends Plugin {
     if (leaf !== null) {
       await leaf.setViewState({ type: SYNC_LOG_VIEW_TYPE, active: true });
     }
-  }
-
-  private setStatus(text: string): void {
-    this.statusEl?.setText(`Syncrypt: ${text}`);
   }
 
   async saveSettings(): Promise<void> {

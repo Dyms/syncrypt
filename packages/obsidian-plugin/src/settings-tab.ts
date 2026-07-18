@@ -21,6 +21,21 @@ export class SyncryptSettingTab extends PluginSettingTab {
     containerEl.empty();
     const s = this.plugin.settings;
 
+    // --- Sync status (same honest derivation as the status bar) ----------
+    const view = this.plugin.getStatusView();
+    const statusSetting = new Setting(containerEl)
+      .setName(view.label.replace(/^Syncrypt: /, "Status: "))
+      .setDesc(view.tooltip.replaceAll("\n", " — "));
+    statusSetting.addButton((btn) =>
+      btn.setButtonText("Sync now").onClick(async () => {
+        await this.plugin.syncNow("manual");
+        this.display(); // eslint-disable-line @typescript-eslint/no-deprecated -- re-render; see note on display()
+      }),
+    );
+    statusSetting.addButton((btn) =>
+      btn.setButtonText("Show sync log").onClick(() => void this.plugin.activateLogView()),
+    );
+
     // --- Vault lock state -----------------------------------------------
     new Setting(containerEl)
       .setName(this.plugin.isUnlocked() ? "Unlocked" : "Locked")
