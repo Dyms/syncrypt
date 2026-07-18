@@ -7,6 +7,23 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added (1.0.0-beta.1 — BRAT release, status indicator, device enrollment)
+- BRAT-installable beta: finalized plugin manifest + `versions.json` (mirrored
+  at the repo root), a release workflow that fills a GitHub Release with
+  `main.js`/`manifest.json`/`versions.json` on a version tag after the full
+  test gate, and packaging tests (manifest/version consistency, mirror
+  byte-identity, the built bundle loads under a mock Obsidian and stays free
+  of Node/Electron APIs).
+- Honest sync-status indicator: status bar + settings block derive from one
+  tested pure function; `synced ✓` appears only when everything truly is
+  synced, otherwise `pending` explains why; live progress, offline/error/
+  conflict states; click = Sync now.
+- Connection ticket for adding devices: all storage settings + credentials in
+  one string encrypted under the vault passphrase (Argon2id + AES-256-GCM,
+  fresh salt, fail-closed on wrong passphrase or tampering; optional
+  creds-less mode). "Share connection" / "Add this device from a ticket"
+  commands; EN+RU setup docs updated.
+
 ### Added (M6 — second provider, migration, polish)
 - `@syncrypt/provider-webdav`: universal subset over WebDAV (GET/PUT/DELETE/
   PROPFIND, MKCOL on demand, Basic/Bearer, injectable transport) with

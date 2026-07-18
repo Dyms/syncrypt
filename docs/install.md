@@ -61,14 +61,38 @@ server supports it (Nextcloud does), a dedicated **app password**.
 4. Run **"Syncrypt: Sync now"**. The first sync encrypts and uploads the whole
    vault; later syncs transfer only changes.
 
-## 6. Every other device
+## 6. Every other device — the easy way
 
-Install the same way (steps 1–2), enter the **same storage settings** and the
-**same passphrase**, then **Sync now**. That's all a new device needs.
+On the configured device, run **"Syncrypt: Share connection"**. It asks for
+your passphrase and produces a **connection ticket** — one long string that
+contains all the storage settings and credentials, encrypted under your
+passphrase. The ticket is useless to anyone who doesn't know the passphrase.
+
+On the new device: install Syncrypt (steps 1–2), run **"Syncrypt: Add this
+device from a ticket"**, paste the ticket, enter the same passphrase — done.
+It fills in everything and connects. Then **delete the message or note you
+used to transfer the ticket**: it's encrypted, but treat it like a secret
+anyway.
+
+Prefer not to put credentials in the ticket at all? Untick "Include storage
+credentials" when sharing — the ticket then carries only the configuration,
+and you type the keys manually on the new device.
+
+(You can always skip tickets entirely and enter the same storage settings +
+passphrase by hand, as on the first device.)
 
 On Android, defaults are battery- and data-friendly: auto-sync waits for
 Wi-Fi (manual sync always works), runs only in the foreground, and an
 idle check costs a few kilobytes.
+
+## 7. How do I know it's synced?
+
+Watch the **status bar** (bottom of the window): `synced ✓` means exactly
+that — every local change is uploaded and you're on the latest published
+state. `pending` means something still needs a sync (the tooltip says what).
+You'll also see `syncing…`, `offline`, and `conflict (n)` when relevant.
+Syncrypt never shows the green check ahead of the truth. Clicking the status
+runs Sync now; the same information lives at the top of the settings tab.
 
 ## Migrating from another sync tool?
 

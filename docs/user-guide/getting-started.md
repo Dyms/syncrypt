@@ -22,13 +22,19 @@
 
 ## Additional devices
 
-1. Install the plugin, enter the **same** storage details, unlock with the
-   **same** passphrase.
-2. Run **Sync now** → Syncrypt pulls and decrypts the vault.
+The quick way: on the configured device run **Share connection** (it makes an
+encrypted "ticket"); on the new device run **Add this device from a ticket**,
+paste it, enter the same passphrase — connected. Delete the transferred
+ticket afterwards. Details in [install & setup](../install.md).
+
+Manual way: install the plugin, enter the **same** storage details, unlock
+with the **same** passphrase, **Sync now**.
 
 That's it. From then on, sync happens automatically a little after you stop
 editing, on app start, best-effort on close/background — and whenever you run
-**Sync now**.
+**Sync now**. The status bar tells you the truth at a glance: `synced ✓` only
+when everything really is uploaded and current; otherwise `pending` with the
+reason in the tooltip.
 
 ## Reading the sync log
 
