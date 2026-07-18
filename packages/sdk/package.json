@@ -1,0 +1,22 @@
+{
+  "name": "@syncrypt/sdk",
+  "version": "0.1.0",
+  "description": "Public facade: wires storage + vault + passphrase-derived crypto into a ready SyncEngine (RFC-0007 §7). No Node-only APIs.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p test/tsconfig.json"
+  },
+  "dependencies": {
+    "@syncrypt/core": "0.1.0",
+    "@syncrypt/crypto": "0.1.0"
+  },
+  "devDependencies": {
+    "@syncrypt/provider-s3": "0.1.0"
+  }
+}

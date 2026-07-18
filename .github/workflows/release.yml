@@ -1,0 +1,89 @@
+name: Release
+
+# Cut by a human pushing a version tag (e.g. "1.0.0-beta.1"; a leading "v" is
+# tolerated but normalized). The workflow verifies the tag matches the plugin
+# version everywhere, runs the full gate, builds, and fills the GitHub Release
+# with the assets BRAT installs from. No npm publishing here.
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    services:
+      minio:
+        image: bitnami/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "mc ready local || curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      webdav:
+        image: bytemark/webdav:latest
+        ports:
+          - 9800:80
+        env:
+          AUTH_TYPE: Basic
+          USERNAME: davuser
+          PASSWORD: davpass
+    env:
+      SYNCRYPT_S3_TEST_ENDPOINT: http://127.0.0.1:9000
+      SYNCRYPT_S3_TEST_ACCESS_KEY: minioadmin
+      SYNCRYPT_S3_TEST_SECRET_KEY: minioadmin
+      SYNCRYPT_WEBDAV_TEST_ENDPOINT: http://127.0.0.1:9800
+      SYNCRYPT_WEBDAV_TEST_USER: davuser
+      SYNCRYPT_WEBDAV_TEST_PASSWORD: davpass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm ci
+
+      - name: Verify tag matches the plugin version everywhere
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST=$(node -p "require('./packages/obsidian-plugin/manifest.json').version")
+          ROOT=$(node -p "require('./manifest.json').version")
+          PKG=$(node -p "require('./packages/obsidian-plugin/package.json').version")
+          KEY=$(node -p "Object.keys(require('./packages/obsidian-plugin/versions.json')).includes('$TAG')")
+          echo "tag=$TAG manifest=$MANIFEST root=$ROOT package=$PKG versions-has-tag=$KEY"
+          test "$TAG" = "$MANIFEST" || { echo "::error::tag != package manifest version"; exit 1; }
+          test "$TAG" = "$ROOT"     || { echo "::error::tag != root manifest version"; exit 1; }
+          test "$TAG" = "$PKG"      || { echo "::error::tag != package.json version"; exit 1; }
+          test "$KEY" = "true"      || { echo "::error::versions.json lacks the tag version"; exit 1; }
+
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Build plugin
+        run: npm run build -w @syncrypt/obsidian
+
+      - name: Create GitHub Release with plugin assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          DIST=packages/obsidian-plugin/dist
+          ASSETS="$DIST/main.js $DIST/manifest.json $DIST/versions.json"
+          if [ -f "$DIST/styles.css" ]; then ASSETS="$ASSETS $DIST/styles.css"; fi
+          gh release create "$TAG" $ASSETS \
+            --title "Syncrypt ${GITHUB_REF_NAME#v}" \
+            --notes "Beta release. Install via BRAT: add beta plugin → Dyms/syncrypt. See docs/install.md." \
+            --prerelease
