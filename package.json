@@ -1,0 +1,40 @@
+{
+  "name": "syncrypt",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Simple, secure, predictable file sync for Obsidian — you own the data.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "packages/providers/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "obsidian",
+    "sync",
+    "encryption",
+    "e2ee",
+    "s3",
+    "markdown"
+  ],
+  "scripts": {
+    "build": "npm run typecheck && npm run build -w @syncrypt/obsidian",
+    "typecheck": "tsc -p packages/core/tsconfig.json && tsc -p packages/providers/filesystem/tsconfig.json && tsc -p packages/crypto/tsconfig.json && tsc -p packages/crypto/test/tsconfig.json && tsc -p packages/providers/s3/tsconfig.json && tsc -p packages/providers/webdav/tsconfig.json && tsc -p packages/sdk/tsconfig.json && tsc -p packages/sdk/test/tsconfig.json && tsc -p packages/obsidian-plugin/tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "fast-check": "^4.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0",
+    "webdav-server": "^2.6.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}
