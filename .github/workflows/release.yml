@@ -2,8 +2,12 @@ name: Release
 
 # Cut by a human pushing a version tag (e.g. "1.0.0-beta.1"; a leading "v" is
 # tolerated but normalized). The workflow verifies the tag matches the plugin
-# version everywhere, runs the full gate, builds, and fills the GitHub Release
-# with the assets BRAT installs from. No npm publishing here.
+# version everywhere, runs the OFFLINE gate, builds, and fills the GitHub
+# Release with the assets BRAT installs from. No npm publishing here.
+#
+# DELIBERATELY HERMETIC: no service containers, no Docker, no network backends.
+# Packaging is the release's job; live S3/WebDAV integration is CI's job (see
+# ci.yml). A registry outage must never be able to block a release.
 
 on:
   push:
@@ -17,34 +21,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    services:
-      minio:
-        image: bitnami/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: >-
-          --health-cmd "mc ready local || curl -sf http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-      webdav:
-        image: bytemark/webdav:latest
-        ports:
-          - 9800:80
-        env:
-          AUTH_TYPE: Basic
-          USERNAME: davuser
-          PASSWORD: davpass
     env:
-      SYNCRYPT_S3_TEST_ENDPOINT: http://127.0.0.1:9000
-      SYNCRYPT_S3_TEST_ACCESS_KEY: minioadmin
-      SYNCRYPT_S3_TEST_SECRET_KEY: minioadmin
-      SYNCRYPT_WEBDAV_TEST_ENDPOINT: http://127.0.0.1:9800
-      SYNCRYPT_WEBDAV_TEST_USER: davuser
-      SYNCRYPT_WEBDAV_TEST_PASSWORD: davpass
+      # Explicitly empty: the live S3/WebDAV suites read these and skip when
+      # unset or empty (see providers/*/test/live*.ts). Stated rather than
+      # omitted so "the live suites must skip here" is a visible decision.
+      SYNCRYPT_S3_TEST_ENDPOINT: ""
+      SYNCRYPT_WEBDAV_TEST_ENDPOINT: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -70,10 +52,25 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
-      - name: Test
+
+      # Runs everything that needs no external backend: core, crypto, sdk, the
+      # filesystem provider, the obsidian-plugin suites (incl. the packaging /
+      # bundle-guard tests), and the WebDAV conformance + encrypted-sync suites
+      # against an in-process `webdav-server`. The env-gated live S3 specs and
+      # the external-WebDAV block skip.
+      - name: Test (offline suite)
         run: npm test
+
       - name: Build plugin
         run: npm run build -w @syncrypt/obsidian
+
+      - name: Verify release assets were produced
+        run: |
+          DIST=packages/obsidian-plugin/dist
+          for f in main.js manifest.json versions.json; do
+            test -s "$DIST/$f" || { echo "::error::missing or empty release asset: $DIST/$f"; exit 1; }
+          done
+          ls -l "$DIST"
 
       - name: Create GitHub Release with plugin assets
         env:

@@ -6,36 +6,16 @@ on:
   pull_request:
 
 jobs:
+  # The real gate. Hermetic: no Docker, no registries, no network backends.
+  # Covers core, crypto, sdk, the filesystem provider, the obsidian-plugin
+  # suites (incl. packaging + bundle guard), and WebDAV conformance against an
+  # in-process `webdav-server`. The env-gated live specs skip here.
   build-test:
+    name: Build & offline suite
     runs-on: ubuntu-latest
-    services:
-      minio:
-        image: bitnami/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: >-
-          --health-cmd "mc ready local || curl -sf http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-      webdav:
-        image: bytemark/webdav:latest
-        ports:
-          - 9800:80
-        env:
-          AUTH_TYPE: Basic
-          USERNAME: davuser
-          PASSWORD: davpass
     env:
-      SYNCRYPT_S3_TEST_ENDPOINT: http://127.0.0.1:9000
-      SYNCRYPT_S3_TEST_ACCESS_KEY: minioadmin
-      SYNCRYPT_S3_TEST_SECRET_KEY: minioadmin
-      SYNCRYPT_WEBDAV_TEST_ENDPOINT: http://127.0.0.1:9800
-      SYNCRYPT_WEBDAV_TEST_USER: davuser
-      SYNCRYPT_WEBDAV_TEST_PASSWORD: davpass
+      SYNCRYPT_S3_TEST_ENDPOINT: ""
+      SYNCRYPT_WEBDAV_TEST_ENDPOINT: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,7 +27,94 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
-      - name: Test
+      - name: Test (offline suite)
         run: npm test
       - name: Build Obsidian plugin
         run: npm run build -w @syncrypt/obsidian
+
+  # Second opinion against real backends. ADVISORY ONLY — `continue-on-error`
+  # plus graceful skips mean a registry outage or a slow container can never
+  # block a merge or a release.
+  #
+  # Backends are started with `docker run`, not `services:`, because a service
+  # container cannot supply a command: `minio/minio` needs `server /data` and
+  # exits immediately without it. `docker run` also lets us decide, per
+  # backend, whether to export the env vars that switch the live suites on.
+  live-integration:
+    name: Live S3 + WebDAV (advisory)
+    runs-on: ubuntu-latest
+    needs: build-test
+    continue-on-error: true
+    env:
+      # Pinned to tags verified to exist and be public on Docker Hub.
+      # `bitnami/minio` was used here previously and now resolves to ZERO tags
+      # (removed from the public catalog) — that was the "Docker pull failed".
+      MINIO_IMAGE: minio/minio:RELEASE.2025-09-07T16-13-09Z
+      WEBDAV_IMAGE: bytemark/webdav:2.4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm ci
+
+      # Each backend step always exits 0. If it cannot come up, it simply does
+      # not export its env vars, and the matching suites skip with a warning.
+      - name: Start MinIO
+        run: |
+          if ! docker run -d --name syncrypt-minio -p 9000:9000 \
+                 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+                 "$MINIO_IMAGE" server /data --address :9000; then
+            echo "::warning::could not start $MINIO_IMAGE — live S3 suites will skip"
+            exit 0
+          fi
+          for _ in $(seq 1 30); do
+            if curl -sf -o /dev/null http://127.0.0.1:9000/minio/health/live; then
+              echo "MinIO ready"
+              {
+                echo "SYNCRYPT_S3_TEST_ENDPOINT=http://127.0.0.1:9000"
+                echo "SYNCRYPT_S3_TEST_ACCESS_KEY=minioadmin"
+                echo "SYNCRYPT_S3_TEST_SECRET_KEY=minioadmin"
+              } >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::warning::MinIO never became healthy — live S3 suites will skip"
+          docker logs syncrypt-minio || true
+
+      - name: Start WebDAV
+        run: |
+          if ! docker run -d --name syncrypt-webdav -p 9800:80 \
+                 -e AUTH_TYPE=Basic -e USERNAME=davuser -e PASSWORD=davpass \
+                 "$WEBDAV_IMAGE"; then
+            echo "::warning::could not start $WEBDAV_IMAGE — external WebDAV suite will skip"
+            exit 0
+          fi
+          for _ in $(seq 1 30); do
+            if curl -sf -o /dev/null -u davuser:davpass http://127.0.0.1:9800/; then
+              echo "WebDAV ready"
+              {
+                echo "SYNCRYPT_WEBDAV_TEST_ENDPOINT=http://127.0.0.1:9800"
+                echo "SYNCRYPT_WEBDAV_TEST_USER=davuser"
+                echo "SYNCRYPT_WEBDAV_TEST_PASSWORD=davpass"
+              } >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::warning::WebDAV never became healthy — external WebDAV suite will skip"
+          docker logs syncrypt-webdav || true
+
+      - name: Report which backends are live
+        run: |
+          echo "S3     endpoint: ${SYNCRYPT_S3_TEST_ENDPOINT:-<none — suites skip>}"
+          echo "WebDAV endpoint: ${SYNCRYPT_WEBDAV_TEST_ENDPOINT:-<none — suites skip>}"
+
+      - name: Provider suites against live backends
+        run: npx vitest run packages/providers/s3 packages/providers/webdav
+
+      - name: Tear down
+        if: always()
+        run: docker rm -f syncrypt-minio syncrypt-webdav || true
