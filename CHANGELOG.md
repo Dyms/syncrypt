@@ -7,6 +7,13 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- The released plugin bundle is **81% smaller** — 916 KB → 174 KB. Release
+  builds no longer embed an inline sourcemap, which accounted for 742 KB of
+  the previous bundle. Nothing about what the plugin does changed; run
+  `npm run build:dev -w @syncrypt/obsidian` (or set `NODE_ENV=development`)
+  to get the sourcemap back for local debugging.
+
 ### Added (1.0.0-beta.1 — BRAT release, status indicator, device enrollment)
 - BRAT-installable beta: finalized plugin manifest + `versions.json` (mirrored
   at the repo root), a release workflow that fills a GitHub Release with

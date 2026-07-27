@@ -7,6 +7,12 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
 
+// Sourcemaps are a DEV convenience, not a shipped artifact: an inline map was
+// 81% of the released bundle (742 KB of 916 KB). Release builds carry none;
+// `--dev` or NODE_ENV=development brings the inline map back for debugging.
+// This changes nothing about what the plugin DOES — same code, same behavior.
+const dev = process.argv.includes("--dev") || process.env.NODE_ENV === "development";
+
 await build({
   entryPoints: [join(root, "src/main.ts")],
   outfile: join(root, "dist/main.js"),
@@ -16,7 +22,7 @@ await build({
   target: "es2022",
   external: ["obsidian", "@codemirror/*", "@lezer/*"],
   logLevel: "info",
-  sourcemap: "inline",
+  sourcemap: dev ? "inline" : false,
 });
 
 // MOBILE GUARD (M5, compatibility matrix): the bundle must not smuggle in any
@@ -39,4 +45,8 @@ await mkdir(join(root, "dist"), { recursive: true });
 await copyFile(join(root, "manifest.json"), join(root, "dist/manifest.json"));
 await copyFile(join(root, "versions.json"), join(root, "dist/versions.json"));
 // styles.css does not exist today; copy it here if the plugin ever ships one.
-console.log("dist/ ready (mobile-safe) — copy dist/* into <vault>/.obsidian/plugins/syncrypt/");
+const kib = (Buffer.byteLength(bundle) / 1024).toFixed(1);
+console.log(
+  `dist/ ready (mobile-safe, ${dev ? "dev — inline sourcemap" : "release — no sourcemap"}): main.js ${kib} KiB`,
+);
+console.log("copy dist/* into <vault>/.obsidian/plugins/syncrypt/");

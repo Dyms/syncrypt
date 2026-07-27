@@ -7,7 +7,8 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "build": "node esbuild.config.mjs"
+    "build": "node esbuild.config.mjs",
+    "build:dev": "node esbuild.config.mjs --dev"
   },
   "dependencies": {
     "@syncrypt/core": "0.1.0",
