@@ -7,6 +7,8 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.2] — 2026-08-22
+
 ### Changed
 - The released plugin bundle is **81% smaller** — 916 KB → 174 KB. Release
   builds no longer embed an inline sourcemap, which accounted for 742 KB of
