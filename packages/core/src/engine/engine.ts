@@ -12,6 +12,7 @@ import type {
 } from "../ports.js";
 import { DEFAULT_PLAN_OPTIONS, plan } from "../plan.js";
 import type { Operation, PlanOptions, SyncPlan } from "../plan.js";
+import { SyncError } from "../errors.js";
 import { parseManifest } from "../manifest.js";
 import type { SyncOutcome, SyncReport, SyncReportEntry } from "../report.js";
 import { detectLocalChanges, scanVault, type HashCache } from "../scan.js";
@@ -63,6 +64,19 @@ export interface SyncEngine {
 
   /** Current state: base generation, dirty files, last report — no I/O beyond a scan. */
   status(): Promise<SyncStatus>;
+
+  /**
+   * Cheap proof that the configured storage AND the derived keys actually open
+   * this vault: read the published manifest and decrypt it. No local scan, no
+   * writes. Returns null when the vault has no manifest yet (a fresh vault —
+   * any passphrase is valid, it will create one on the first push).
+   *
+   * Fails closed exactly like a sync would: CryptoAuthError for a wrong
+   * passphrase or tampered data, Storage* errors for an unreachable bucket.
+   * Clients use it to report a wrong passphrase at UNLOCK time instead of
+   * halfway through the first sync (RFC-0007 §7).
+   */
+  verifyAccess(signal?: AbortSignal): Promise<{ generation: number; files: number } | null>;
 }
 
 const noopLog: LogPort = {
@@ -443,6 +457,18 @@ class Engine implements SyncEngine {
     const outcome: SyncOutcome =
       conflicts.length > 0 ? "conflicts" : entries.length > 0 ? "applied" : "no-op";
     return this.report(startedAt, outcome, entries, fromGen, toGen, conflicts);
+  }
+
+  verifyAccess(signal?: AbortSignal): Promise<{ generation: number; files: number } | null> {
+    return this.exclusive(async () => {
+      if (signal?.aborted === true) throw new SyncError("Aborted", "verifyAccess aborted");
+      const remote = await readRemote(this.ctx);
+      if (remote.manifest === null) return null; // nothing published yet
+      return {
+        generation: remote.generation,
+        files: Object.keys(remote.manifest.files).length,
+      };
+    });
   }
 
   async status(): Promise<SyncStatus> {

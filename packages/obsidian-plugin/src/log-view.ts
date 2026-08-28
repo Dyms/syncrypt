@@ -4,6 +4,7 @@
 
 import { ItemView, type WorkspaceLeaf } from "obsidian";
 
+import { EN_STRINGS, type Strings } from "./i18n.js";
 import type { LogBuffer } from "./log-buffer.js";
 
 export const SYNC_LOG_VIEW_TYPE = "syncrypt-log";
@@ -14,6 +15,8 @@ export class SyncLogView extends ItemView {
   constructor(
     leaf: WorkspaceLeaf,
     private readonly buffer: LogBuffer,
+    /** Read at render time, so switching language repaints the whole log. */
+    private readonly strings: () => Strings = () => EN_STRINGS,
   ) {
     super(leaf);
   }
@@ -23,7 +26,7 @@ export class SyncLogView extends ItemView {
   }
 
   override getDisplayText(): string {
-    return "Syncrypt log";
+    return this.strings().log.viewTitle;
   }
 
   override getIcon(): string {
@@ -36,6 +39,11 @@ export class SyncLogView extends ItemView {
     return Promise.resolve();
   }
 
+  /** Repaint after a language change (ADR-0021). */
+  refresh(): void {
+    this.render();
+  }
+
   override async onClose(): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -46,13 +54,14 @@ export class SyncLogView extends ItemView {
     const container = this.containerEl.children[1];
     if (!(container instanceof HTMLElement)) return;
     container.empty();
-    container.createEl("h4", { text: "Sync log" });
+    const t = this.strings();
+    container.createEl("h4", { text: t.log.heading });
     const list = container.createEl("div", { cls: "syncrypt-log" });
     list.style.fontFamily = "var(--font-monospace)";
     list.style.fontSize = "0.85em";
     const lines = this.buffer.all();
     if (lines.length === 0) {
-      list.createEl("div", { text: "Nothing synced yet." });
+      list.createEl("div", { text: t.log.empty });
       return;
     }
     for (const line of [...lines].reverse()) {
@@ -60,11 +69,14 @@ export class SyncLogView extends ItemView {
       const time = new Date(line.at).toLocaleTimeString();
       row.createSpan({ text: `${time}  ` });
       if (line.level === "warn") row.style.color = "var(--text-error)";
+      // A reason code renders in the reader's language; anything else is
+      // already-final text (engine diagnostics, plugin messages).
+      const text = line.reason !== undefined ? t.reasons[line.reason] : line.text;
       if (line.path !== undefined) {
         row.createEl("b", { text: line.path });
-        row.createSpan({ text: `: ${line.text}` });
+        row.createSpan({ text: `: ${text}` });
       } else {
-        row.createSpan({ text: line.text });
+        row.createSpan({ text });
       }
     }
   }

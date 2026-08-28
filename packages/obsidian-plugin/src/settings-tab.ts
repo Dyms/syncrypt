@@ -1,8 +1,11 @@
-// Settings UI: S3 provider config, sync profile, Safe Sync knobs, unlock flow.
-// The ADR-0016 credential warning lives right next to the credential fields.
+// Settings UI: language, S3 provider config, device enrollment, sync profile,
+// Safe Sync knobs, unlock flow. Every visible string comes from i18n
+// (ADR-0021); the ADR-0016 credential note sits next to the credential fields.
 
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 
+import { SECRET_BEARING_PLUGINS } from "./config-sync.js";
+import type { Strings } from "./i18n.js";
 import type SyncryptPlugin from "./main.js";
 
 export class SyncryptSettingTab extends PluginSettingTab {
@@ -15,56 +18,77 @@ export class SyncryptSettingTab extends PluginSettingTab {
 
   // display() remains the supported imperative API; the declarative
   // getSettingDefinitions (1.13+) cannot express the unlock flow or the
-  // dynamic credential warning yet.
+  // dynamic credential note yet.
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
     const s = this.plugin.settings;
+    const t: Strings = this.plugin.t();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see note on display()
+    const rerender = (): void => { this.display(); };
 
     // --- Sync status (same honest derivation as the status bar) ----------
     const view = this.plugin.getStatusView();
     const statusSetting = new Setting(containerEl)
-      .setName(view.label.replace(/^Syncrypt: /, "Status: "))
+      .setName(view.label.replace(/^Syncrypt: /, t.status.statusPrefix))
       .setDesc(view.tooltip.replaceAll("\n", " — "));
     statusSetting.addButton((btn) =>
-      btn.setButtonText("Sync now").onClick(async () => {
+      btn.setButtonText(t.settings.syncNow).onClick(async () => {
         await this.plugin.syncNow("manual");
-        this.display(); // eslint-disable-line @typescript-eslint/no-deprecated -- re-render; see note on display()
+        rerender();
       }),
     );
     statusSetting.addButton((btn) =>
-      btn.setButtonText("Show sync log").onClick(() => void this.plugin.activateLogView()),
+      btn.setButtonText(t.settings.showLog).onClick(() => void this.plugin.activateLogView()),
     );
 
     // --- Vault lock state -----------------------------------------------
     new Setting(containerEl)
-      .setName(this.plugin.isUnlocked() ? "Unlocked" : "Locked")
-      .setDesc(
-        this.plugin.isUnlocked()
-          ? "Keys are in memory for this session."
-          : "Enter your passphrase to start syncing. It is never stored.",
-      )
+      .setName(this.plugin.isUnlocked() ? t.settings.unlockedName : t.settings.lockedName)
+      .setDesc(this.plugin.isUnlocked() ? t.settings.unlockedDesc : t.settings.lockedDesc)
       .addButton((btn) =>
         btn
-          .setButtonText(this.plugin.isUnlocked() ? "Lock" : "Unlock…")
+          .setButtonText(this.plugin.isUnlocked() ? t.settings.lockButton : t.settings.unlockButton)
           .setCta()
           .onClick(() => {
             if (this.plugin.isUnlocked()) this.plugin.lock();
             else this.plugin.promptUnlock();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see note on display()
-            this.display();
+            rerender();
+          }),
+      );
+
+    // --- Interface (ADR-0021) ---------------------------------------------
+    new Setting(containerEl).setName(t.settings.interfaceHeading).setHeading();
+    new Setting(containerEl)
+      .setName(t.settings.language)
+      .setDesc(
+        `${t.settings.languageDesc} ${t.settings.languageDetected(this.plugin.languageDiagnostics())}`,
+      )
+      .addDropdown((d) =>
+        d
+          .addOption("auto", t.settings.languageAuto)
+          .addOption("en", t.settings.languageEn)
+          .addOption("ru", t.settings.languageRu)
+          .setValue(s.language)
+          .onChange(async (v) => {
+            s.language = v === "en" || v === "ru" ? v : "auto";
+            await this.plugin.saveSettings();
+            this.plugin.applyLanguage();
+            this.plugin.refreshSurfaces();
+            rerender();
           }),
       );
 
     // --- S3 provider -------------------------------------------------------
-    new Setting(containerEl).setName("Storage (S3-compatible)").setHeading();
-    containerEl.createEl("p", {
-      text:
-        "⚠ Credentials are stored unencrypted in this plugin's data.json (see ADR-0016). " +
-        "Use least-privilege keys scoped to a single bucket/prefix, and enable bucket versioning. " +
-        "Your notes are protected by the passphrase, which is never written to disk.",
-      cls: "mod-warning",
-    });
+    new Setting(containerEl).setName(t.settings.storageHeading).setHeading();
+    // ADR-0016, stated once and calmly: a note, not an alarm. Shown only once
+    // keys are actually stored — before that there is nothing to warn about.
+    if (s.s3.accessKeyId !== "" || s.s3.secretAccessKey !== "") {
+      containerEl.createEl("div", {
+        text: `⚠ ${t.settings.credentialWarning}`,
+        cls: "setting-item-description",
+      });
+    }
 
     const s3Text = (
       name: string,
@@ -83,33 +107,56 @@ export class SyncryptSettingTab extends PluginSettingTab {
           });
       });
     };
-    s3Text("Endpoint", () => s.s3.endpoint, (v) => (s.s3.endpoint = v), {
+    s3Text(t.settings.endpoint, () => s.s3.endpoint, (v) => (s.s3.endpoint = v), {
       placeholder: "https://s3.example.com",
     });
-    s3Text("Region", () => s.s3.region, (v) => (s.s3.region = v));
-    s3Text("Bucket", () => s.s3.bucket, (v) => (s.s3.bucket = v));
-    s3Text("Prefix", () => s.s3.prefix, (v) => (s.s3.prefix = v), {
-      placeholder: "vaults/main (optional)",
+    s3Text(t.settings.region, () => s.s3.region, (v) => (s.s3.region = v));
+    s3Text(t.settings.bucket, () => s.s3.bucket, (v) => (s.s3.bucket = v));
+    s3Text(t.settings.prefix, () => s.s3.prefix, (v) => (s.s3.prefix = v), {
+      placeholder: t.settings.prefixPlaceholder,
     });
-    s3Text("Access key ID", () => s.s3.accessKeyId, (v) => (s.s3.accessKeyId = v));
+    s3Text(t.settings.accessKeyId, () => s.s3.accessKeyId, (v) => (s.s3.accessKeyId = v));
     s3Text(
-      "Secret access key",
+      t.settings.secretAccessKey,
       () => s.s3.secretAccessKey,
       (v) => (s.s3.secretAccessKey = v),
       { secret: true },
     );
     new Setting(containerEl)
-      .setName("Path-style addressing")
-      .setDesc("Keep on for MinIO/R2/self-hosted; some AWS setups need it off.")
-      .addToggle((t) =>
-        t.setValue(s.s3.forcePathStyle).onChange(async (v) => {
+      .setName(t.settings.pathStyle)
+      .setDesc(t.settings.pathStyleDesc)
+      .addToggle((tg) =>
+        tg.setValue(s.s3.forcePathStyle).onChange(async (v) => {
           s.s3.forcePathStyle = v;
           await this.plugin.saveSettings();
         }),
       );
 
+    // --- Devices (ADR-0020) -------------------------------------------------
+    new Setting(containerEl).setName(t.settings.devicesHeading).setHeading();
+    new Setting(containerEl)
+      .setName(t.settings.shareConnection)
+      .setDesc(t.settings.shareConnectionDesc)
+      .addButton((btn) =>
+        btn.setButtonText(t.settings.shareConnectionButton).onClick(() => {
+          this.plugin.openShareConnection();
+        }),
+      );
+    new Setting(containerEl)
+      .setName(t.settings.addDevice)
+      .setDesc(t.settings.addDeviceDesc)
+      .addButton((btn) =>
+        btn.setButtonText(t.settings.addDeviceButton).onClick(() => {
+          this.plugin.openAddDevice();
+        }),
+      );
+
     // --- Sync profile ------------------------------------------------------
-    new Setting(containerEl).setName("Sync profile").setHeading();
+    new Setting(containerEl).setName(t.settings.profileHeading).setHeading();
+    containerEl.createEl("div", {
+      text: t.settings.profileIntro,
+      cls: "setting-item-description",
+    });
     const profileArea = (
       name: string,
       desc: string,
@@ -126,16 +173,122 @@ export class SyncryptSettingTab extends PluginSettingTab {
           });
         });
     };
-    profileArea("Include", "One glob per line.", () => s.profile.include, (v) => (s.profile.include = v));
     profileArea(
-      "Exclude",
-      "One glob per line. Dot-folders and .obsidian/sync-trash are always excluded.",
+      t.settings.include,
+      t.settings.includeDesc,
+      () => s.profile.include,
+      (v) => (s.profile.include = v),
+    );
+    profileArea(
+      t.settings.exclude,
+      t.settings.excludeDesc,
       () => s.profile.exclude,
       (v) => (s.profile.exclude = v),
     );
+    new Setting(containerEl)
+      .setName(t.settings.profileCheck)
+      .setDesc(t.settings.profileCheckDesc)
+      .addButton((btn) =>
+        btn.setButtonText(t.settings.profileCheckButton).onClick(async () => {
+          const seen = await this.plugin.previewProfile();
+          new Notice(
+            t.settings.profileCheckResult(seen.files, seen.notes, seen.attachments),
+            8000,
+          );
+        }),
+      );
+
+    // --- Obsidian settings sync (RFC-0008) ----------------------------------
+    new Setting(containerEl).setName(t.settings.configSyncHeading).setHeading();
+    containerEl.createEl("div", {
+      text: t.settings.configSyncIntro,
+      cls: "setting-item-description",
+    });
+    new Setting(containerEl)
+      .setName(t.settings.configSyncEnabled)
+      .setDesc(t.settings.configSyncEnabledDesc)
+      .addToggle((tg) =>
+        tg.setValue(s.configSync.enabled).onChange(async (v) => {
+          s.configSync.enabled = v;
+          await this.plugin.saveSettings();
+          rerender();
+        }),
+      );
+
+    if (s.configSync.enabled) {
+      const item = (
+        name: string,
+        desc: string,
+        get: () => boolean,
+        set: (v: boolean) => void,
+      ): void => {
+        new Setting(containerEl)
+          .setName(name)
+          .setDesc(desc)
+          .addToggle((tg) =>
+            tg.setValue(get()).onChange(async (v) => {
+              set(v);
+              await this.plugin.saveSettings();
+            }),
+          );
+      };
+      item(t.settings.configAppearance, t.settings.configAppearanceDesc,
+        () => s.configSync.appearance, (v) => (s.configSync.appearance = v));
+      item(t.settings.configApp, t.settings.configAppDesc,
+        () => s.configSync.app, (v) => (s.configSync.app = v));
+      item(t.settings.configHotkeys, t.settings.configHotkeysDesc,
+        () => s.configSync.hotkeys, (v) => (s.configSync.hotkeys = v));
+      item(t.settings.configThemes, t.settings.configThemesDesc,
+        () => s.configSync.themes, (v) => (s.configSync.themes = v));
+      item(t.settings.configSnippets, t.settings.configSnippetsDesc,
+        () => s.configSync.snippets, (v) => (s.configSync.snippets = v));
+      item(t.settings.configCorePlugins, t.settings.configCorePluginsDesc,
+        () => s.configSync.corePlugins, (v) => (s.configSync.corePlugins = v));
+      item(t.settings.configCommunityList, t.settings.configCommunityListDesc,
+        () => s.configSync.communityPluginsList, (v) => (s.configSync.communityPluginsList = v));
+
+      // Per-plugin opt-in. The list is read asynchronously; the section fills
+      // in when the manifests come back.
+      new Setting(containerEl).setName(t.settings.configPluginsHeading).setHeading();
+      containerEl.createEl("div", {
+        text: t.settings.configPluginsIntro,
+        cls: "setting-item-description",
+      });
+      const pluginsEl = containerEl.createEl("div");
+      pluginsEl.createEl("div", {
+        text: t.settings.configPluginsLoading,
+        cls: "setting-item-description",
+      });
+      void this.plugin.listInstalledPlugins().then((plugins) => {
+        pluginsEl.empty();
+        if (plugins.length === 0) {
+          pluginsEl.createEl("div", {
+            text: t.settings.configNoPlugins,
+            cls: "setting-item-description",
+          });
+          return;
+        }
+        for (const plugin of plugins) {
+          const secret = SECRET_BEARING_PLUGINS.has(plugin.id);
+          new Setting(pluginsEl)
+            .setName(secret ? `${plugin.name} — ⚠ ${t.settings.configPluginSecret}` : plugin.name)
+            .setDesc(plugin.id)
+            .addToggle((tg) =>
+              tg.setValue(s.configSync.plugins.includes(plugin.id)).onChange(async (v) => {
+                const kept = s.configSync.plugins.filter((id) => id !== plugin.id);
+                s.configSync.plugins = v ? [...kept, plugin.id] : kept;
+                await this.plugin.saveSettings();
+                if (v && secret) {
+                  new Notice(t.settings.configPluginSecretWarning(plugin.name), 10000);
+                }
+              }),
+            );
+        }
+      });
+    }
 
     // --- Safe Sync ----------------------------------------------------------
-    new Setting(containerEl).setName("Safe Sync (ADR-0010/0013)").setHeading();
+    new Setting(containerEl).setName(t.settings.safeSyncHeading).setHeading();
     const num = (
       name: string,
       desc: string,
@@ -156,42 +309,38 @@ export class SyncryptSettingTab extends PluginSettingTab {
         );
     };
     num(
-      "Confirmation floor",
-      "Destructive changes at or below this count never prompt (0 = strict).",
+      t.settings.confirmationFloor,
+      t.settings.confirmationFloorDesc,
       () => s.safeSync.bulkChangeFloor,
       (v) => (s.safeSync.bulkChangeFloor = Math.floor(v)),
     );
     num(
-      "Always confirm at",
-      "Destructive changes at or above this count always prompt.",
+      t.settings.alwaysConfirmAt,
+      t.settings.alwaysConfirmAtDesc,
       () => s.safeSync.bulkChangeMaxFiles,
       (v) => (s.safeSync.bulkChangeMaxFiles = Math.floor(v)),
     );
     num(
-      "Vault fraction",
-      "Between floor and cap, prompt when the change exceeds this fraction (0.1 = 10%).",
+      t.settings.vaultFraction,
+      t.settings.vaultFractionDesc,
       () => s.safeSync.bulkChangeMaxFraction,
       (v) => (s.safeSync.bulkChangeMaxFraction = v),
     );
     num(
-      "Versions to keep",
-      "Prior encrypted versions retained per changed file.",
+      t.settings.versionsToKeep,
+      t.settings.versionsToKeepDesc,
       () => s.safeSync.versionsToKeep,
       (v) => (s.safeSync.versionsToKeep = Math.floor(v)),
     );
 
     // --- Vault creation profile (ADR-0018) -----------------------------------
     new Setting(containerEl)
-      .setName("Vault KDF profile")
-      .setDesc(
-        "Used only when THIS device creates the vault. Cross-device (default) " +
-          "is joinable from phones; desktop-only is stronger but mobile devices " +
-          "will refuse to join it.",
-      )
+      .setName(t.settings.kdfProfile)
+      .setDesc(t.settings.kdfProfileDesc)
       .addDropdown((d) =>
         d
-          .addOption("cross-device", "Cross-device (recommended)")
-          .addOption("desktop-only", "Desktop-only (128 MiB Argon2id)")
+          .addOption("cross-device", t.settings.kdfCrossDevice)
+          .addOption("desktop-only", t.settings.kdfDesktopOnly)
           .setValue(s.kdfProfile)
           .onChange(async (v) => {
             s.kdfProfile = v === "desktop-only" ? "desktop-only" : "cross-device";
@@ -200,46 +349,46 @@ export class SyncryptSettingTab extends PluginSettingTab {
       );
 
     // --- Auto-sync -----------------------------------------------------------
-    new Setting(containerEl).setName("Auto-sync").setHeading();
+    new Setting(containerEl).setName(t.settings.autoSyncHeading).setHeading();
     new Setting(containerEl)
-      .setName("Sync while editing")
-      .setDesc("Debounced sync after edits settle; manual Sync now always works.")
-      .addToggle((t) =>
-        t.setValue(s.autoSync.enabled).onChange(async (v) => {
+      .setName(t.settings.syncWhileEditing)
+      .setDesc(t.settings.syncWhileEditingDesc)
+      .addToggle((tg) =>
+        tg.setValue(s.autoSync.enabled).onChange(async (v) => {
           s.autoSync.enabled = v;
           await this.plugin.saveSettings();
           this.plugin.reconfigureScheduler();
         }),
       );
     new Setting(containerEl)
-      .setName("Wi-Fi only")
-      .setDesc("Skip automatic syncs on cellular data (manual Sync now always works).")
-      .addToggle((t) =>
-        t.setValue(s.autoSync.wifiOnly).onChange(async (v) => {
+      .setName(t.settings.wifiOnly)
+      .setDesc(t.settings.wifiOnlyDesc)
+      .addToggle((tg) =>
+        tg.setValue(s.autoSync.wifiOnly).onChange(async (v) => {
           s.autoSync.wifiOnly = v;
           await this.plugin.saveSettings();
         }),
       );
     num(
-      "Debounce (seconds)",
-      "Quiet time after the last edit before an auto-sync.",
+      t.settings.debounce,
+      t.settings.debounceDesc,
       () => s.autoSync.debounceSec,
       (v) => (s.autoSync.debounceSec = v),
     );
     num(
-      "Minimum interval (seconds)",
-      "At most one auto-sync per this many seconds.",
+      t.settings.minInterval,
+      t.settings.minIntervalDesc,
       () => s.autoSync.minIntervalSec,
       (v) => (s.autoSync.minIntervalSec = v),
     );
 
     new Setting(containerEl)
-      .setName("Device ID")
-      .setDesc(`${s.deviceId} — stable identifier used in manifests.`)
+      .setName(t.settings.deviceId)
+      .setDesc(t.settings.deviceIdDesc(s.deviceId))
       .addButton((btn) =>
-        btn.setButtonText("Copy").onClick(async () => {
+        btn.setButtonText(t.settings.copy).onClick(async () => {
           await navigator.clipboard.writeText(s.deviceId);
-          new Notice("Device ID copied");
+          new Notice(t.notices.deviceIdCopied);
         }),
       );
   }

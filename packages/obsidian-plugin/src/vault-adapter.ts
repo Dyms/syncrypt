@@ -7,6 +7,9 @@
 //   hard delete.
 // - Dot-folders and the trash are hard-excluded from list(); the user's sync
 //   profile filters the rest.
+// - `.obsidian` is the ONE exception, and only when config sync is enabled
+//   (RFC-0008): then an explicit allow-list of config paths is walked, decided
+//   solely by config-sync settings — the note profile never applies to them.
 
 import {
   canonicalizePath,
@@ -16,6 +19,13 @@ import {
 } from "@syncrypt/core";
 
 import type { DataAdapterLike } from "./adapter-types.js";
+import {
+  configFolderWorthWalking,
+  configPathAllowed,
+  DEFAULT_CONFIG_SYNC,
+  OBSIDIAN_DIR,
+  type ConfigSyncSettings,
+} from "./config-sync.js";
 import { ProfileMatcher, type SyncProfile } from "./profile.js";
 
 export const SYNC_TRASH_DIR = ".obsidian/sync-trash";
@@ -26,6 +36,7 @@ export class ObsidianVault implements VaultPort {
   constructor(
     private readonly adapter: DataAdapterLike,
     profile: SyncProfile,
+    private readonly configSync: ConfigSyncSettings = DEFAULT_CONFIG_SYNC,
   ) {
     this.matcher = new ProfileMatcher(profile);
   }
@@ -36,14 +47,24 @@ export class ObsidianVault implements VaultPort {
       const { files, folders } = await this.adapter.list(folder);
       for (const file of files) {
         const canonical = this.fromNative(file);
+        if (canonical.startsWith(`${OBSIDIAN_DIR}/`)) {
+          // Config files answer to config-sync settings only (RFC-0008).
+          if (configPathAllowed(canonical, this.configSync)) found.push(canonical);
+          continue;
+        }
         if (basename(canonical).startsWith(".")) continue;
         if (this.matcher.matches(canonical)) found.push(canonical);
       }
       for (const sub of folders) {
         const canonical = this.fromNative(sub);
-        // Hard invariants first: sync-trash and dot-folders are never walked.
-        if (basename(canonical).startsWith(".")) continue;
+        // Hard invariants first: sync-trash is never walked, and dot-folders
+        // are skipped except `.obsidian` under an explicit config-sync opt-in.
         if (canonical === SYNC_TRASH_DIR) continue;
+        if (canonical === OBSIDIAN_DIR || canonical.startsWith(`${OBSIDIAN_DIR}/`)) {
+          if (configFolderWorthWalking(canonical, this.configSync)) await walk(sub);
+          continue;
+        }
+        if (basename(canonical).startsWith(".")) continue;
         if (this.matcher.folderExcluded(canonical)) continue;
         await walk(sub);
       }

@@ -3,6 +3,7 @@
 // no surprises; the user decides). See docs/user-guide/migration-from-livesync.md.
 
 import type { DataAdapterLike } from "./adapter-types.js";
+import { EN_STRINGS, type Strings } from "./i18n.js";
 
 export interface PreflightWarning {
   code: string;
@@ -19,6 +20,7 @@ const COMMUNITY_PLUGINS = ".obsidian/community-plugins.json";
 
 export async function migrationPreflight(
   adapter: DataAdapterLike,
+  t: Strings = EN_STRINGS,
 ): Promise<PreflightWarning[]> {
   const warnings: PreflightWarning[] = [];
 
@@ -39,18 +41,12 @@ export async function migrationPreflight(
     if (enabled.includes(plugin.id)) {
       warnings.push({
         code: `${plugin.id}:enabled`,
-        message:
-          `${plugin.name} is ENABLED in this vault. Two sync systems on one vault ` +
-          `will fight over files — disable it before syncing with Syncrypt ` +
-          `(see the migration guide).`,
+        message: t.migration.enabled(plugin.name),
       });
     } else if (installed) {
       warnings.push({
         code: `${plugin.id}:leftovers`,
-        message:
-          `${plugin.name} leftovers found (.obsidian/plugins/${plugin.id}). It is ` +
-          `disabled, but "start clean" is the safe default — consider removing ` +
-          `them (see the migration guide).`,
+        message: t.migration.leftovers(plugin.name, plugin.id),
       });
     }
   }

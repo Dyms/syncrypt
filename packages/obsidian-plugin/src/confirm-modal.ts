@@ -6,6 +6,8 @@ import { Modal, type App } from "obsidian";
 
 import type { SyncPlan } from "@syncrypt/core";
 
+import { EN_STRINGS, type Strings } from "./i18n.js";
+
 export class ConfirmSyncModal extends Modal {
   private decided = false;
 
@@ -13,14 +15,16 @@ export class ConfirmSyncModal extends Modal {
     app: App,
     private readonly plan: SyncPlan,
     private readonly onDecision: (approved: boolean) => void,
+    private readonly t: Strings = EN_STRINGS,
   ) {
     super(app);
   }
 
   override onOpen(): void {
-    this.titleEl.setText("Syncrypt: confirmation required");
+    this.titleEl.setText(this.t.confirmModal.title);
+    // The engine's own wording when it has one (still English today), else ours.
     this.contentEl.createEl("p", {
-      text: this.plan.confirmationReason ?? "This sync makes bulk changes.",
+      text: this.plan.confirmationReason ?? this.t.confirmModal.fallbackReason,
     });
 
     const destructive = this.plan.operations.filter(
@@ -33,9 +37,9 @@ export class ConfirmSyncModal extends Modal {
     listEl.style.maxHeight = "40vh";
     listEl.style.overflow = "auto";
     const labels: Record<string, string> = {
-      "delete-local": "delete locally (to trash)",
-      "delete-remote": "delete remotely (tombstone)",
-      download: "overwrite local file",
+      "delete-local": this.t.confirmModal.deleteLocal,
+      "delete-remote": this.t.confirmModal.deleteRemote,
+      download: this.t.confirmModal.overwriteLocal,
     };
     for (const op of destructive) {
       const row = listEl.createEl("div");
@@ -47,10 +51,10 @@ export class ConfirmSyncModal extends Modal {
     buttons.style.display = "flex";
     buttons.style.gap = "0.5em";
     buttons.style.justifyContent = "flex-end";
-    const cancel = buttons.createEl("button", { text: "Cancel (do nothing)" });
+    const cancel = buttons.createEl("button", { text: this.t.confirmModal.cancel });
     cancel.addEventListener("click", () => { this.decide(false); });
     const ok = buttons.createEl("button", {
-      text: `Apply ${destructive.length} destructive changes`,
+      text: this.t.confirmModal.apply(destructive.length),
       cls: "mod-warning",
     });
     ok.addEventListener("click", () => { this.decide(true); });

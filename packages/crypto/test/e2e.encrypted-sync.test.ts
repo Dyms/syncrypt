@@ -58,6 +58,48 @@ async function makeDevice(
 const SECRET = "TOP-SECRET plaintext: the meeting is at dawn";
 const SECRET_PATH = "Projects/secret-plan.md";
 
+describe("verifyAccess: a wrong passphrase is caught at unlock, not mid-sync", () => {
+  it("returns the published generation for the right passphrase", async () => {
+    const storage = new MemoryStorage();
+    const a = await makeDevice(storage, "device-a");
+    a.vault.setFile("note.md", "hello");
+    a.vault.setFile("dir/other.md", "world");
+    await a.engine.sync();
+
+    const b = await makeDevice(storage, "device-b");
+    const seen = await b.engine.verifyAccess();
+    expect(seen).not.toBeNull();
+    expect(seen?.files).toBe(2);
+    expect(seen?.generation).toBeGreaterThan(0);
+  });
+
+  it("fails closed with CryptoAuthError for a wrong passphrase", async () => {
+    const storage = new MemoryStorage();
+    const a = await makeDevice(storage, "device-a");
+    a.vault.setFile("note.md", "hello");
+    await a.engine.sync();
+
+    // The keyfile params are public, so opening the crypto succeeds; only
+    // decrypting the manifest reveals the passphrase is wrong.
+    const wrong = await makeDevice(storage, "device-wrong", "not the passphrase");
+    let caught: unknown;
+    try {
+      await wrong.engine.verifyAccess();
+    } catch (e) {
+      caught = e;
+    }
+    expect(isSyncError(caught, "CryptoAuthError")).toBe(true);
+    // Nothing was applied to the joining device.
+    expect(wrong.vault.paths()).toEqual([]);
+  });
+
+  it("returns null for a vault that has nothing published yet", async () => {
+    const storage = new MemoryStorage();
+    const fresh = await makeDevice(storage, "device-fresh");
+    expect(await fresh.engine.verifyAccess()).toBeNull();
+  });
+});
+
 describe("encrypted two-device sync (M2)", () => {
   it("round-trips through ciphertext and leaves NO plaintext in storage", async () => {
     const storage = new MemoryStorage();

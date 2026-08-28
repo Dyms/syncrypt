@@ -1,9 +1,13 @@
 // Plugin settings — persisted in data.json (ADR-0016: S3 credentials live
 // here BY DECISION, with a UI warning; the passphrase NEVER does).
 
+import { DEFAULT_CONFIG_SYNC, type ConfigSyncSettings } from "./config-sync.js";
+import type { LangSetting } from "./i18n.js";
 import { DEFAULT_PROFILE, type SyncProfile } from "./profile.js";
 
 export interface SyncryptSettings {
+  /** UI language; "auto" follows Obsidian's own setting (ADR-0021). */
+  language: LangSetting;
   s3: {
     endpoint: string;
     region: string;
@@ -14,6 +18,8 @@ export interface SyncryptSettings {
     forcePathStyle: boolean;
   };
   profile: SyncProfile;
+  /** Obsidian settings sync — opt-in, per-item (RFC-0008). */
+  configSync: ConfigSyncSettings;
   safeSync: {
     bulkChangeFloor: number;
     bulkChangeMaxFiles: number;
@@ -38,6 +44,7 @@ export interface PlatformDefaults {
 }
 
 export const DEFAULT_SETTINGS: SyncryptSettings = {
+  language: "auto",
   s3: {
     endpoint: "",
     region: "us-east-1",
@@ -48,6 +55,7 @@ export const DEFAULT_SETTINGS: SyncryptSettings = {
     forcePathStyle: true,
   },
   profile: DEFAULT_PROFILE,
+  configSync: DEFAULT_CONFIG_SYNC,
   safeSync: {
     bulkChangeFloor: 5,
     bulkChangeMaxFiles: 20,
@@ -78,10 +86,21 @@ export function withDefaults(
     ? { ...DEFAULT_SETTINGS.autoSync, minIntervalSec: 120, wifiOnly: true }
     : DEFAULT_SETTINGS.autoSync;
   return {
+    language:
+      raw.language === "en" || raw.language === "ru" || raw.language === "auto"
+        ? raw.language
+        : DEFAULT_SETTINGS.language,
     s3: { ...DEFAULT_SETTINGS.s3, ...raw.s3 },
     profile: {
       include: raw.profile?.include ?? DEFAULT_SETTINGS.profile.include,
       exclude: raw.profile?.exclude ?? DEFAULT_SETTINGS.profile.exclude,
+    },
+    configSync: {
+      ...DEFAULT_CONFIG_SYNC,
+      ...raw.configSync,
+      plugins: Array.isArray(raw.configSync?.plugins)
+        ? raw.configSync.plugins.filter((x): x is string => typeof x === "string")
+        : [],
     },
     safeSync: { ...DEFAULT_SETTINGS.safeSync, ...raw.safeSync },
     autoSync: { ...autoSyncDefaults, ...raw.autoSync },

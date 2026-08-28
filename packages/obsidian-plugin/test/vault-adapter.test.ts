@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_CONFIG_SYNC, type ConfigSyncSettings } from "../src/config-sync.js";
 import { DEFAULT_PROFILE, ProfileMatcher } from "../src/profile.js";
 import { ObsidianVault, SYNC_TRASH_DIR } from "../src/vault-adapter.js";
 import { AdapterStateStore } from "../src/state-store.js";
@@ -24,6 +25,43 @@ describe("ObsidianVault (VaultPort over DataAdapter)", () => {
     adapter.setFile("dir/.DS_Store", "junk");
     const vault = new ObsidianVault(adapter, DEFAULT_PROFILE);
     expect(await listAll(vault)).toEqual(["dir/deep/nested.md", "note.md"]);
+  });
+
+  it("walks .obsidian ONLY for the config paths the user opted into (RFC-0008)", async () => {
+    const adapter = new MockDataAdapter();
+    adapter.setFile("note.md", "a");
+    adapter.setFile(".obsidian/appearance.json", "{}");
+    adapter.setFile(".obsidian/hotkeys.json", "{}");
+    adapter.setFile(".obsidian/app.json", "{}");
+    adapter.setFile(".obsidian/workspace.json", "{}");
+    adapter.setFile(".obsidian/snippets/mine.css", "css");
+    adapter.setFile(".obsidian/plugins/dataview/data.json", "{}");
+    adapter.setFile(".obsidian/plugins/dataview/main.js", "code");
+    adapter.setFile(".obsidian/plugins/templater/data.json", "{}");
+    adapter.setFile(".obsidian/plugins/syncrypt/data.json", "SECRET KEYS");
+    adapter.setFile(`${SYNC_TRASH_DIR}/old.md`, "trashed");
+
+    // Off by default: the vault looks exactly as it did before the feature.
+    const plain = new ObsidianVault(adapter, DEFAULT_PROFILE);
+    expect(await listAll(plain)).toEqual(["note.md"]);
+
+    const cs: ConfigSyncSettings = {
+      ...DEFAULT_CONFIG_SYNC,
+      enabled: true,
+      snippets: true,
+      hotkeys: true,
+      appearance: true,
+      app: false,
+      plugins: ["dataview"],
+    };
+    const synced = new ObsidianVault(adapter, DEFAULT_PROFILE, cs);
+    expect(await listAll(synced)).toEqual([
+      ".obsidian/appearance.json",
+      ".obsidian/hotkeys.json",
+      ".obsidian/plugins/dataview/data.json",
+      ".obsidian/snippets/mine.css",
+      "note.md",
+    ]);
   });
 
   it("normalizes NFD paths from the adapter to NFC (ADR-0007, macOS)", async () => {

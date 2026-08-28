@@ -20,28 +20,24 @@ export class ShareConnectionModal extends Modal {
   }
 
   override onOpen(): void {
-    this.titleEl.setText("Share connection (add another device)");
-    this.contentEl.createEl("p", {
-      text:
-        "Creates an encrypted ticket with this device's storage settings. " +
-        "The ticket is exactly as strong as your passphrase — it is useless " +
-        "without it, but a weak passphrase makes it a weak ticket.",
-    });
+    const t = this.plugin.t();
+    this.titleEl.setText(t.shareModal.title);
+    this.contentEl.createEl("p", { text: t.shareModal.intro });
     new Setting(this.contentEl)
-      .setName("Include storage credentials")
-      .setDesc("Off = the other device types the keys manually (config only).")
+      .setName(t.shareModal.includeCreds)
+      .setDesc(t.shareModal.includeCredsDesc)
       .addToggle((t) =>
         t.setValue(this.includeCreds).onChange((v) => {
           this.includeCreds = v;
         }),
       );
-    new Setting(this.contentEl).setName("Vault passphrase").addText((text) => {
+    new Setting(this.contentEl).setName(t.shareModal.passphrase).addText((text) => {
       text.inputEl.type = "password";
       text.inputEl.style.width = "100%";
       text.onChange((v) => (this.passphrase = v));
     });
     new Setting(this.contentEl).addButton((btn) =>
-      btn.setButtonText("Generate ticket").setCta().onClick(() => void this.generate()),
+      btn.setButtonText(t.shareModal.generate).setCta().onClick(() => void this.generate()),
     );
   }
 
@@ -64,23 +60,19 @@ export class ShareConnectionModal extends Modal {
     );
     this.passphrase = "";
 
+    const t = this.plugin.t();
     this.contentEl.empty();
-    this.titleEl.setText("Your connection ticket");
-    this.contentEl.createEl("p", {
-      text:
-        "On the other device: install Syncrypt, run “Add this device from a " +
-        "ticket”, paste this, and enter the same passphrase. Then DELETE the " +
-        "message you used to transfer it — treat the ticket like a secret.",
-    });
+    this.titleEl.setText(t.shareModal.resultTitle);
+    this.contentEl.createEl("p", { text: t.shareModal.resultIntro });
     const area = this.contentEl.createEl("textarea");
     area.value = ticket;
     area.readOnly = true;
     area.style.width = "100%";
     area.style.height = "8em";
-    const copy = this.contentEl.createEl("button", { text: "Copy to clipboard" });
+    const copy = this.contentEl.createEl("button", { text: t.shareModal.copy });
     copy.addEventListener("click", () => {
       void navigator.clipboard.writeText(ticket).then(() => {
-        new Notice("Ticket copied.");
+        new Notice(t.notices.ticketCopied);
       });
     });
   }
@@ -103,27 +95,27 @@ export class AddDeviceModal extends Modal {
   }
 
   override onOpen(): void {
-    this.titleEl.setText("Add this device from a ticket");
-    this.contentEl.createEl("p", {
-      text: "Paste the connection ticket from your other device and enter your vault passphrase.",
-    });
+    const t = this.plugin.t();
+    this.titleEl.setText(t.addDeviceModal.title);
+    this.contentEl.createEl("p", { text: t.addDeviceModal.intro });
     const area = this.contentEl.createEl("textarea");
-    area.placeholder = "Connection ticket…";
+    area.placeholder = t.addDeviceModal.ticketPlaceholder;
     area.style.width = "100%";
     area.style.height = "8em";
     area.addEventListener("input", () => (this.ticket = area.value));
-    new Setting(this.contentEl).setName("Vault passphrase").addText((text) => {
+    new Setting(this.contentEl).setName(t.addDeviceModal.passphrase).addText((text) => {
       text.inputEl.type = "password";
       text.inputEl.style.width = "100%";
       text.onChange((v) => (this.passphrase = v));
     });
     new Setting(this.contentEl).addButton((btn) =>
-      btn.setButtonText("Connect").setCta().onClick(() => void this.connect()),
+      btn.setButtonText(t.addDeviceModal.connect).setCta().onClick(() => void this.connect()),
     );
   }
 
   private async connect(): Promise<void> {
     if (this.ticket.trim().length === 0 || this.passphrase.length === 0) return;
+    const t = this.plugin.t();
     try {
       // Decrypt LOCALLY first (fail-closed); only then touch settings/network.
       const payload = await openConnectionTicket(this.ticket, this.passphrase);
@@ -133,17 +125,14 @@ export class AddDeviceModal extends Modal {
       this.passphrase = "";
       this.close();
       if (ticketIsCredsLess(payload)) {
-        new Notice(
-          "Connection settings imported WITHOUT credentials — enter the storage keys in Settings, then Unlock.",
-          10000,
-        );
+        new Notice(t.notices.ticketImportedNoCreds, 10000);
         return;
       }
-      new Notice("Connection imported. Connecting… (delete the transferred ticket now)");
+      new Notice(t.notices.ticketImported);
       await this.plugin.connectWithPassphrase(passphrase);
     } catch (e) {
       // Nothing was applied — openConnectionTicket is all-or-nothing.
-      new Notice(`Syncrypt: ticket rejected — ${String(e)}`, 8000);
+      new Notice(t.notices.ticketRejected(String(e)), 8000);
     }
   }
 

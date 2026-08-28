@@ -7,6 +7,57 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.3] — 2026-08-22
+
+### Added
+- **Russian interface** (ADR-0021). Settings, modals, status bar, notices and
+  the sync log — including the per-file reasons — follow Obsidian's own
+  language, and a Language setting can pin English or Russian regardless.
+  Reason codes stay stable in the engine; only the phrasing is translated, so
+  switching language re-renders existing log history too. Command names follow
+  the language chosen at startup.
+- **Device enrollment from Settings**: "Share connection" and "Add this device
+  from a ticket" now have buttons in a Devices section, not only entries in the
+  command palette.
+- **"What matches now"**: a button that counts the files the current profile
+  patterns would sync — locally, without keys, without touching storage.
+- **Obsidian settings sync** (RFC-0008), off by default and opt-in per item:
+  appearance, editor options, hotkeys, themes, CSS snippets, the core- and
+  community-plugin lists, and — chosen plugin by plugin — each plugin's
+  `data.json`. Plugins known to keep API keys in their settings are flagged in
+  the list and warn on the way in. Three things can never be synced whatever
+  the settings say: Syncrypt's own `data.json` (it holds the storage keys,
+  ADR-0016), the window layout, and the sync-trash. Plugin CODE is never
+  synced — installing and updating plugins stays the store's job, so a second
+  writer can never roll a version back.
+
+### Fixed
+- **The unlock dialog closes as soon as the vault opens.** It used to wait for
+  the whole on-open sync before closing, so on a large vault it sat on
+  "Checking…" for minutes while the log already said "unlocked". The dialog now
+  waits only for the key check; the first sync runs in the background with its
+  progress in the status bar.
+- **A wrong passphrase now says so.** The unlock dialog stays open, clears the
+  field and explains the failure inline instead of closing silently and leaving
+  the only trace in the sync log. The check happens at unlock time: the new
+  `SyncEngine.verifyAccess()` reads and decrypts the published manifest without
+  scanning the vault, so a wrong passphrase fails in the dialog rather than
+  halfway through the first sync. Storage problems are reported as storage
+  problems — an unreachable bucket or rejected access keys no longer read as
+  "wrong passphrase" — and a transient network failure does not block the
+  unlock at all: the vault opens, editing works, and the next sync verifies.
+
+### Changed
+- The stored-credentials note is phrased for humans and rendered as a normal
+  description instead of a red alert, and it appears only once keys are
+  actually stored.
+- The "What gets synced" section explains itself: it states up front that
+  dot-folders (`.obsidian` with its settings, plugins and themes) are never
+  synced, and the pattern fields carry worked examples.
+- Language auto-detection reads both `localStorage["language"]` and
+  `moment.locale()`, and Settings shows what each source reported and which
+  language won — a wrong guess is now visible instead of mysterious.
+
 ## [1.0.0-beta.2] — 2026-08-22
 
 ### Changed

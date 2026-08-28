@@ -9,6 +9,10 @@
 
 import type { SyncOutcome } from "@syncrypt/core";
 
+import { EN_STRINGS, type Strings } from "./i18n.js";
+
+type StatusStrings = Strings["status"];
+
 export interface SyncCounts {
   notes: number;
   attachments: number;
@@ -50,44 +54,46 @@ export interface SyncStateView {
   tooltip: string;
 }
 
-export function deriveSyncState(i: SyncStateInput): SyncStateView {
-  const facts = factsLine(i);
+export function deriveSyncState(
+  i: SyncStateInput,
+  s: StatusStrings = EN_STRINGS.status,
+): SyncStateView {
+  const facts = factsLine(i, s);
 
   if (i.locked) {
     return {
       kind: "locked",
-      label: "Syncrypt: locked",
-      tooltip: "Unlock with your passphrase to sync." + facts,
+      label: s.lockedLabel,
+      tooltip: s.lockedTooltip + facts,
     };
   }
   if (i.syncing) {
-    const n = i.appliedSoFar > 0 ? ` (${i.appliedSoFar})` : "…";
+    const n = i.appliedSoFar > 0 ? ` (${String(i.appliedSoFar)})` : "…";
     return {
       kind: "syncing",
-      label: `Syncrypt: syncing${n}`,
-      tooltip: "Sync in progress." + facts,
+      label: s.syncingLabel(n),
+      tooltip: s.syncingTooltip + facts,
     };
   }
   if (!i.onLine || i.lastError === "network") {
     return {
       kind: "offline",
-      label: "Syncrypt: offline",
-      tooltip: "Storage is unreachable; your edits are safe locally and will sync when the connection returns." + facts,
+      label: s.offlineLabel,
+      tooltip: s.offlineTooltip + facts,
     };
   }
   if (i.lastError === "other") {
     return {
       kind: "error",
-      label: "Syncrypt: error",
-      tooltip: "The last sync failed — see the sync log." + facts,
+      label: s.errorLabel,
+      tooltip: s.errorTooltip + facts,
     };
   }
   if (i.conflicts > 0) {
     return {
       kind: "conflict",
-      label: `Syncrypt: conflict (${i.conflicts})`,
-      tooltip:
-        `${i.conflicts} conflict(s) — both versions were kept; merge them and sync again.` + facts,
+      label: s.conflictLabel(i.conflicts),
+      tooltip: s.conflictTooltip(i.conflicts) + facts,
     };
   }
 
@@ -98,30 +104,30 @@ export function deriveSyncState(i: SyncStateInput): SyncStateView {
     i.status.dirtyFiles === 0 &&
     cleanOutcome;
   if (synced) {
-    return { kind: "synced", label: "Syncrypt: synced ✓", tooltip: "Everything is synced." + facts };
+    return { kind: "synced", label: s.syncedLabel, tooltip: s.syncedTooltip + facts };
   }
   const why =
     i.status === null || i.lastOutcome === null
-      ? "No sync has completed yet this session."
+      ? s.pendingNoSyncYet
       : i.status.dirtyFiles > 0
-        ? `${i.status.dirtyFiles} local change(s) not yet uploaded.`
+        ? s.pendingDirty(i.status.dirtyFiles)
         : i.lastOutcome === "needs-confirmation"
-          ? "A bulk change is waiting for your confirmation."
-          : "The last sync did not complete cleanly.";
-  return { kind: "pending", label: "Syncrypt: pending", tooltip: why + facts };
+          ? s.pendingNeedsConfirmation
+          : s.pendingUnclean;
+  return { kind: "pending", label: s.pendingLabel, tooltip: why + facts };
 }
 
-function factsLine(i: SyncStateInput): string {
+function factsLine(i: SyncStateInput, s: StatusStrings): string {
   const parts: string[] = [];
   if (i.lastSyncAt !== null) {
-    parts.push(`last sync ${new Date(i.lastSyncAt).toLocaleTimeString()}`);
+    parts.push(s.factsLastSync(new Date(i.lastSyncAt).toLocaleTimeString()));
   }
   if (i.counts !== null) {
-    parts.push(`${i.counts.notes} notes, ${i.counts.attachments} attachments`);
+    parts.push(s.factsCounts(i.counts.notes, i.counts.attachments));
   }
   const generation = i.status?.baseGeneration;
   if (generation !== null && generation !== undefined) {
-    parts.push(`generation #${generation}`);
+    parts.push(s.factsGeneration(generation));
   }
   return parts.length > 0 ? `\n${parts.join(" · ")}` : "";
 }

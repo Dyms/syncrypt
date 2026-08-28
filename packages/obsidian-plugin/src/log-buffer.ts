@@ -2,13 +2,20 @@
 // is a product surface (CLAUDE.md): one human-readable line per applied
 // action — reasons, not internals, and NEVER secrets.
 
-import type { LogPort, SyncReportEntry } from "@syncrypt/core";
+import type { LogPort, ReasonCode, SyncReportEntry } from "@syncrypt/core";
 
 export interface LogLine {
   at: number; // epoch ms
   level: "entry" | "info" | "warn";
+  /** English rendering exactly as the engine produced it; display fallback. */
   text: string;
   path?: string;
+  /**
+   * The stable reason behind an applied change (ADR-0021). The view renders
+   * THIS in the reader's language and falls back to `text` when absent, so
+   * switching language re-renders the whole history correctly.
+   */
+  reason?: ReasonCode;
 }
 
 export class LogBuffer implements LogPort {
@@ -18,7 +25,13 @@ export class LogBuffer implements LogPort {
   constructor(private readonly maxLines = 500) {}
 
   entry(e: SyncReportEntry): void {
-    this.push({ at: Date.now(), level: "entry", text: e.message, path: e.path });
+    this.push({
+      at: Date.now(),
+      level: "entry",
+      text: e.message,
+      path: e.path,
+      reason: e.reason,
+    });
   }
 
   info(msg: string): void {

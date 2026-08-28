@@ -5,7 +5,7 @@
 // Triggers (RFC-0004): pull on layout-ready; debounced while-active sync;
 // best-effort push on quit; manual "Sync now".
 
-import { Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
+import { moment, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 
 import type { SyncEngine, SyncOutcome, SyncReport } from "@syncrypt/sdk";
 import {
@@ -18,6 +18,15 @@ import { S3Storage } from "@syncrypt/provider-s3";
 
 import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
+import { OBSIDIAN_DIR, SYNCRYPT_PLUGIN_ID } from "./config-sync.js";
+import {
+  describeDetection,
+  EN_STRINGS,
+  resolveLang,
+  stringsFor,
+  type LanguageSources,
+  type Strings,
+} from "./i18n.js";
 import { obsidianTransport } from "./obsidian-transport.js";
 import { LogBuffer } from "./log-buffer.js";
 import { SyncLogView, SYNC_LOG_VIEW_TYPE } from "./log-view.js";
@@ -45,6 +54,7 @@ export default class SyncryptPlugin extends Plugin {
   readonly log = new LogBuffer();
   private statusEl: HTMLElement | null = null;
   private syncing = false;
+  private strings: Strings = EN_STRINGS;
 
   // Facts feeding the honest status view (see sync-state.ts).
   private lastOutcome: SyncOutcome | null = null;
@@ -57,10 +67,14 @@ export default class SyncryptPlugin extends Plugin {
 
   override async onload(): Promise<void> {
     this.settings = withDefaults(await this.loadData(), { mobile: Platform.isMobile });
+    this.applyLanguage();
     await this.saveSettings(); // persist a generated deviceId on first run
 
     this.addSettingTab(new SyncryptSettingTab(this.app, this));
-    this.registerView(SYNC_LOG_VIEW_TYPE, (leaf: WorkspaceLeaf) => new SyncLogView(leaf, this.log));
+    this.registerView(
+      SYNC_LOG_VIEW_TYPE,
+      (leaf: WorkspaceLeaf) => new SyncLogView(leaf, this.log, () => this.strings),
+    );
     this.statusEl = this.addStatusBarItem();
     this.statusEl.addEventListener("click", () => void this.syncNow("manual"));
     // Live "syncing (n)" progress from applied-file log events.
@@ -69,49 +83,43 @@ export default class SyncryptPlugin extends Plugin {
     });
     this.renderStatus();
 
+    // Command names are fixed at registration time; they follow the language
+    // chosen when Obsidian started (a switch takes effect on next launch).
     this.addCommand({
       id: "sync-now",
-      name: "Sync now",
+      name: this.strings.commands.syncNow,
       callback: () => void this.syncNow("manual"),
     });
     this.addCommand({
       id: "unlock",
-      name: "Unlock (enter passphrase)",
+      name: this.strings.commands.unlock,
       callback: () => { this.promptUnlock(); },
     });
     this.addCommand({
       id: "lock",
-      name: "Lock (forget keys)",
+      name: this.strings.commands.lock,
       callback: () => { this.lock(); },
     });
     this.addCommand({
       id: "show-log",
-      name: "Show sync log",
+      name: this.strings.commands.showLog,
       callback: () => void this.activateLogView(),
     });
     this.addCommand({
       id: "share-connection",
-      name: "Share connection (create a ticket for another device)",
-      callback: () => {
-        if (!settingsComplete(this.settings)) {
-          new Notice("Syncrypt: configure and verify storage first.");
-          return;
-        }
-        new ShareConnectionModal(this.app, this).open();
-      },
+      name: this.strings.commands.shareConnection,
+      callback: () => { this.openShareConnection(); },
     });
     this.addCommand({
       id: "add-device",
-      name: "Add this device from a ticket",
-      callback: () => {
-        new AddDeviceModal(this.app, this).open();
-      },
+      name: this.strings.commands.addDevice,
+      callback: () => { this.openAddDevice(); },
     });
 
     // Pull on start (RFC-0004 §Triggers) — once the user unlocks.
     this.app.workspace.onLayoutReady(() => {
       if (settingsComplete(this.settings)) this.promptUnlock();
-      else this.log.info("Syncrypt: configure storage in Settings, then unlock.");
+      else this.log.info(this.strings.log.configureFirst);
     });
 
     // Best-effort push on quit — never blocks shutdown (RFC-0004).
@@ -134,6 +142,69 @@ export default class SyncryptPlugin extends Plugin {
     this.lock();
   }
 
+  // -- language (ADR-0021) ---------------------------------------------------
+
+  /** Current UI strings; modals and the settings tab read through this. */
+  t(): Strings {
+    return this.strings;
+  }
+
+  /**
+   * What Obsidian tells us about its interface language. Two sources because
+   * neither is guaranteed: the localStorage key is absent for English (and on
+   * some installs entirely), and moment's locale has historically lagged.
+   */
+  private languageSources(): LanguageSources {
+    let storage: string | null = null;
+    try {
+      storage = window.localStorage.getItem("language");
+    } catch {
+      storage = null; // storage blocked
+    }
+    let locale: string | null = null;
+    try {
+      locale = moment.locale();
+    } catch {
+      locale = null;
+    }
+    return { storage, moment: locale };
+  }
+
+  /** "localStorage: ru, moment: ru → ru" — shown in Settings so a wrong
+   *  auto-detection is visible instead of mysterious. */
+  languageDiagnostics(): string {
+    return describeDetection(this.languageSources());
+  }
+
+  /** Re-resolve the language from settings + Obsidian's own choice. */
+  applyLanguage(): void {
+    this.strings = stringsFor(resolveLang(this.settings.language, this.languageSources()));
+  }
+
+  /** Repaint every open surface after a language change. Command names are
+   *  registered once by Obsidian, so those follow on the next launch. */
+  refreshSurfaces(): void {
+    this.renderStatus();
+    for (const leaf of this.app.workspace.getLeavesOfType(SYNC_LOG_VIEW_TYPE)) {
+      const view: unknown = leaf.view;
+      if (view instanceof SyncLogView) view.refresh();
+    }
+  }
+
+  // -- device enrollment (ADR-0020) ------------------------------------------
+
+  openShareConnection(): void {
+    if (!settingsComplete(this.settings)) {
+      new Notice(this.strings.notices.configureBeforeSharing);
+      return;
+    }
+    new ShareConnectionModal(this.app, this).open();
+  }
+
+  openAddDevice(): void {
+    new AddDeviceModal(this.app, this).open();
+  }
+
   // -- status (honesty rule lives in sync-state.ts) --------------------------
 
   getStatusView(): SyncStateView {
@@ -150,7 +221,7 @@ export default class SyncryptPlugin extends Plugin {
       lastError: this.lastError,
       conflicts: this.conflictsCount,
       counts: this.counts,
-    });
+    }, this.strings.status);
   }
 
   private renderStatus(): void {
@@ -158,6 +229,49 @@ export default class SyncryptPlugin extends Plugin {
     this.statusEl?.setText(view.label);
     this.statusEl?.setAttr("aria-label", view.tooltip);
     this.statusEl?.setAttr("title", view.tooltip);
+  }
+
+  /**
+   * Installed third-party plugins, for the config-sync opt-in list (RFC-0008).
+   * Reads only manifests; Syncrypt itself is never offered (ADR-0016).
+   */
+  async listInstalledPlugins(): Promise<{ id: string; name: string }[]> {
+    const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+    const root = `${OBSIDIAN_DIR}/plugins`;
+    if (!(await adapter.exists(root))) return [];
+    const { folders } = await adapter.list(root);
+    const out: { id: string; name: string }[] = [];
+    for (const folder of folders) {
+      const id = folder.slice(folder.lastIndexOf("/") + 1);
+      if (id === SYNCRYPT_PLUGIN_ID) continue;
+      let name = id;
+      try {
+        const raw: unknown = JSON.parse(
+          new TextDecoder().decode(new Uint8Array(await adapter.readBinary(`${folder}/manifest.json`))),
+        );
+        if (typeof raw === "object" && raw !== null) {
+          const manifestName = (raw as Record<string, unknown>).name;
+          if (typeof manifestName === "string" && manifestName !== "") name = manifestName;
+        }
+      } catch {
+        // No readable manifest — show the folder id, still opt-in-able.
+      }
+      out.push({ id, name });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Count what the CURRENT profile would sync — local only, no keys, no
+   * network. Lets the user check a pattern before trusting it.
+   */
+  async previewProfile(): Promise<{ files: number; notes: number; attachments: number }> {
+    const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+    const vault = new ObsidianVault(adapter, this.settings.profile, this.settings.configSync);
+    const paths: string[] = [];
+    for await (const p of vault.list()) paths.push(p);
+    const counts = classifyCounts(paths);
+    return { files: paths.length, notes: counts.notes, attachments: counts.attachments };
   }
 
   /** Refresh status()/counts facts after a sync or unlock (no network I/O). */
@@ -182,21 +296,35 @@ export default class SyncryptPlugin extends Plugin {
   promptUnlock(): void {
     if (this.isUnlocked()) return;
     if (!settingsComplete(this.settings)) {
-      new Notice("Syncrypt: fill in the storage settings first.");
+      new Notice(this.strings.notices.fillSettingsFirst);
       return;
     }
-    new PassphraseModal(this.app, (passphrase) => void this.unlock(passphrase)).open();
+    new PassphraseModal(
+      this.app,
+      (passphrase) => this.unlock(passphrase),
+      undefined,
+      this.strings,
+    ).open();
   }
 
   /** Used by the Add-device flow: connect with a passphrase already in hand. */
   async connectWithPassphrase(passphrase: string): Promise<void> {
     if (this.isUnlocked()) this.lock(); // settings just changed — rebuild
-    await this.unlock(passphrase);
+    try {
+      await this.unlock(passphrase);
+    } catch (e) {
+      // No modal is left open here, so the failure needs its own notice.
+      new Notice(this.strings.notices.unlockFailed(String(e)), 8000);
+    }
   }
 
+  /**
+   * Open the vault. THROWS on failure so the caller — normally the passphrase
+   * modal — can keep asking instead of the error only reaching the log.
+   */
   private async unlock(passphrase: string): Promise<void> {
     try {
-      this.statusEl?.setText("Syncrypt: unlocking…");
+      this.statusEl?.setText(this.strings.status.unlocking);
       const s = this.settings;
       const storage = await S3Storage.create({
         endpoint: s.s3.endpoint,
@@ -209,7 +337,7 @@ export default class SyncryptPlugin extends Plugin {
         transport: obsidianTransport,
       });
       const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
-      this.vaultPort = new ObsidianVault(adapter, s.profile);
+      this.vaultPort = new ObsidianVault(adapter, s.profile, s.configSync);
       this.engine = await openSyncEngine({
         storage,
         vault: this.vaultPort,
@@ -225,29 +353,55 @@ export default class SyncryptPlugin extends Plugin {
           s.kdfProfile === "desktop-only" ? DESKTOP_KDF_PRESET : CROSS_DEVICE_KDF_PRESET,
         ...(Platform.isMobile ? { affordability: { maxMemoryKiB: 131072 } } : {}),
       });
-      this.log.info("Syncrypt unlocked.");
+      // Prove the keys actually open this vault BEFORE reporting success:
+      // reads and decrypts the published manifest, no local scan (RFC-0007).
+      // A wrong passphrase fails here, at the modal, not halfway into the
+      // first sync.
+      //
+      // A transient network failure is NOT a reason to refuse the vault: the
+      // notes are local, editing must keep working, and the next sync will
+      // verify the keys anyway. Only a definitive answer blocks the unlock.
+      try {
+        const vault = await this.engine.verifyAccess();
+        if (vault === null) this.log.info(this.strings.log.freshVault);
+      } catch (e) {
+        if (
+          !isSyncError(e, "StorageTransient") &&
+          !isSyncError(e, "StorageRateLimited")
+        ) {
+          throw e;
+        }
+        this.log.warn(this.strings.log.verifyOffline);
+      }
+
+      this.log.info(this.strings.log.unlocked);
       this.renderStatus();
 
       // Migration preflight (M6): warn about competing sync systems — never
       // auto-fix (docs/user-guide/migration-from-livesync.md).
-      const warnings = await migrationPreflight(adapter);
+      const warnings = await migrationPreflight(adapter, this.strings);
       for (const w of warnings) this.log.warn(w.message);
       if (warnings.length > 0) {
-        new Notice(
-          `Syncrypt: ${warnings.length} migration warning(s) — see the sync log before continuing.`,
-          10000,
-        );
+        new Notice(this.strings.notices.migrationWarnings(warnings.length), 10000);
       }
 
       this.reconfigureScheduler();
       this.registerVaultEvents();
-      await this.syncNow("startup"); // the on-open pull (sync = pull+push)
+      // The vault is OPEN at this point — verifyAccess already proved the keys
+      // work — so return control now and let the on-open pull run in the
+      // background. Awaiting it here would hold the passphrase dialog on
+      // "Checking…" for the length of a full sync (minutes on a large vault)
+      // while the log already says "unlocked". Failures surface as the usual
+      // status + notice; syncNow() never throws.
+      void this.syncNow("startup"); // the on-open pull (sync = pull+push)
     } catch (e) {
       this.engine = null;
       this.vaultPort = null;
-      this.log.warn(`Unlock failed: ${String(e)}`);
-      new Notice(`Syncrypt: unlock failed — ${String(e)}`, 8000);
+      this.scheduler?.dispose();
+      this.scheduler = null;
+      this.log.warn(this.strings.log.unlockFailed(String(e)));
       this.renderStatus();
+      throw e; // the modal explains it; see PassphraseModal
     }
   }
 
@@ -258,7 +412,7 @@ export default class SyncryptPlugin extends Plugin {
     this.vaultPort = null;
     this.engineStatus = null;
     this.renderStatus();
-    this.log.info("Syncrypt locked — keys forgotten.");
+    this.log.info(this.strings.log.locked);
   }
 
   // -- triggers ---------------------------------------------------------------
@@ -305,7 +459,7 @@ export default class SyncryptPlugin extends Plugin {
     ) {
       // RFC-0004 network policy: skip the AUTO sync; the change stays dirty
       // and the next trigger (or a manual sync) picks it up.
-      this.statusEl?.setText("Syncrypt: waiting for Wi-Fi");
+      this.statusEl?.setText(this.strings.status.waitingForWifi);
       return;
     }
     this.syncing = true;
@@ -325,8 +479,8 @@ export default class SyncryptPlugin extends Plugin {
           ? "network"
           : "other";
       this.lastSyncAt = Date.now();
-      this.log.warn(`Sync failed: ${String(e)}`);
-      if (origin !== "auto") new Notice(`Syncrypt: sync failed — ${String(e)}`, 8000);
+      this.log.warn(this.strings.log.syncFailed(String(e)));
+      if (origin !== "auto") new Notice(this.strings.notices.syncFailed(String(e)), 8000);
     } finally {
       this.syncing = false;
       await this.refreshFacts().catch(() => undefined);
@@ -338,10 +492,10 @@ export default class SyncryptPlugin extends Plugin {
     if (this.engine === null) return original;
     const plan = await this.engine.dryRun();
     const approved = await new Promise<boolean>((resolve) => {
-      new ConfirmSyncModal(this.app, plan, resolve).open();
+      new ConfirmSyncModal(this.app, plan, resolve, this.strings).open();
     });
     if (!approved) {
-      this.log.info("Bulk change NOT applied — cancelled by you.");
+      this.log.info(this.strings.log.bulkCancelled);
       return original;
     }
     return this.engine.confirmAndApply(plan);
@@ -352,13 +506,10 @@ export default class SyncryptPlugin extends Plugin {
     this.lastSyncAt = Date.now();
     this.conflictsCount = report.conflicts.length;
     if (report.conflicts.length > 0) {
-      new Notice(
-        `Syncrypt: ${report.conflicts.length} conflict(s) — both versions kept, see the sync log.`,
-        8000,
-      );
+      new Notice(this.strings.notices.conflicts(report.conflicts.length), 8000);
     }
     if (origin === "manual" && report.outcome === "no-op") {
-      new Notice("Syncrypt: already in sync.");
+      new Notice(this.strings.notices.alreadyInSync);
     }
   }
 
