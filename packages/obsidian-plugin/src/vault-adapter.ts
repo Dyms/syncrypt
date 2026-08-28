@@ -73,6 +73,19 @@ export class ObsidianVault implements VaultPort {
     for (const p of found.sort()) yield p;
   }
 
+  /**
+   * The same rule list() applies, exposed to the engine (ADR-0022) so a file
+   * this device does not carry is never read as a deletion — and never
+   * downloaded here either.
+   */
+  syncable(path: VaultPath): boolean {
+    if (path === SYNC_TRASH_DIR || path.startsWith(`${SYNC_TRASH_DIR}/`)) return false;
+    if (path.startsWith(`${OBSIDIAN_DIR}/`)) return configPathAllowed(path, this.configSync);
+    if (basename(path).startsWith(".")) return false;
+    if (path.split("/").some((segment) => segment.startsWith("."))) return false;
+    return this.matcher.matches(path);
+  }
+
   async read(path: VaultPath): Promise<Uint8Array> {
     try {
       return new Uint8Array(await this.adapter.readBinary(this.toNative(path)));

@@ -126,6 +126,10 @@ class Engine implements SyncEngine {
       key: (relative: ObjectKey): ObjectKey =>
         prefix === "" ? relative : `${prefix}/${relative}`,
       planOptions: {
+        // The vault's own profile decides what this device carries (ADR-0022).
+        ...(config.vault.syncable !== undefined
+          ? { syncable: (path: VaultPath): boolean => config.vault.syncable?.(path) ?? true }
+          : {}),
         bulkChangeFloor:
           config.safeSync?.bulkChangeFloor ?? DEFAULT_PLAN_OPTIONS.bulkChangeFloor,
         bulkChangeMaxFiles:
@@ -476,7 +480,7 @@ class Engine implements SyncEngine {
     return this.exclusive(async () => {
       await this.loadStateOnce();
       const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache);
-      const changes = detectLocalChanges(local, this.base);
+      const changes = detectLocalChanges(local, this.base, this.ctx.planOptions.syncable);
       const status: SyncStatus = {
         baseGeneration: this.base?.generation ?? null,
         dirtyFiles:

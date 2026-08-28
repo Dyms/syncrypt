@@ -7,6 +7,24 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.6] — 2026-08-28
+
+### Fixed
+- **DATA LOSS: a device with a narrower profile deleted other devices' files**
+  (ADR-0022). `list()` only reports what the local profile covers, so the
+  engine could not tell "the user deleted this" from "this device does not
+  carry that kind of file" — and tombstoned the difference for everyone. A
+  phone that excluded `**/*.pdf` deleted the PDFs on the desktop; a phone with
+  Obsidian-settings sync off deleted the settings files the desktop synced.
+  Files went to each device's sync-trash rather than vanishing, but the effect
+  was still a deletion nobody asked for.
+
+  `VaultPort` now answers `syncable(path)`, and the planner uses it: a path
+  outside this device's profile is never downloaded here and never counted as a
+  local deletion — it stays in the manifest for the devices that do carry it.
+  Regression tests cover both shapes (differing sync profiles, differing
+  config-sync settings).
+
 ## [1.0.0-beta.5] — 2026-08-28
 
 ### Fixed

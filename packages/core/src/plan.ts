@@ -47,6 +47,13 @@ export interface PlanOptions {
   bulkChangeFloor: number; // default 5 — at or below: never prompt (routine)
   bulkChangeMaxFiles: number; // default 20 — at or above: always prompt
   bulkChangeMaxFraction: number; // default 0.10 — in between: prompt if ≥ 10% of vault
+  /**
+   * Does this device's profile cover the path (ADR-0022)? Paths that answer
+   * false are skipped entirely: not downloaded here, and — crucially — never
+   * mistaken for a local deletion just because this device does not list them.
+   * Defaults to "everything".
+   */
+  syncable?: (path: VaultPath) => boolean;
 }
 
 export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
@@ -183,7 +190,12 @@ export function plan(
   for (const p of localByPath.keys()) foldedLocal.set(p.toLowerCase(), p);
 
   const operations: Operation[] = [];
+  const syncable = opts.syncable ?? (() => true);
+
   for (const path of paths) {
+    // Out of this device's profile: it is not here because we do not carry it,
+    // not because the user deleted it. Leave it alone in both directions.
+    if (!localByPath.has(path) && !syncable(path)) continue;
     const localFile = localByPath.get(path);
     const localState: SideState =
       localFile === undefined ? ABSENT : { kind: "live", hash: localFile.hash };

@@ -87,6 +87,25 @@ export interface VaultPort {
   /** Map canonical ↔ platform-native path (NFD/NFC, case) — ADR-0007. */
   toNative(path: VaultPath): string;
   fromNative(native: string): VaultPath;
+
+  /**
+   * Does THIS device's profile cover this path? (ADR-0022)
+   *
+   * `list()` only reports files the profile covers, which leaves the engine
+   * unable to tell "the user deleted it" from "this device does not sync that
+   * kind of file". Without this predicate a device with a narrower profile
+   * reads every out-of-profile file in the manifest as a local deletion and
+   * tombstones it FOR EVERY DEVICE — silent data loss on the machines that do
+   * sync those files.
+   *
+   * Paths that answer false are simply not this device's business: never
+   * downloaded here, never reported as deleted here, left untouched in the
+   * manifest for the devices that do carry them.
+   *
+   * Optional: implementations without a profile (tests, headless tools) sync
+   * everything they list, and the engine defaults to true.
+   */
+  syncable?(path: VaultPath): boolean;
 }
 
 // ---------------------------------------------------------------------------
