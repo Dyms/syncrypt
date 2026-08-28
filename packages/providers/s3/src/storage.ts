@@ -29,8 +29,15 @@ import {
 } from "./xml.js";
 
 export class S3Storage implements StoragePort {
-  /** Set once a HEAD fails at transport level; see stat(). */
-  private headUnsupported = false;
+  /**
+   * How stat() asks. Starts at HEAD and degrades permanently (per session) the
+   * first time a shape of request fails at transport level — some stacks
+   * cannot do HEAD (Obsidian on Android), and a hostile proxy could break the
+   * range GET too. LIST is the last resort: it is the same request the engine
+   * already makes everywhere else, so if that fails the storage really is
+   * unreachable.
+   */
+  private statStrategy: StatStrategy = "head";
 
   private constructor(
     private readonly client: S3Client,
@@ -177,27 +184,37 @@ export class S3Storage implements StoragePort {
    * stays a 403 — those are answers, not broken plumbing.
    */
   async stat(key: ObjectKey): Promise<ObjectStat> {
-    if (!this.headUnsupported) {
+    const strategies: [StatStrategy, (k: ObjectKey) => Promise<ObjectStat>][] = [
+      ["head", (k) => this.statViaHead(k)],
+      ["range", (k) => this.statViaRange(k)],
+      ["list", (k) => this.statViaList(k)],
+    ];
+    const start = strategies.findIndex(([name]) => name === this.statStrategy);
+    let firstError: SyncError | null = null;
+
+    for (let i = Math.max(start, 0); i < strategies.length; i++) {
+      const entry = strategies[i];
+      if (entry === undefined) continue;
+      const [name, run] = entry;
       try {
-        return await withRetry(() => this.statViaHead(key), this.retryOpts);
+        const stat = await withRetry(() => run(key), this.retryOpts);
+        this.statStrategy = name; // stick with what works for this session
+        return stat;
       } catch (e) {
+        // A definitive answer (404, 403, …) is the answer — never a reason to
+        // try another shape of request.
         if (!isSyncError(e, "StorageTransient")) throw e;
-        // Prove it is HEAD specifically: if the range GET fails too, the
-        // original (network) error is what the caller should see.
-        try {
-          const stat = await withRetry(() => this.statViaRange(key), this.retryOpts);
-          this.headUnsupported = true;
-          return stat;
-        } catch {
-          throw e;
-        }
+        firstError ??= e instanceof SyncError ? e : null;
       }
     }
-    return withRetry(() => this.statViaRange(key), this.retryOpts);
+    throw (
+      firstError ??
+      new SyncError("StorageTransient", `S3 stat "${key}": every request shape failed`)
+    );
   }
 
   private async statViaHead(key: ObjectKey): Promise<ObjectStat> {
-    const res = await this.client.sendOk({ method: "HEAD", key, operation: "stat" });
+    const res = await this.client.sendOk({ method: "HEAD", key, operation: "stat(head)" });
     return {
       key,
       size: Number(res.header("content-length") ?? "0"),
@@ -217,7 +234,7 @@ export class S3Storage implements StoragePort {
       method: "GET",
       key,
       headers: { range: "bytes=0-0" },
-      operation: "stat",
+      operation: "stat(range)",
     });
     if (res.status === 416) {
       return {
@@ -228,7 +245,7 @@ export class S3Storage implements StoragePort {
       };
     }
     if (!res.ok) {
-      throw normalizeS3Error(res.status, s3ErrorCode(res.text()), key, "stat");
+      throw normalizeS3Error(res.status, s3ErrorCode(res.text()), key, "stat(range)");
     }
     const contentRange = res.header("content-range");
     const total = contentRange === null ? null : TOTAL_AFTER_SLASH.exec(contentRange)?.[1];
@@ -239,6 +256,18 @@ export class S3Storage implements StoragePort {
       etag: res.header("etag") ?? "",
       lastModified: parseHttpDate(res.header("last-modified")),
     };
+  }
+
+  /**
+   * Last-resort stat: a one-key LIST. No HEAD, no Range — exactly the request
+   * shape the engine uses to read the manifest, so it works wherever anything
+   * works at all. An empty page means the object is not there.
+   */
+  private async statViaList(key: ObjectKey): Promise<ObjectStat> {
+    for await (const stat of this.list(key)) {
+      if (stat.key === key) return stat;
+    }
+    throw new SyncError("StorageNotFound", `S3 stat(list) "${key}": HTTP 404`);
   }
 
   async *list(prefix: string): AsyncIterable<ObjectStat> {
@@ -330,6 +359,8 @@ export async function probeConditionalWrites(
       .catch(() => undefined);
   }
 }
+
+type StatStrategy = "head" | "range" | "list";
 
 /** "bytes 0-0/12345" → 12345 */
 const TOTAL_AFTER_SLASH = /\/(\d+)\s*$/;

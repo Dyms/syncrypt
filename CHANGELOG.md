@@ -7,6 +7,25 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.5] — 2026-08-28
+
+### Fixed
+- **A storage that cannot answer "does this object exist?" no longer fails the
+  sync.** That probe only skips re-uploading identical content; objects are
+  addressed by their content hash, so the only thing a rewrite could ever
+  replace is identical bytes. A transport failure during the probe is now
+  logged and the upload proceeds — only a truly unreachable storage fails, and
+  it fails at the upload, where it means something. When the probe could not
+  answer, the upload additionally asks for **create-if-absent** wherever the
+  backend supports conditional writes, so "never overwrite blindly" holds by
+  construction; a precondition failure is read as "already stored".
+- **`stat` degrades further when needed**: HEAD → byte-range GET → a one-key
+  LIST. The last step is the same request shape the engine already uses to read
+  the manifest, so it works wherever anything works at all. The chosen strategy
+  sticks for the session, and definitive answers (404, 403) are never retried in
+  another shape. Failures now name the strategy — `stat(head)`, `stat(range)`,
+  `stat(list)` — so a log line says which request actually broke.
+
 ## [1.0.0-beta.4] — 2026-08-28
 
 ### Fixed

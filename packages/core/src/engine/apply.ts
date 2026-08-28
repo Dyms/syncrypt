@@ -207,16 +207,41 @@ export async function applyPushOps(
         // scan, and the manifest must describe exactly what was uploaded.
         const hash = await ctx.crypto.hash(data);
         const objectKey = await ctx.crypto.objectKeyFor(hash);
+        // Deduplication probe: skip the upload when this exact content is
+        // already stored. It is an OPTIMIZATION — objects are addressed by
+        // content hash, so re-uploading is harmless. A storage that cannot
+        // answer the probe must therefore not fail the sync: we upload
+        // instead, and a genuinely unreachable storage fails at the put.
         let exists = true;
+        let probeAnswered = true;
         try {
           await ctx.storage.stat(ctx.key(objectKey));
         } catch (e) {
-          if (!(e instanceof SyncError) || e.code !== "StorageNotFound") throw e;
+          const notFound = e instanceof SyncError && e.code === "StorageNotFound";
+          if (!notFound) {
+            if (!(e instanceof SyncError) || e.code !== "StorageTransient") throw e;
+            probeAnswered = false;
+            ctx.log.warn(`existence check unavailable (${e.message}) — uploading anyway`);
+          }
           exists = false;
         }
         if (!exists) {
           const blob = await ctx.crypto.encrypt("content", data);
-          await ctx.storage.put(ctx.key(objectKey), blob);
+          // An object's key IS its content hash, so a rewrite could only ever
+          // replace bytes with identical bytes. Even so, when the probe could
+          // not answer we ask the storage to CREATE-IF-ABSENT where it can:
+          // "never overwrite blindly" then holds by construction, not by
+          // argument. A precondition failure means it was already there.
+          const guard =
+            !probeAnswered && ctx.storage.capabilities().conditionalWrites
+              ? { ifNoneMatch: "*" as const }
+              : {};
+          try {
+            await ctx.storage.put(ctx.key(objectKey), blob, guard);
+          } catch (e) {
+            if (!(e instanceof SyncError) || e.code !== "StoragePreconditionFailed") throw e;
+            // Already stored by this or another device — the desired end state.
+          }
         }
         const mtime = localByPath.get(op.path)?.mtime ?? ctx.clock.now();
         uploaded[op.path] = { hash, size: data.length, mtime, objectKey };

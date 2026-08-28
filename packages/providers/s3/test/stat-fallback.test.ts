@@ -94,6 +94,58 @@ describe("stat() on a stack that cannot do HEAD", () => {
   });
 });
 
+describe("when the range GET is broken too", () => {
+  it("degrades all the way to a one-key LIST", async () => {
+    const seen: HttpRequest[] = [];
+    const listBody = `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult>
+  <IsTruncated>false</IsTruncated>
+  <Contents>
+    <Key>objects/cf/ca/deadbeef</Key>
+    <Size>4096</Size>
+    <ETag>&quot;listed&quot;</ETag>
+    <LastModified>2026-08-28T10:00:00.000Z</LastModified>
+  </Contents>
+</ListBucketResult>`;
+    const transport: HttpTransport = (req) => {
+      seen.push(req);
+      const isList = req.url.includes("list-type=2");
+      if (!isList) {
+        // Both HEAD and the range GET die the way Android does.
+        return Promise.reject(new Error("Request Failed. IOException Stream closed"));
+      }
+      return Promise.resolve(respond(200, {}, listBody));
+    };
+    const storage = await S3Storage.create({ ...BASE, transport });
+
+    const stat = await storage.stat("objects/cf/ca/deadbeef");
+    expect(stat.size).toBe(4096);
+    expect(stat.etag).toBe('"listed"');
+
+    // And it stays on LIST afterwards — no more doomed HEAD/range attempts.
+    seen.length = 0;
+    await storage.stat("objects/cf/ca/deadbeef");
+    expect(seen.every((r) => r.url.includes("list-type=2"))).toBe(true);
+  });
+
+  it("reports StorageNotFound when the LIST comes back empty", async () => {
+    const empty = `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`;
+    const transport: HttpTransport = (req) =>
+      req.url.includes("list-type=2")
+        ? Promise.resolve(respond(200, {}, empty))
+        : Promise.reject(new Error("Request Failed. IOException Stream closed"));
+    const storage = await S3Storage.create({ ...BASE, transport });
+    let caught: unknown;
+    try {
+      await storage.stat("objects/missing");
+    } catch (e) {
+      caught = e;
+    }
+    expect(isSyncError(caught, "StorageNotFound")).toBe(true);
+  });
+});
+
 describe("real answers are never mistaken for a broken HEAD", () => {
   it("keeps StorageNotFound for a missing object", async () => {
     const transport: HttpTransport = (req) =>
