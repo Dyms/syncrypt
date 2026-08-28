@@ -7,6 +7,21 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.4] — 2026-08-28
+
+### Fixed
+- **Sync on Android no longer fails with "network error … Stream closed".**
+  Obsidian's `requestUrl()` on Android cannot issue a HEAD request — it expects
+  a response body and throws `IOException Stream closed` — and `stat` used HEAD
+  for every object, so a mobile sync died on the first file while the desktop
+  was fine. `stat` now detects a transport-level HEAD failure once and switches
+  to a byte-range GET (`Range: bytes=0-0`, size read from `Content-Range`) for
+  the rest of the session: one request, one byte of transfer, same information.
+  Real answers are untouched — a 404 stays "not found", a 403 stays "access
+  denied", and if the range GET fails too the original network error is what
+  the user sees. The Obsidian transport also stops demanding a body from
+  responses that have none (HEAD, 204, 304).
+
 ## [1.0.0-beta.3] — 2026-08-22
 
 ### Added

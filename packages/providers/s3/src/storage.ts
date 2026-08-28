@@ -7,6 +7,7 @@
 // RateLimited failures retry with backoff + jitter.
 
 import {
+  isSyncError,
   SyncError,
   type ObjectKey,
   type ObjectStat,
@@ -28,6 +29,9 @@ import {
 } from "./xml.js";
 
 export class S3Storage implements StoragePort {
+  /** Set once a HEAD fails at transport level; see stat(). */
+  private headUnsupported = false;
+
   private constructor(
     private readonly client: S3Client,
     private readonly conditional: boolean,
@@ -162,18 +166,79 @@ export class S3Storage implements StoragePort {
     }, this.retryOpts);
   }
 
+  /**
+   * HEAD is the natural way to stat an object, but not every HTTP stack can
+   * issue one: Obsidian's `requestUrl()` on Android fails a HEAD with
+   * "IOException Stream closed" (it expects a body). Rather than shipping a
+   * platform flag, we DETECT it: the first transport-level failure of a HEAD
+   * switches this storage to a byte-range GET for the rest of the session.
+   *
+   * Only transport failures trigger the switch. A 404 stays a 404 and a 403
+   * stays a 403 — those are answers, not broken plumbing.
+   */
   async stat(key: ObjectKey): Promise<ObjectStat> {
-    return withRetry(async () => {
-      const res = await this.client.sendOk({ method: "HEAD", key, operation: "stat" });
-      const lastModified = res.header("last-modified");
+    if (!this.headUnsupported) {
+      try {
+        return await withRetry(() => this.statViaHead(key), this.retryOpts);
+      } catch (e) {
+        if (!isSyncError(e, "StorageTransient")) throw e;
+        // Prove it is HEAD specifically: if the range GET fails too, the
+        // original (network) error is what the caller should see.
+        try {
+          const stat = await withRetry(() => this.statViaRange(key), this.retryOpts);
+          this.headUnsupported = true;
+          return stat;
+        } catch {
+          throw e;
+        }
+      }
+    }
+    return withRetry(() => this.statViaRange(key), this.retryOpts);
+  }
+
+  private async statViaHead(key: ObjectKey): Promise<ObjectStat> {
+    const res = await this.client.sendOk({ method: "HEAD", key, operation: "stat" });
+    return {
+      key,
+      size: Number(res.header("content-length") ?? "0"),
+      etag: res.header("etag") ?? "",
+      lastModified: parseHttpDate(res.header("last-modified")),
+    };
+  }
+
+  /**
+   * Stat without HEAD: ask for the first byte and read the total size out of
+   * `Content-Range: bytes 0-0/12345`. One request, one byte of transfer. A
+   * zero-byte object answers 416 — a successful stat of an empty object, not
+   * an error.
+   */
+  private async statViaRange(key: ObjectKey): Promise<ObjectStat> {
+    const res = await this.client.send({
+      method: "GET",
+      key,
+      headers: { range: "bytes=0-0" },
+      operation: "stat",
+    });
+    if (res.status === 416) {
       return {
         key,
-        size: Number(res.header("content-length") ?? "0"),
+        size: 0,
         etag: res.header("etag") ?? "",
-        lastModified:
-          lastModified !== null ? Math.floor(Date.parse(lastModified) / 1000) : 0,
+        lastModified: parseHttpDate(res.header("last-modified")),
       };
-    }, this.retryOpts);
+    }
+    if (!res.ok) {
+      throw normalizeS3Error(res.status, s3ErrorCode(res.text()), key, "stat");
+    }
+    const contentRange = res.header("content-range");
+    const total = contentRange === null ? null : TOTAL_AFTER_SLASH.exec(contentRange)?.[1];
+    return {
+      key,
+      // 206 → the size after the slash; 200 (Range ignored) → content-length.
+      size: Number(total ?? res.header("content-length") ?? "0"),
+      etag: res.header("etag") ?? "",
+      lastModified: parseHttpDate(res.header("last-modified")),
+    };
   }
 
   async *list(prefix: string): AsyncIterable<ObjectStat> {
@@ -264,4 +329,13 @@ export async function probeConditionalWrites(
       .send({ method: "DELETE", key, operation: "probe-cleanup" })
       .catch(() => undefined);
   }
+}
+
+/** "bytes 0-0/12345" → 12345 */
+const TOTAL_AFTER_SLASH = /\/(\d+)\s*$/;
+
+function parseHttpDate(value: string | null): number {
+  if (value === null) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : Math.floor(parsed / 1000);
 }
