@@ -2,13 +2,16 @@
 
 export * from "./format.js";
 export {
+  asBufferSource,
   base64Decode,
   base64Encode,
   deriveMasterKeyBytes,
+  deriveSubkeyBytes,
   validateKdfParams,
   HKDF_INFO_CONTENT,
   HKDF_INFO_MANIFEST,
   HKDF_INFO_NAMES,
+  HKDF_INFO_TICKET,
   MIN_MEMORY_KIB,
   MIN_ITERATIONS,
   MIN_PARALLELISM,

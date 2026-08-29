@@ -17,7 +17,6 @@ import {
   type CryptoRole,
   type Hash,
   type KdfParams,
-  type MasterKey,
   type ObjectKey,
 } from "@syncrypt/core";
 
@@ -33,12 +32,6 @@ import {
 const HASH_PREFIX = "b3:";
 const HASH_HEX_RE = /^[0-9a-f]{64}$/;
 
-/** Internal shape behind the opaque MasterKey brand. Never serialized. */
-interface MasterKeyBox {
-  readonly __brand: "MasterKey";
-  readonly bytes: Uint8Array;
-}
-
 export class SyncryptCrypto implements CryptoPort {
   private constructor(private readonly ring: KeyRing) {}
 
@@ -50,12 +43,6 @@ export class SyncryptCrypto implements CryptoPort {
     } finally {
       zeroize(mk); // MK is not retained; subkeys suffice for all operations
     }
-  }
-
-  async deriveMasterKey(passphrase: string, params: KdfParams): Promise<MasterKey> {
-    const bytes = await deriveMasterKeyBytes(passphrase, params);
-    const box: MasterKeyBox = { __brand: "MasterKey", bytes };
-    return box;
   }
 
   async hash(data: Uint8Array): Promise<Hash> {

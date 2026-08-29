@@ -124,13 +124,12 @@ export interface KdfParams {
   version: 1;
 }
 
-export interface MasterKey {
-  readonly __brand: "MasterKey"; // opaque, memory-only
-}
-
 export interface CryptoPort {
-  /** Derive the master key from a passphrase + stored KDF params (Argon2id). */
-  deriveMasterKey(passphrase: string, params: KdfParams): Promise<MasterKey>;
+  // NOTE: there is deliberately no deriveMasterKey() here (ADR-0028). The
+  // master key never leaves the crypto implementation: it is derived, turned
+  // into the three role subkeys, and zeroized in the same call. A port method
+  // handing it back would be the one way to keep raw key material alive in a
+  // caller's memory — and nothing ever needed it.
 
   /** Content hash over PLAINTEXT (BLAKE3), algorithm-prefixed. */
   hash(data: Uint8Array): Promise<Hash>;

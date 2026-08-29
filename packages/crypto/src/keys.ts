@@ -20,6 +20,8 @@ export const SUBKEY_LENGTH = 32;
 export const HKDF_INFO_CONTENT = "syncrypt/content";
 export const HKDF_INFO_MANIFEST = "syncrypt/manifest";
 export const HKDF_INFO_NAMES = "syncrypt/names";
+/** Ticket keys are a SEPARATE purpose from vault keys — ADR-0028. */
+export const HKDF_INFO_TICKET = "syncrypt/ticket";
 
 /** Best-effort zeroization (the platform may still hold copies). */
 export function zeroize(bytes: Uint8Array): void {
@@ -147,6 +149,17 @@ async function hkdfSubkey(hkdfKey: CryptoKey, info: string): Promise<Uint8Array>
     SUBKEY_LENGTH * 8,
   );
   return new Uint8Array(bits);
+}
+
+/**
+ * One 32-byte subkey from raw key material, bound to `info` (ADR-0028).
+ * The caller zeroizes both the input and the result.
+ */
+export async function deriveSubkeyBytes(material: Uint8Array, info: string): Promise<Uint8Array> {
+  const hkdfKey = await crypto.subtle.importKey("raw", asBufferSource(material), "HKDF", false, [
+    "deriveBits",
+  ]);
+  return hkdfSubkey(hkdfKey, info);
 }
 
 function importAesKey(raw: Uint8Array): Promise<CryptoKey> {

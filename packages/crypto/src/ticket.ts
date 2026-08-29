@@ -21,6 +21,8 @@ import {
   base64Decode,
   base64Encode,
   deriveMasterKeyBytes,
+  deriveSubkeyBytes,
+  HKDF_INFO_TICKET,
   validateKdfParams,
   zeroize,
 } from "./keys.js";
@@ -44,7 +46,14 @@ export interface ConnectionTicketPayload {
 export type ConnectionTicketInput = Omit<ConnectionTicketPayload, "v" | "nonce" | "createdAt">;
 
 const MAGIC = new Uint8Array([0x53, 0x59, 0x54, 0x4b]); // "SYTK"
-const TICKET_VERSION = 1;
+/**
+ * v2 binds the ticket key to its purpose with HKDF (ADR-0028). v1 used the
+ * Argon2id output directly as the AES key — the same function that produces
+ * the vault master key, separated only by a random salt. Still READ, so a
+ * ticket made by an older build keeps working; never written.
+ */
+const TICKET_VERSION = 2;
+const TICKET_VERSIONS_ACCEPTED = new Set([1, 2]);
 const SALT_LENGTH = 16;
 const HEADER_LENGTH = MAGIC.length + 1 + SALT_LENGTH + 3 * 4; // 33
 
@@ -56,16 +65,33 @@ function writeU32(view: DataView, offset: number, value: number): void {
   view.setUint32(offset, value, false);
 }
 
-async function ticketKey(passphrase: string, params: KdfParams): Promise<CryptoKey> {
+async function ticketKey(
+  passphrase: string,
+  params: KdfParams,
+  version: number,
+): Promise<CryptoKey> {
   const raw = await deriveMasterKeyBytes(passphrase, params);
   try {
-    return await crypto.subtle.importKey("raw", asBufferSource(raw), { name: "AES-GCM" }, false, [
-      "encrypt",
-      "decrypt",
-    ]);
+    if (version === 1) {
+      // Legacy path, read-only: the Argon2id output IS the AES key.
+      return await importAes(raw);
+    }
+    const subkey = await deriveSubkeyBytes(raw, HKDF_INFO_TICKET);
+    try {
+      return await importAes(subkey);
+    } finally {
+      zeroize(subkey);
+    }
   } finally {
     zeroize(raw);
   }
+}
+
+function importAes(raw: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", asBufferSource(raw), { name: "AES-GCM" }, false, [
+    "encrypt",
+    "decrypt",
+  ]);
 }
 
 /** Produce a base64 ticket from connection fields + the vault passphrase. */
@@ -83,7 +109,7 @@ export async function createConnectionTicket(
 
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   const params: KdfParams = { ...CROSS_DEVICE_KDF_PRESET, salt: base64Encode(salt) };
-  const key = await ticketKey(passphrase, params);
+  const key = await ticketKey(passphrase, params, TICKET_VERSION);
 
   const nonce = crypto.getRandomValues(new Uint8Array(NONCE_LENGTH));
   const header = encodeHeader(nonce);
@@ -122,7 +148,10 @@ export async function openConnectionTicket(
   for (let i = 0; i < MAGIC.length; i++) {
     if (bytes[i] !== MAGIC[i]) throw corrupt("bad magic");
   }
-  if (bytes[4] !== TICKET_VERSION) throw corrupt(`unsupported version ${String(bytes[4])}`);
+  const version = bytes[4] ?? 0;
+  if (!TICKET_VERSIONS_ACCEPTED.has(version)) {
+    throw corrupt(`unsupported version ${String(version)}`);
+  }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset);
   const params: KdfParams = {
@@ -135,7 +164,7 @@ export async function openConnectionTicket(
   };
   validateKdfParams(params); // ADR-0014 floor + anti-DoS ceiling apply here too
 
-  const key = await ticketKey(passphrase, params);
+  const key = await ticketKey(passphrase, params, version);
   const parts = parseBlob(bytes.subarray(HEADER_LENGTH));
   let plaintext: Uint8Array;
   try {
