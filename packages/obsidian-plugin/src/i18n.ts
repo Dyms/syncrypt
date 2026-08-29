@@ -102,6 +102,15 @@ const EN = {
     unlockFailed: (detail: string) => `Unlock failed: ${detail}`,
     syncFailed: (detail: string) => `Sync failed: ${detail}`,
     bulkCancelled: "Bulk change NOT applied — cancelled by you.",
+    configSyncAdopted: (summary: string) =>
+      `Obsidian-settings sync: adopted the shared profile from this vault (${summary}).`,
+    configSyncPublished:
+      "Obsidian-settings sync: published this device's profile for the other devices.",
+    configSyncUnreadable:
+      "Obsidian-settings sync: the shared profile file could not be read — keeping this device's own settings.",
+    configSyncConflicted:
+      "Obsidian-settings sync: the shared profile was changed on two devices — this device kept its own and the other version is beside it as a conflicted copy. Check the settings.",
+    hashCacheCleared: "Cached file hashes forgotten — the next scan re-reads the whole vault once.",
   },
 
   notices: {
@@ -120,6 +129,10 @@ const EN = {
       "Connection settings imported WITHOUT credentials — enter the storage keys in Settings, then Unlock.",
     ticketImported: "Connection imported. Connecting… (delete the transferred ticket now)",
     deviceIdCopied: "Device ID copied",
+    configSyncAdopted: "Syncrypt: Obsidian-settings profile updated from another device.",
+    configSyncSecretPlugins: (names: string) =>
+      `Syncrypt: another device turned on settings sync for ${names} — plugins that can keep API keys in data.json. Turn it off here if you would rather not.`,
+    hashCacheCleared: "Syncrypt: re-hashing the vault — this sync will take longer than usual.",
   },
 
   commands: {
@@ -129,6 +142,7 @@ const EN = {
     showLog: "Show sync log",
     shareConnection: "Share connection (create a ticket for another device)",
     addDevice: "Add this device from a ticket",
+    rehashVault: "Re-hash the vault (forget cached file hashes)",
   },
 
   settings: {
@@ -365,6 +379,15 @@ const RU: Strings = {
     unlockFailed: (detail: string) => `Разблокировка не удалась: ${detail}`,
     syncFailed: (detail: string) => `Синхронизация не удалась: ${detail}`,
     bulkCancelled: "Массовое изменение НЕ применено — вы отменили его.",
+    configSyncAdopted: (summary: string) =>
+      `Синхронизация настроек Obsidian: применён общий профиль хранилища (${summary}).`,
+    configSyncPublished:
+      "Синхронизация настроек Obsidian: профиль этого устройства опубликован для остальных.",
+    configSyncUnreadable:
+      "Синхронизация настроек Obsidian: файл общего профиля прочитать не удалось — оставляю настройки этого устройства.",
+    configSyncConflicted:
+      "Синхронизация настроек Obsidian: общий профиль изменили на двух устройствах — это устройство оставило свой, чужая версия лежит рядом как conflicted copy. Проверьте настройки.",
+    hashCacheCleared: "Кэш хешей очищен — следующий скан один раз перечитает всё хранилище.",
   },
 
   notices: {
@@ -384,6 +407,10 @@ const RU: Strings = {
     ticketImported:
       "Подключение импортировано. Соединяемся… (удалите переданный тикет из переписки)",
     deviceIdCopied: "Идентификатор устройства скопирован",
+    configSyncAdopted: "Syncrypt: профиль настроек Obsidian обновлён с другого устройства.",
+    configSyncSecretPlugins: (names: string) =>
+      `Syncrypt: другое устройство включило синхронизацию настроек для ${names} — эти плагины могут хранить ключи API в data.json. Если не нужно — выключите здесь.`,
+    hashCacheCleared: "Syncrypt: пересчитываю хеши хранилища — эта синхронизация будет дольше обычной.",
   },
 
   commands: {
@@ -393,6 +420,7 @@ const RU: Strings = {
     showLog: "Открыть журнал синхронизации",
     shareConnection: "Поделиться подключением (создать тикет для другого устройства)",
     addDevice: "Добавить это устройство по тикету",
+    rehashVault: "Пересчитать хеши хранилища (забыть кэш)",
   },
 
   settings: {

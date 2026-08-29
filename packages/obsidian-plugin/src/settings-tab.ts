@@ -211,6 +211,9 @@ export class SyncryptSettingTab extends PluginSettingTab {
         tg.setValue(s.configSync.enabled).onChange(async (v) => {
           s.configSync.enabled = v;
           await this.plugin.saveSettings();
+          // Turning it ON does NOT publish: the vault may already have a
+          // profile, and the next sync adopts it rather than being overwritten
+          // by this device's defaults (ADR-0024).
           rerender();
         }),
       );
@@ -229,6 +232,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
             tg.setValue(get()).onChange(async (v) => {
               set(v);
               await this.plugin.saveSettings();
+              await this.plugin.publishSharedConfig(); // ADR-0024
             }),
           );
       };
@@ -278,6 +282,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
                 const kept = s.configSync.plugins.filter((id) => id !== plugin.id);
                 s.configSync.plugins = v ? [...kept, plugin.id] : kept;
                 await this.plugin.saveSettings();
+                await this.plugin.publishSharedConfig(); // ADR-0024
                 if (v && secret) {
                   new Notice(t.settings.configPluginSecretWarning(plugin.name), 10000);
                 }

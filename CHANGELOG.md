@@ -7,6 +7,55 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.7] — 2026-08-29
+
+### Fixed
+- **DATA LOSS: widening a device's sync profile deleted the newly covered files
+  everywhere** (ADR-0025). ADR-0022 stopped a narrow device tombstoning files it
+  does not carry — but the base manifest still recorded them, so the moment the
+  profile grew to include such a path, "in the base, absent locally" read as a
+  deletion and the file went to every device's sync-trash. Re-adding a folder to
+  the include list, dropping an exclude, or switching on an Obsidian-settings
+  category was enough. The base now records only what this device actually
+  carries, so a widened path is what it always was — something to download.
+  Published manifests are unchanged: a narrow device still republishes every
+  other device's files untouched.
+
+### Added
+- **Obsidian-settings sync is configured once per vault, not once per device**
+  (ADR-0024). The categories and the opted-in plugin list now live in
+  `.obsidian/syncrypt-config-sync.json` — an ordinary synced file — instead of
+  Syncrypt's own `data.json`, which never travels because it holds the storage
+  keys. Every device with settings sync switched on adopts the shared profile
+  after each sync and says so in the log; a plugin known to keep API keys in its
+  `data.json` is named in a notice when another device turns it on. The master
+  switch stays local: nothing another device publishes can start writing into an
+  `.obsidian` folder that has not opted in, and the keys stay where they were.
+  An unreadable profile file changes nothing rather than resetting anything.
+- **Command: "Re-hash the vault (forget cached file hashes)"**. The hash cache
+  recognizes an unchanged file by its size and mtime, which cannot see a tool
+  that restores content with both preserved — `rsync --times`, a backup
+  restore, a second sync client. That was always true; now that the cache
+  survives restarts, there is an explicit way to clear it. It costs one full
+  re-hash and leaves the base manifest alone.
+
+### Changed
+- **Reopening the vault no longer re-hashes it.** The incremental hash cache is
+  now persisted alongside the base manifest (ADR-0023, state blob version 2)
+  instead of being rebuilt from scratch on every start — on a ~3000-file vault
+  that was a full read of every file before the plugin could say anything about
+  sync state, and it was the most expensive thing Syncrypt did on Android. A
+  cached hash is used only while the file's size **and** mtime both still match,
+  a hash for a file touched in the same clock tick is never written out, and
+  anything unreadable simply is not cached: every fallback costs a re-hash, none
+  can cost correctness. Files arriving in a pull are hashed on the way in, so a
+  first sync does not leave the next scan re-reading everything it downloaded.
+  State written by earlier versions still loads — it just carries no cache, so
+  the first run after the upgrade hashes once more.
+- The cache is now keyed by path and pruned to what the last complete scan saw,
+  so a long session no longer accumulates an entry per file modification.
+- A sync that changes nothing no longer rewrites an identical state file.
+
 ## [1.0.0-beta.6] — 2026-08-28
 
 ### Fixed

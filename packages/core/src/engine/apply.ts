@@ -9,6 +9,7 @@ import type { SyncReportEntry } from "../report.js";
 import type {
   DeviceId,
   FileDescriptor,
+  Hash,
   Manifest,
   ManifestEntry,
   Tombstone,
@@ -95,6 +96,27 @@ async function freeCopyPath(
 }
 
 /**
+ * Write a file we just fetched and remember its hash (ADR-0023).
+ *
+ * We already know what these bytes hash to — it is what we verified the
+ * download against — so recording it with a fresh stat spares the next scan a
+ * full re-read of everything a first sync just downloaded. Purely an
+ * optimization: a failed stat, or no cache at all, just means a re-hash later.
+ */
+async function writeAndRemember(
+  ctx: EngineContext,
+  path: VaultPath,
+  data: Uint8Array,
+  hash: Hash,
+): Promise<void> {
+  await ctx.vault.write(path, data);
+  if (ctx.hashCache === undefined) return;
+  const stat = await ctx.vault.stat(path);
+  if (stat === null) return;
+  ctx.hashCache.set(path, { size: stat.size, mtime: stat.mtime, hash });
+}
+
+/**
  * Apply the pull side of a plan: downloads, remote deletions (via trash),
  * and conflict materialization (ADR-0012). Upload/delete-remote ops are the
  * push side and are skipped here.
@@ -119,13 +141,14 @@ export async function applyPullOps(
         const entry = remote.files[op.path];
         if (entry === undefined) continue; // planner/remote drift — nothing to fetch
         const data = await fetchVerified(ctx, op.path, entry);
-        await ctx.vault.write(op.path, data);
+        await writeAndRemember(ctx, op.path, data, entry.hash);
         entries.push(reportEntry(op, reasonMessage(op.reason), data.length));
         break;
       }
       case "delete-local": {
         // ADR-0010 §1: through trash, never a hard delete.
         await ctx.vault.trash(op.path);
+        ctx.hashCache?.delete(op.path);
         entries.push(reportEntry(op, reasonMessage(op.reason)));
         break;
       }
@@ -137,7 +160,7 @@ export async function applyPullOps(
           // remote version ALONGSIDE (never over) as a conflicted copy.
           const copyPath = await freeCopyPath(ctx, op.path, remote.device);
           const data = await fetchVerified(ctx, op.path, remoteEntry);
-          await ctx.vault.write(copyPath, data);
+          await writeAndRemember(ctx, copyPath, data, remoteEntry.hash);
           entries.push(
             reportEntry(
               op,
@@ -149,7 +172,7 @@ export async function applyPullOps(
           // Deleted locally, edited remotely: restore the remote version
           // (a creation — the path is locally absent). Edit beats delete.
           const data = await fetchVerified(ctx, op.path, remoteEntry);
-          await ctx.vault.write(op.path, data);
+          await writeAndRemember(ctx, op.path, data, remoteEntry.hash);
           entries.push(
             reportEntry(
               op,

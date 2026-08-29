@@ -15,8 +15,20 @@ import type { Operation, PlanOptions, SyncPlan } from "../plan.js";
 import { SyncError } from "../errors.js";
 import { parseManifest } from "../manifest.js";
 import type { SyncOutcome, SyncReport, SyncReportEntry } from "../report.js";
-import { detectLocalChanges, scanVault, type HashCache } from "../scan.js";
-import type { DeviceId, Manifest, ObjectKey, VaultPath } from "../types.js";
+import {
+  decodeHashCache,
+  detectLocalChanges,
+  encodeHashCache,
+  scanVault,
+  type HashCache,
+} from "../scan.js";
+import type {
+  DeviceId,
+  Manifest,
+  ManifestEntry,
+  ObjectKey,
+  VaultPath,
+} from "../types.js";
 import { applyPullOps, applyPushOps, buildNextManifest } from "./apply.js";
 import type { EngineContext } from "./context.js";
 import { publishManifest, readRemote, type RemoteState } from "./remote.js";
@@ -77,6 +89,21 @@ export interface SyncEngine {
    * halfway through the first sync (RFC-0007 §7).
    */
   verifyAccess(signal?: AbortSignal): Promise<{ generation: number; files: number } | null>;
+
+  /**
+   * Forget every remembered content hash, in memory and on disk (ADR-0023).
+   *
+   * The cache keys a hash by (size, mtime), which a writer that PRESERVES both
+   * can defeat — `rsync --times`, a restic/borg restore, another sync tool
+   * putting an old copy back byte-for-byte the same length. Within a session
+   * that was always true and self-corrected on restart; persisted, it does
+   * not. This is the escape hatch: the next scan re-reads and re-hashes
+   * everything.
+   *
+   * Costs time, never correctness — it can only turn a wrong answer into a
+   * recomputed one. The base manifest is untouched, so this is NOT a reset.
+   */
+  forgetHashCache(): Promise<void>;
 }
 
 const noopLog: LogPort = {
@@ -109,6 +136,8 @@ class Engine implements SyncEngine {
   private base: Manifest | null = null;
   private readonly cache: HashCache = new Map();
   private lastReport: SyncReport | undefined;
+  /** Last blob handed to the state port, to skip writing the same bytes twice. */
+  private lastSavedState: string | undefined;
   private stateLoaded = false;
   private running = false;
   private queue: Promise<unknown> = Promise.resolve();
@@ -125,6 +154,7 @@ class Engine implements SyncEngine {
       deviceId: config.deviceId,
       key: (relative: ObjectKey): ObjectKey =>
         prefix === "" ? relative : `${prefix}/${relative}`,
+      hashCache: this.cache,
       planOptions: {
         // The vault's own profile decides what this device carries (ADR-0022).
         ...(config.vault.syncable !== undefined
@@ -162,31 +192,88 @@ class Engine implements SyncEngine {
 
   // -- device-local state (ADR-0011): a cache, never a source of truth -------
 
+  /**
+   * Adopt a manifest as THIS DEVICE's base, keeping only the paths it carries
+   * (ADR-0025).
+   *
+   * The base means "what this device last synced against". A published
+   * manifest describes the whole vault, including files this device's profile
+   * does not cover — it never had them and never will while that profile
+   * stands. Recording them anyway makes the base claim a local state that was
+   * never true, and the moment the profile WIDENS to include such a path, the
+   * planner reads "in base, absent locally" as a deletion and tombstones it
+   * for every device. ADR-0022 stopped that happening at a constant profile;
+   * this stops it happening when the profile changes — which the shared
+   * config-sync profile (ADR-0024) makes an ordinary event.
+   *
+   * Tombstones and history are kept as they are: they carry no claim about
+   * what this device holds.
+   */
+  private adoptBase(manifest: Manifest): void {
+    const syncable = this.ctx.planOptions.syncable;
+    if (syncable === undefined) {
+      this.base = manifest;
+      return;
+    }
+    const files: Record<VaultPath, ManifestEntry> = {};
+    for (const [path, entry] of Object.entries(manifest.files)) {
+      if (syncable(path)) files[path] = entry;
+    }
+    this.base = { ...manifest, files };
+  }
+
   private async loadStateOnce(): Promise<void> {
     if (this.stateLoaded) return;
     this.stateLoaded = true;
     if (this.statePort === undefined) return;
+    let raw: unknown;
     try {
       const blob = await this.statePort.load();
       if (blob === null) return;
-      const raw: unknown = JSON.parse(new TextDecoder().decode(blob));
+      raw = JSON.parse(new TextDecoder().decode(blob));
       if (typeof raw !== "object" || raw === null) return;
       const baseRaw = (raw as { base?: unknown }).base;
-      if (baseRaw === undefined || baseRaw === null) return;
-      this.base = parseManifest(new TextEncoder().encode(JSON.stringify(baseRaw)));
+      if (baseRaw !== undefined && baseRaw !== null) {
+        // Filtered on the way in too: state written before ADR-0025, or under
+        // a wider profile, must not resurrect the defect on this run.
+        this.adoptBase(parseManifest(new TextEncoder().encode(JSON.stringify(baseRaw))));
+      }
     } catch (e) {
       // Corrupt state is discarded: base=null forces a safe full reconcile.
       this.ctx.log.warn(`local sync state unreadable — will fully reconcile (${String(e)})`);
       this.base = null;
+      return;
+    }
+    // The hash cache rides in the same blob (ADR-0023). It is restored on a
+    // best-effort basis and can never invalidate the base above: state written
+    // by version 1 carries none, and the next scan rebuilds whatever is missing.
+    for (const [path, entry] of decodeHashCache((raw as { hashes?: unknown }).hashes)) {
+      this.cache.set(path, entry);
     }
   }
 
   private async saveState(): Promise<void> {
     if (this.statePort === undefined) return;
-    const blob = new TextEncoder().encode(
-      JSON.stringify({ version: 1, base: this.base }),
-    );
-    await this.statePort.save(blob);
+    const serialized = JSON.stringify({
+      version: 2,
+      base: this.base,
+      hashes: encodeHashCache(this.cache, this.ctx.clock.now()),
+    });
+    // A quiet sync produces byte-identical state. Rewriting it would put a
+    // vault-sized file through the adapter every few minutes for nothing —
+    // most visible on mobile, where this blob is the largest thing we write.
+    if (serialized === this.lastSavedState) return;
+    await this.statePort.save(new TextEncoder().encode(serialized));
+    this.lastSavedState = serialized;
+  }
+
+  forgetHashCache(): Promise<void> {
+    // Queued like any other operation: dropping the cache under a running scan
+    // would have it re-populated from the scan it was meant to invalidate.
+    return this.exclusive(async () => {
+      this.cache.clear();
+      await this.saveState();
+    });
   }
 
   // -- reports ----------------------------------------------------------------
@@ -247,7 +334,7 @@ class Engine implements SyncEngine {
     if (!res.aborted) {
       // The base advances to what we synced against — including conflict paths
       // (their local resolution is carried forward by the next push, ADR-0012).
-      this.base = remote.manifest;
+      this.adoptBase(remote.manifest);
       await this.saveState();
     }
     const outcome: SyncOutcome = res.aborted
@@ -328,7 +415,7 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "pull-first", [], fromGen, fromGen);
     }
 
-    this.base = next;
+    this.adoptBase(next);
     await this.saveState();
     return this.report(startedAt, "applied", res.entries, fromGen, generation);
   }
@@ -429,7 +516,7 @@ class Engine implements SyncEngine {
       if (pullRes.aborted) {
         return this.report(startedAt, "aborted", entries, fromGen, fromGen, conflicts);
       }
-      this.base = remote.manifest;
+      this.adoptBase(remote.manifest);
       await this.saveState();
     }
 
@@ -453,7 +540,7 @@ class Engine implements SyncEngine {
       if (!published.ok) {
         return this.report(startedAt, "pull-first", entries, fromGen, toGen, conflicts);
       }
-      this.base = next;
+      this.adoptBase(next);
       await this.saveState();
       toGen = generation;
     }

@@ -127,6 +127,8 @@ export class MemoryVault implements VaultPort {
   readonly trashed: { path: VaultPath; data: Uint8Array }[] = [];
   /** Epoch seconds for mtimes; tests may advance it. */
   now = 1_000_000;
+  /** Every path read(), in order — lets tests assert what was (not) re-hashed. */
+  readonly reads: VaultPath[] = [];
 
   async *list(): AsyncIterable<VaultPath> {
     for (const path of [...this.files.keys()].sort()) {
@@ -139,6 +141,7 @@ export class MemoryVault implements VaultPort {
     if (f === undefined) {
       return Promise.reject(new SyncError("VaultFileNotFound", `not found: ${path}`));
     }
+    this.reads.push(path);
     return Promise.resolve(new Uint8Array(f.data));
   }
 
@@ -218,11 +221,14 @@ export class MemoryLog implements LogPort {
 
 export class MemoryStateStore implements StateStorePort {
   private blob: Uint8Array | null = null;
+  /** How many times save() actually ran — the engine skips identical writes. */
+  saves = 0;
   load(): Promise<Uint8Array | null> {
     return Promise.resolve(this.blob === null ? null : new Uint8Array(this.blob));
   }
   save(data: Uint8Array): Promise<void> {
     this.blob = new Uint8Array(data);
+    this.saves++;
     return Promise.resolve();
   }
 }

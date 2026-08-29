@@ -20,6 +20,13 @@ import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
 import { OBSIDIAN_DIR, SYNCRYPT_PLUGIN_ID } from "./config-sync.js";
 import {
+  adoptSharedConfig,
+  parseSharedConfig,
+  serializeSharedConfig,
+  sharedFrom,
+  SHARED_CONFIG_SYNC_PATH,
+} from "./config-sync-file.js";
+import {
   describeDetection,
   EN_STRINGS,
   resolveLang,
@@ -114,6 +121,11 @@ export default class SyncryptPlugin extends Plugin {
       id: "add-device",
       name: this.strings.commands.addDevice,
       callback: () => { this.openAddDevice(); },
+    });
+    this.addCommand({
+      id: "rehash-vault",
+      name: this.strings.commands.rehashVault,
+      callback: () => void this.rehashVault(),
     });
 
     // Pull on start (RFC-0004 §Triggers) — once the user unlocks.
@@ -482,9 +494,93 @@ export default class SyncryptPlugin extends Plugin {
       this.log.warn(this.strings.log.syncFailed(String(e)));
       if (origin !== "auto") new Notice(this.strings.notices.syncFailed(String(e)), 8000);
     } finally {
+      // Still inside the `syncing` guard: adopting a shared profile changes
+      // what this device syncs, so it must not race the next sync (ADR-0024).
+      await this.reconcileSharedConfig().catch(() => undefined);
       this.syncing = false;
       await this.refreshFacts().catch(() => undefined);
       this.renderStatus();
+    }
+  }
+
+  // -- shared Obsidian-settings profile (ADR-0024) ---------------------------
+
+  /**
+   * After every sync: adopt the vault's shared config-sync profile, or publish
+   * ours if the vault has none yet. Inert while config sync is off — a device
+   * that has not opted in is never reconfigured from elsewhere.
+   */
+  private async reconcileSharedConfig(): Promise<void> {
+    if (!this.settings.configSync.enabled) return;
+    const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+    let text: string | null = null;
+    try {
+      if (await adapter.exists(SHARED_CONFIG_SYNC_PATH)) {
+        text = new TextDecoder().decode(await adapter.readBinary(SHARED_CONFIG_SYNC_PATH));
+      }
+    } catch {
+      return; // unreadable right now; the next sync tries again
+    }
+    if (text === null) {
+      // Nobody has published one. Ours becomes the vault's, and travels on the
+      // next sync. Two devices doing this at once agree by construction: the
+      // file is canonical, so identical settings are identical bytes.
+      await this.publishSharedConfig();
+      return;
+    }
+    const shared = parseSharedConfig(text);
+    if (shared === null) {
+      this.log.warn(this.strings.log.configSyncUnreadable);
+      return;
+    }
+    const result = adoptSharedConfig(this.settings.configSync, shared);
+    if (!result.changed) return;
+    await this.saveSettings();
+    const summary = [
+      result.enabledCategories.length > 0 ? `+${String(result.enabledCategories.length)}` : "",
+      result.disabledCategories.length > 0 ? `-${String(result.disabledCategories.length)}` : "",
+      result.addedPlugins.length > 0 ? `+${result.addedPlugins.join(", ")}` : "",
+      result.removedPlugins.length > 0 ? `-${result.removedPlugins.join(", ")}` : "",
+    ]
+      .filter((part) => part !== "")
+      .join(" ");
+    this.log.info(this.strings.log.configSyncAdopted(summary));
+    new Notice(this.strings.notices.configSyncAdopted, 6000);
+    // RFC-0008 safety rail 1 does not stop applying at the user's other
+    // device's request, but it does say so out loud.
+    if (result.addedSecretBearing.length > 0) {
+      new Notice(
+        this.strings.notices.configSyncSecretPlugins(result.addedSecretBearing.join(", ")),
+        12000,
+      );
+    }
+  }
+
+  /**
+   * Write this device's config-sync profile into the vault's shared file.
+   * Called when the user changes a config-sync setting, and when no shared
+   * file exists yet. An identical file is left alone — rewriting it would
+   * churn the mtime and cost a pointless upload.
+   */
+  async publishSharedConfig(): Promise<void> {
+    if (!this.settings.configSync.enabled) return;
+    const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+    const text = serializeSharedConfig(sharedFrom(this.settings.configSync));
+    try {
+      if (await adapter.exists(SHARED_CONFIG_SYNC_PATH)) {
+        const current = new TextDecoder().decode(
+          await adapter.readBinary(SHARED_CONFIG_SYNC_PATH),
+        );
+        if (current === text) return;
+      }
+      const bytes = new TextEncoder().encode(text);
+      const buffer = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(buffer).set(bytes);
+      await adapter.writeBinary(SHARED_CONFIG_SYNC_PATH, buffer);
+      this.log.info(this.strings.log.configSyncPublished);
+    } catch {
+      // Not being able to write it is not worth failing anything over: the
+      // settings are correct locally, and the next change tries again.
     }
   }
 
@@ -508,9 +604,30 @@ export default class SyncryptPlugin extends Plugin {
     if (report.conflicts.length > 0) {
       new Notice(this.strings.notices.conflicts(report.conflicts.length), 8000);
     }
+    if (report.conflicts.includes(SHARED_CONFIG_SYNC_PATH)) {
+      // A conflicted copy of the shared profile is not itself syncable, so it
+      // would otherwise sit in `.obsidian` unmentioned (ADR-0024).
+      this.log.warn(this.strings.log.configSyncConflicted);
+    }
     if (origin === "manual" && report.outcome === "no-op") {
       new Notice(this.strings.notices.alreadyInSync);
     }
+  }
+
+  /**
+   * Forget every cached content hash (ADR-0023). For the case the cache cannot
+   * see: a tool that restored files with their original mtimes and sizes, so
+   * "unchanged" is a lie. Costs one full re-hash and nothing else.
+   */
+  async rehashVault(): Promise<void> {
+    if (this.engine === null) {
+      this.promptUnlock();
+      return;
+    }
+    await this.engine.forgetHashCache();
+    this.log.info(this.strings.log.hashCacheCleared);
+    new Notice(this.strings.notices.hashCacheCleared, 6000);
+    await this.syncNow("manual");
   }
 
   async activateLogView(): Promise<void> {

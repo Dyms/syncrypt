@@ -51,6 +51,15 @@ export const DEFAULT_CONFIG_SYNC: ConfigSyncSettings = {
 export const SYNCRYPT_PLUGIN_ID = "syncrypt";
 
 /**
+ * Syncrypt's own SHARED settings file (ADR-0024) — the categories and plugin
+ * list below, as a synced vault file. Note the deliberate asymmetry with the
+ * line above: `plugins/syncrypt/data.json` never travels because it holds the
+ * storage keys; this file travels because WHICH config files sync is a fact
+ * about the vault, not about one machine.
+ */
+export const SHARED_CONFIG_SYNC_FILE = `${OBSIDIAN_DIR}/syncrypt-config-sync.json`;
+
+/**
  * Never synced, whatever the settings say:
  * - Syncrypt's own data.json — it holds the storage credentials (ADR-0016).
  * - workspace state — pane layout is per-device by definition.
@@ -92,6 +101,10 @@ export function configPathAllowed(path: string, cs: ConfigSyncSettings): boolean
   if (hardExcluded(path)) return false;
 
   const rest = path.slice(OBSIDIAN_DIR.length + 1);
+  // Our own shared profile rides along with the master switch and nothing
+  // else: a device that takes part in config sync must be able to receive it
+  // before it has any categories to obey (ADR-0024).
+  if (path === SHARED_CONFIG_SYNC_FILE) return true;
   if (rest === "appearance.json") return cs.appearance;
   if (rest === "app.json") return cs.app;
   if (rest === "hotkeys.json") return cs.hotkeys;

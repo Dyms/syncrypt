@@ -1,7 +1,7 @@
 {
 	"id": "syncrypt",
 	"name": "Syncrypt",
-	"version": "1.0.0-beta.6",
+	"version": "1.0.0-beta.7",
 	"minAppVersion": "1.5.0",
 	"description": "Simple, secure, predictable end-to-end-encrypted sync over your own S3-compatible or WebDAV storage — you own the data.",
 	"author": "Dmitriy Bogatov",
