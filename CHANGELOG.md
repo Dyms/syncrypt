@@ -7,6 +7,37 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.8] — 2026-08-29
+
+### Security
+- **Ticket keys are bound to their purpose** (ADR-0028). A connection ticket
+  used the Argon2id output directly as its AES key — the same derivation that
+  produces the vault master key, separated only by a random salt. Ticket format
+  v2 now runs it through HKDF with its own info string, like the vault subkeys
+  already did. Tickets written by older builds are still read, so an upgrade
+  mid-enrolment is not a dead end.
+- **The master key can no longer be handed out.** `CryptoPort.deriveMasterKey()`
+  returned the raw 32 bytes with nothing zeroizing them afterwards, and nothing
+  ever called it. Removed, along with the `MasterKey` type: the key is derived,
+  expanded into subkeys and wiped inside one call, and there is now no method
+  that could keep it alive elsewhere.
+- **The settings tab warns about a plain `http://` endpoint.** Your notes stay
+  encrypted, but the storage credentials travel in the clear. Loopback is exempt
+  — a local MinIO is how people test, and crying wolf there teaches users to
+  ignore the warning that matters.
+
+### Fixed
+- **CI and `.nvmrc` were pinned to Node 20**, which reached end of life on
+  2026-04-30. Now Node 22, with the offline suite running on **22 and 24 side by
+  side** so the next LTS is proven before it becomes the only option. GitHub
+  Actions bumped to v5, and `npm audit` is clean again (js-yaml, nanoid,
+  postcss, brace-expansion — all dev-chain).
+- **The docs promised "S3 or WebDAV"; the plugin only builds S3.** WebDAV is
+  real, tested against a live server, and simply not wired into the UI yet —
+  the docs now say exactly that instead of promising a choice that is not there.
+- The plugin built with esbuild 0.25 while the toolchain resolved 0.28, and the
+  root `allowScripts` field named a version nothing read. One esbuild now.
+
 ### Added
 - **Manifest cleanup: "Review manifest entries this device does not carry"**
   (ADR-0027). Since the data-loss fixes in ADR-0022/0025, a file that no device
