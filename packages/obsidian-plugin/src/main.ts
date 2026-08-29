@@ -18,6 +18,7 @@ import { S3Storage } from "@syncrypt/provider-s3";
 
 import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
+import { ForgetPathsModal } from "./forget-modal.js";
 import { OBSIDIAN_DIR, SYNCRYPT_PLUGIN_ID } from "./config-sync.js";
 import {
   adoptSharedConfig,
@@ -126,6 +127,11 @@ export default class SyncryptPlugin extends Plugin {
       id: "rehash-vault",
       name: this.strings.commands.rehashVault,
       callback: () => void this.rehashVault(),
+    });
+    this.addCommand({
+      id: "review-manifest",
+      name: this.strings.commands.reviewManifest,
+      callback: () => void this.reviewManifest(),
     });
 
     // Pull on start (RFC-0004 §Triggers) — once the user unlocks.
@@ -628,6 +634,36 @@ export default class SyncryptPlugin extends Plugin {
     this.log.info(this.strings.log.hashCacheCleared);
     new Notice(this.strings.notices.hashCacheCleared, 6000);
     await this.syncNow("manual");
+  }
+
+  /**
+   * Manifest cleanup (ADR-0027): show what this device does not carry, let the
+   * user pick, forget the picks. Never automatic — this device cannot see the
+   * other devices' profiles, so the judgement is the user's.
+   */
+  async reviewManifest(): Promise<void> {
+    if (this.engine === null) {
+      this.promptUnlock();
+      return;
+    }
+    const candidates = await this.engine.listUncarried();
+    if (candidates.length === 0) {
+      new Notice(this.strings.forgetModal.noneFound, 6000);
+      return;
+    }
+    const engine = this.engine;
+    const chosen = await new Promise<string[]>((resolve) => {
+      new ForgetPathsModal(this.app, candidates, resolve, this.strings).open();
+    });
+    if (chosen.length === 0) return;
+    const result = await engine.forgetPaths(chosen);
+    if (result.generation === null) {
+      new Notice(this.strings.forgetModal.raced, 8000);
+      return;
+    }
+    new Notice(this.strings.forgetModal.done(result.forgotten.length), 8000);
+    await this.refreshFacts().catch(() => undefined);
+    this.renderStatus();
   }
 
   async activateLogView(): Promise<void> {

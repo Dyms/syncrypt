@@ -7,6 +7,16 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Manifest cleanup: "Review manifest entries this device does not carry"**
+  (ADR-0027). Since the data-loss fixes in ADR-0022/0025, a file that no device
+  carries any more stays in the manifest for ever, and no device can tell an
+  orphan from someone else's file. So the command shows the entries outside this
+  device's profile — with size and date — everything unticked, and you choose.
+  Forgetting an entry is not deleting it: no tombstone is written and no file is
+  touched, so a device that still carries one simply puts it back on its next
+  sync. The worst outcome of a wrong guess is an extra generation.
+
 ### Changed
 - **Everything the engine says is now translated** (ADR-0026). The sync log,
   the confirmation dialog and the conflict lines carried English sentences the

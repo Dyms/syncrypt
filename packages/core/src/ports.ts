@@ -167,7 +167,8 @@ export type EngineNotice =
   | { code: "confirmation-required"; reason?: ConfirmationReason }
   | { code: "confirmation-stale"; newDestructive: number }
   | { code: "state-unreadable"; detail: string }
-  | { code: "dedup-probe-unavailable"; path: VaultPath; detail: string };
+  | { code: "dedup-probe-unavailable"; path: VaultPath; detail: string }
+  | { code: "manifest-entries-forgotten"; count: number; generation: number };
 
 export interface LogPort {
   /** One applied action, as data (path + reason code + detail). */

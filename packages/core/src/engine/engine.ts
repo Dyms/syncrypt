@@ -24,6 +24,7 @@ import {
 } from "../scan.js";
 import type {
   DeviceId,
+  Hash,
   Manifest,
   ManifestEntry,
   ObjectKey,
@@ -104,6 +105,44 @@ export interface SyncEngine {
    * recomputed one. The base manifest is untouched, so this is NOT a reset.
    */
   forgetHashCache(): Promise<void>;
+
+  /**
+   * Manifest entries this device does NOT carry (ADR-0027).
+   *
+   * Candidates for review, never a verdict: a device cannot see other devices'
+   * profiles, so "not mine" is all it can honestly say. Everything outside this
+   * device's profile is listed — including files that are perfectly alive on
+   * another machine — with the size and date needed to recognize them. Reading
+   * only; nothing is published.
+   */
+  listUncarried(signal?: AbortSignal): Promise<UncarriedEntry[]>;
+
+  /**
+   * Drop these paths from the manifest WITHOUT tombstoning them (ADR-0027).
+   *
+   * Not a deletion: no tombstone is written and no file is touched anywhere.
+   * A device that still carries such a path re-adds it on its next push
+   * (RFC-0004 treats "in my base, gone from the manifest" as an anomaly to
+   * repair, never as a deletion to propagate). So the worst outcome of a wrong
+   * guess is that the entry comes back a generation later.
+   */
+  forgetPaths(paths: VaultPath[], signal?: AbortSignal): Promise<ForgetResult>;
+}
+
+/** One manifest entry this device does not carry — enough to recognize it. */
+export interface UncarriedEntry {
+  path: VaultPath;
+  size: number;
+  /** Epoch seconds, as recorded by whichever device last published it. */
+  mtime: number;
+  hash: Hash;
+}
+
+export interface ForgetResult {
+  /** Paths actually removed (a path already absent is silently skipped). */
+  forgotten: VaultPath[];
+  /** The generation published, or null when there was nothing to do. */
+  generation: number | null;
 }
 
 const noopLog: LogPort = {
@@ -272,6 +311,70 @@ class Engine implements SyncEngine {
     return this.exclusive(async () => {
       this.cache.clear();
       await this.saveState();
+    });
+  }
+
+  listUncarried(signal?: AbortSignal): Promise<UncarriedEntry[]> {
+    return this.exclusive(async () => {
+      const remote = await readRemote(this.ctx);
+      if (remote.manifest === null) return [];
+      if (signal?.aborted) return [];
+      const carried = this.ctx.planOptions.syncable ?? ((): boolean => true);
+      const out: UncarriedEntry[] = [];
+      for (const [path, entry] of Object.entries(remote.manifest.files)) {
+        if (carried(path)) continue;
+        out.push({ path, size: entry.size, mtime: entry.mtime, hash: entry.hash });
+      }
+      out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      return out;
+    });
+  }
+
+  forgetPaths(paths: VaultPath[], signal?: AbortSignal): Promise<ForgetResult> {
+    return this.exclusive(async () => {
+      const wanted = new Set(paths);
+      const remote = await readRemote(this.ctx);
+      if (remote.manifest === null || wanted.size === 0) {
+        return { forgotten: [], generation: null };
+      }
+      const forgotten = Object.keys(remote.manifest.files).filter((p) => wanted.has(p));
+      if (forgotten.length === 0 || signal?.aborted) {
+        return { forgotten: [], generation: null };
+      }
+
+      const files = { ...remote.manifest.files };
+      const history = { ...(remote.manifest.history ?? {}) };
+      for (const path of forgotten) {
+        delete files[path];
+        // Retained versions of a forgotten path are forgotten with it —
+        // otherwise Safe Sync keeps paying for something nothing references.
+        delete history[path];
+      }
+      const generation = remote.generation + 1;
+      const next: Manifest = {
+        version: 1,
+        generation,
+        device: this.ctx.deviceId,
+        updatedAt: this.ctx.clock.now(),
+        files,
+        // Deliberately NOT tombstoned: this is forgetting, not deleting.
+        tombstones: { ...remote.manifest.tombstones },
+      };
+      if (Object.keys(history).length > 0) next.history = history;
+
+      const published = await publishManifest(this.ctx, next);
+      if (!published.ok) {
+        // Someone else moved first; the caller re-lists and tries again.
+        return { forgotten: [], generation: null };
+      }
+      this.adoptBase(next);
+      await this.saveState();
+      this.ctx.log.notice({
+        code: "manifest-entries-forgotten",
+        count: forgotten.length,
+        generation,
+      });
+      return { forgotten, generation };
     });
   }
 

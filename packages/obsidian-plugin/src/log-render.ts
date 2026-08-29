@@ -39,6 +39,8 @@ export function renderLine(line: LogLine, t: Strings): string {
         return t.engine.stateUnreadable(n.detail);
       case "dedup-probe-unavailable":
         return t.engine.dedupProbeUnavailable(n.path, n.detail);
+      case "manifest-entries-forgotten":
+        return t.engine.manifestEntriesForgotten(n.count, n.generation);
     }
   }
   return line.text ?? "";

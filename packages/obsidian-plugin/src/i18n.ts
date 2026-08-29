@@ -117,6 +117,21 @@ const EN = {
    * Everything the engine reports, phrased here (ADR-0026). The engine hands
    * over a code and its facts; the wording is ours, in the reader's language.
    */
+  forgetModal: {
+    title: "Files in the manifest that this device does not carry",
+    intro: (n: number) =>
+      `${String(n)} entr${n === 1 ? "y" : "ies"} are listed in the vault's manifest but fall outside this device's sync profile. Some are alive on another device; some may be left over from a profile nobody uses any more. Only you can tell which.`,
+    safety:
+      "Forgetting is not deleting: no file is touched and no deletion is recorded. Any device that still carries a path will simply put it back on its next sync.",
+    empty: "Nothing to review — this device carries everything in the manifest.",
+    cancel: "Cancel",
+    forget: (n: number) => (n === 0 ? "Forget selected" : `Forget ${String(n)} selected`),
+    noneFound: "Syncrypt: this device carries everything in the manifest — nothing to clean up.",
+    done: (n: number) =>
+      `Syncrypt: ${String(n)} entr${n === 1 ? "y" : "ies"} forgotten. Anything another device still carries will come back on its next sync.`,
+    raced: "Syncrypt: another device published first — nothing was changed. Sync and try again.",
+  },
+
   engine: {
     syncOutcome: {
       applied: "Sync finished: changes applied.",
@@ -136,6 +151,8 @@ const EN = {
       `Local sync state unreadable — reconciling from scratch, which is slower but safe (${detail}).`,
     dedupProbeUnavailable: (path: string, detail: string) =>
       `Could not check whether "${path}" is already in storage — uploading it anyway (${detail}).`,
+    manifestEntriesForgotten: (count: number, generation: number) =>
+      `Forgot ${String(count)} manifest entr${count === 1 ? "y" : "ies"} (generation ${String(generation)}). No file was deleted; a device that still carries one will re-add it.`,
   },
 
   entryDetail: {
@@ -174,6 +191,7 @@ const EN = {
     shareConnection: "Share connection (create a ticket for another device)",
     addDevice: "Add this device from a ticket",
     rehashVault: "Re-hash the vault (forget cached file hashes)",
+    reviewManifest: "Review manifest entries this device does not carry",
   },
 
   settings: {
@@ -421,6 +439,21 @@ const RU: Strings = {
     hashCacheCleared: "Кэш хешей очищен — следующий скан один раз перечитает всё хранилище.",
   },
 
+  forgetModal: {
+    title: "Файлы в манифесте, которых нет на этом устройстве",
+    intro: (n: number) =>
+      `В манифесте хранилища есть записи (${String(n)}), не попадающие в профиль синхронизации этого устройства. Часть из них жива на другом устройстве, часть могла остаться от профиля, которым больше никто не пользуется. Отличить может только человек.`,
+    safety:
+      "Забыть — не значит удалить: ни один файл не трогается и удаление нигде не записывается. Устройство, которое ещё носит путь, просто вернёт его на следующей синхронизации.",
+    empty: "Разбирать нечего — это устройство носит всё, что есть в манифесте.",
+    cancel: "Отмена",
+    forget: (n: number) => (n === 0 ? "Забыть отмеченные" : `Забыть отмеченные: ${String(n)}`),
+    noneFound: "Syncrypt: это устройство носит весь манифест — чистить нечего.",
+    done: (n: number) =>
+      `Syncrypt: забыто записей — ${String(n)}. То, что ещё носит другое устройство, вернётся на его следующей синхронизации.`,
+    raced: "Syncrypt: другое устройство опубликовало изменения первым — ничего не изменено. Синхронизируйтесь и повторите.",
+  },
+
   engine: {
     syncOutcome: {
       applied: "Синхронизация завершена: изменения применены.",
@@ -441,6 +474,8 @@ const RU: Strings = {
       `Локальное состояние синхронизации не читается — сверяюсь с нуля: медленнее, но безопасно (${detail}).`,
     dedupProbeUnavailable: (path: string, detail: string) =>
       `Не удалось проверить, есть ли «${path}» в хранилище — загружаю на всякий случай (${detail}).`,
+    manifestEntriesForgotten: (count: number, generation: number) =>
+      `Забыто записей манифеста: ${String(count)} (поколение ${String(generation)}). Ни один файл не удалён; устройство, которое ещё носит запись, вернёт её.`,
   },
 
   entryDetail: {
@@ -481,6 +516,7 @@ const RU: Strings = {
     shareConnection: "Поделиться подключением (создать тикет для другого устройства)",
     addDevice: "Добавить это устройство по тикету",
     rehashVault: "Пересчитать хеши хранилища (забыть кэш)",
+    reviewManifest: "Разобрать записи манифеста, которых нет на этом устройстве",
   },
 
   settings: {

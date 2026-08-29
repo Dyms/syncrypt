@@ -28,6 +28,11 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     path: "note.md",
     detail: "timeout",
   },
+  "manifest-entries-forgotten": {
+    code: "manifest-entries-forgotten",
+    count: 4,
+    generation: 12,
+  },
 };
 
 const DETAILS: Record<EntryDetail["code"], EntryDetail> = {
