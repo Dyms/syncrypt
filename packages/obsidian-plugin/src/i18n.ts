@@ -213,10 +213,10 @@ const EN = {
     configCorePluginsDesc: "Which built-in plugins are enabled.",
     configCommunityList: "Community plugins list",
     configCommunityListDesc:
-      "Which third-party plugins are enabled. The other device still installs them itself; desktop-only plugins simply stay off on mobile.",
+      "Which third-party plugins are enabled — the list only, never the plugins themselves. You install each plugin on every device yourself; one that is not installed here simply stays off.",
     configPluginsHeading: "Plugin settings",
     configPluginsIntro:
-      "Pick the plugins whose settings should travel. Only each plugin's data.json is synced. Keep the plugin versions aligned across devices — a newer version may write settings an older one cannot read.",
+      "Pick the plugins whose settings should travel. Only each plugin's data.json is synced — never the plugin's code, so install the plugin on every device first. Keep the versions aligned: a newer version may write settings an older one cannot read.",
     configPluginSecret: "may store API keys",
     configPluginSecretWarning: (name: string) =>
       `${name} is known to keep API keys or passwords in its settings — they will be uploaded (encrypted) and land on your other devices.`,
@@ -492,10 +492,10 @@ const RU: Strings = {
     configCorePluginsDesc: "Какие встроенные плагины включены.",
     configCommunityList: "Список сторонних плагинов",
     configCommunityListDesc:
-      "Какие сторонние плагины включены. Устанавливает их другое устройство само; плагины только для компьютера на телефоне просто останутся выключенными.",
+      "Какие сторонние плагины включены — только список, сами плагины не переезжают. Каждый плагин нужно установить на каждом устройстве вручную; не установленный здесь просто останется выключенным.",
     configPluginsHeading: "Настройки плагинов",
     configPluginsIntro:
-      "Отметьте плагины, чьи настройки должны переезжать. Синхронизируется только data.json каждого плагина. Держите версии плагинов одинаковыми на устройствах — более новая версия может записать настройки, которые старая не прочитает.",
+      "Отметьте плагины, чьи настройки должны переезжать. Едет только data.json — код плагина не синхронизируется, поэтому сам плагин сначала установите на каждом устройстве. Держите версии одинаковыми: более новая может записать настройки, которые старая не прочитает.",
     configPluginSecret: "может хранить ключи",
     configPluginSecretWarning: (name: string) =>
       `${name} известен тем, что хранит ключи или пароли в своих настройках — они уедут в хранилище (зашифрованными) и попадут на другие ваши устройства.`,

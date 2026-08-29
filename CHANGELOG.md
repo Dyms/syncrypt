@@ -7,6 +7,13 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **The Config Sync wording said the opposite of what it meant.** "Устанавливает
+  их другое устройство само" reads as "the other device will install them for
+  you"; the plugins' code never syncs and never has (RFC-0008 non-goal), so the
+  user installs each plugin on every device. Both descriptions now say that
+  outright, in both languages.
+
 ## [1.0.0-beta.7] — 2026-08-29
 
 ### Fixed
