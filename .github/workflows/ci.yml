@@ -11,16 +11,24 @@ jobs:
   # suites (incl. packaging + bundle guard), and WebDAV conformance against an
   # in-process `webdav-server`. The env-gated live specs skip here.
   build-test:
-    name: Build & offline suite
+    name: Build & offline suite (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is what `.nvmrc` pins and what development is verified on; 24 runs
+        # beside it so the next LTS is proven BEFORE it becomes the only option
+        # — Node 20 reached EOL on 2026-04-30 while still pinned here, and this
+        # matrix is what stops that repeating.
+        node: [22, 24]
     env:
       SYNCRYPT_S3_TEST_ENDPOINT: ""
       SYNCRYPT_WEBDAV_TEST_ENDPOINT: ""
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
       - name: Install
         run: npm ci
       - name: Typecheck
@@ -52,10 +60,10 @@ jobs:
       MINIO_IMAGE: minio/minio:RELEASE.2025-09-07T16-13-09Z
       WEBDAV_IMAGE: bytemark/webdav:2.4
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - name: Install
         run: npm ci
 
