@@ -3,6 +3,7 @@
 import { SyncError } from "../errors.js";
 import type {
   ClockPort,
+  EngineNotice,
   LogPort,
   ObjectStat,
   ProviderCapabilities,
@@ -13,7 +14,7 @@ import type {
   VaultPort,
 } from "../ports.js";
 import type { ObjectKey, VaultPath } from "../types.js";
-import type { SyncReportEntry } from "../report.js";
+import { describeEntry, type SyncReportEntry } from "../report.js";
 
 // ---------------------------------------------------------------------------
 // MemoryStorage
@@ -206,16 +207,21 @@ export class FixedClock implements ClockPort {
 
 export class MemoryLog implements LogPort {
   readonly entries: SyncReportEntry[] = [];
+  /** Every notice as data — tests assert on codes, never on prose (ADR-0026). */
+  readonly notices: EngineNotice[] = [];
+  /** English rendering, for tests that want to read what a user would see. */
   readonly lines: string[] = [];
   entry(e: SyncReportEntry): void {
     this.entries.push(e);
-    this.lines.push(`${e.path}: ${e.message}`);
+    this.lines.push(`${e.path}: ${describeEntry(e)}`);
   }
-  info(msg: string): void {
-    this.lines.push(msg);
+  notice(n: EngineNotice): void {
+    this.notices.push(n);
+    this.lines.push(n.code);
   }
-  warn(msg: string): void {
-    this.lines.push(`WARN: ${msg}`);
+  /** Did the engine report this notice? */
+  noticed(code: EngineNotice["code"]): boolean {
+    return this.notices.some((n) => n.code === code);
   }
 }
 

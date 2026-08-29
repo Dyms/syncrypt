@@ -203,7 +203,8 @@ describe("Safe-Sync circuit breaker (ADR-0010)", () => {
     );
     expect(p.summary.deletions).toBe(25);
     expect(p.requiresConfirmation).toBe(true);
-    expect(p.confirmationReason).toContain("25");
+    // The reason is data, not a sentence (ADR-0026): the client phrases it.
+    expect(p.confirmationReason).toEqual({ code: "bulk-change", destructive: 25, total: 100 });
   });
 
   it("a small deletion below the floor never prompts (ADR-0013)", () => {

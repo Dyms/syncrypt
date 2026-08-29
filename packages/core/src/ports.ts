@@ -2,7 +2,8 @@
 // The core imports NONE of the concrete adapters; the SDK injects them.
 
 import type { Hash, ObjectKey, VaultPath } from "./types.js";
-import type { SyncReportEntry } from "./report.js";
+import type { SyncOutcome, SyncReportEntry } from "./report.js";
+import type { ConfirmationReason } from "./plan.js";
 
 // ---------------------------------------------------------------------------
 // StoragePort (RFC-0006). "StorageProvider" in RFC-0006 is the same contract.
@@ -152,11 +153,27 @@ export interface ClockPort {
   now(): number; // epoch seconds (injected for deterministic tests)
 }
 
+/**
+ * Something the engine has to say that is not about one file (ADR-0026).
+ *
+ * A code plus its facts, never a sentence: the engine does not know what
+ * language the reader speaks, and a string it invents cannot be translated
+ * afterwards. `detail` fields carry a technical cause (an exception message)
+ * that stays as it is in every language.
+ */
+export type EngineNotice =
+  | { code: "sync-outcome"; outcome: SyncOutcome }
+  | { code: "pull-first" }
+  | { code: "confirmation-required"; reason?: ConfirmationReason }
+  | { code: "confirmation-stale"; newDestructive: number }
+  | { code: "state-unreadable"; detail: string }
+  | { code: "dedup-probe-unavailable"; path: VaultPath; detail: string };
+
 export interface LogPort {
-  /** One structured, human-readable line per applied action. */
+  /** One applied action, as data (path + reason code + detail). */
   entry(e: SyncReportEntry): void;
-  info(msg: string): void;
-  warn(msg: string): void;
+  /** Everything else the engine reports. Also data — see EngineNotice. */
+  notice(n: EngineNotice): void;
 }
 
 /** Persists the device-local base manifest between runs (a cache — ADR-0011). */

@@ -22,9 +22,14 @@ export class ConfirmSyncModal extends Modal {
 
   override onOpen(): void {
     this.titleEl.setText(this.t.confirmModal.title);
-    // The engine's own wording when it has one (still English today), else ours.
+    // The engine says WHY in numbers (ADR-0026); the sentence is ours, so the
+    // most alarming message in the plugin is not the one stuck in English.
+    const why = this.plan.confirmationReason;
     this.contentEl.createEl("p", {
-      text: this.plan.confirmationReason ?? this.t.confirmModal.fallbackReason,
+      text:
+        why === undefined
+          ? this.t.confirmModal.fallbackReason
+          : this.t.engine.confirmationRequired(why.destructive, why.total),
     });
 
     const destructive = this.plan.operations.filter(

@@ -108,8 +108,7 @@ export interface SyncEngine {
 
 const noopLog: LogPort = {
   entry: () => undefined,
-  info: () => undefined,
-  warn: () => undefined,
+  notice: () => undefined,
 };
 
 const systemClock: ClockPort = {
@@ -240,7 +239,7 @@ class Engine implements SyncEngine {
       }
     } catch (e) {
       // Corrupt state is discarded: base=null forces a safe full reconcile.
-      this.ctx.log.warn(`local sync state unreadable — will fully reconcile (${String(e)})`);
+      this.ctx.log.notice({ code: "state-unreadable", detail: String(e) });
       this.base = null;
       return;
     }
@@ -297,7 +296,7 @@ class Engine implements SyncEngine {
     };
     for (const e of entries) this.ctx.log.entry(e);
     if (outcome !== "applied" && outcome !== "no-op") {
-      this.ctx.log.info(`sync outcome: ${outcome}`);
+      this.ctx.log.notice({ code: "sync-outcome", outcome });
     }
     this.lastReport = r;
     return r;
@@ -323,7 +322,10 @@ class Engine implements SyncEngine {
 
     if (p.requiresConfirmation) {
       // Invariant §8.7: never auto-apply; the caller must confirmAndApply.
-      this.ctx.log.warn(p.confirmationReason ?? "confirmation required");
+      this.ctx.log.notice({
+        code: "confirmation-required",
+        ...(p.confirmationReason !== undefined ? { reason: p.confirmationReason } : {}),
+      });
       return this.report(startedAt, "needs-confirmation", [], fromGen, fromGen);
     }
     if (remote.manifest === null) {
@@ -372,11 +374,14 @@ class Engine implements SyncEngine {
 
     if (p.pullFirst) {
       // ADR-0002 / RFC-0002 FR-8: someone published since our last pull.
-      this.ctx.log.info("Sync stopped. Please pull first.");
+      this.ctx.log.notice({ code: "pull-first" });
       return this.report(startedAt, "pull-first", [], fromGen, fromGen);
     }
     if (p.requiresConfirmation) {
-      this.ctx.log.warn(p.confirmationReason ?? "confirmation required");
+      this.ctx.log.notice({
+        code: "confirmation-required",
+        ...(p.confirmationReason !== undefined ? { reason: p.confirmationReason } : {}),
+      });
       return this.report(startedAt, "needs-confirmation", [], fromGen, fromGen);
     }
     if (p.summary.conflicts > 0) {
@@ -411,7 +416,7 @@ class Engine implements SyncEngine {
     const published = await publishManifest(this.ctx, next);
     if (!published.ok) {
       // Lost the race or the fork. Our objects are harmless; nothing committed.
-      this.ctx.log.info("Sync stopped. Please pull first.");
+      this.ctx.log.notice({ code: "pull-first" });
       return this.report(startedAt, "pull-first", [], fromGen, fromGen);
     }
 
@@ -488,9 +493,10 @@ class Engine implements SyncEngine {
       return k !== null && !confirmedDestructive.has(k);
     });
     if (unconfirmed.length > 0) {
-      this.ctx.log.warn(
-        `plan changed since confirmation (${unconfirmed.length} new destructive operations) — confirm again`,
-      );
+      this.ctx.log.notice({
+        code: "confirmation-stale",
+        newDestructive: unconfirmed.length,
+      });
       return this.report(startedAt, "needs-confirmation", [], fromGen, fromGen);
     }
 

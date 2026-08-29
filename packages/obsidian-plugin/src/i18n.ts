@@ -6,7 +6,7 @@
 // English is the source of truth: `Strings` is derived from `EN`, so a missing
 // or renamed key fails `tsc` instead of silently falling back at runtime.
 
-import { ReasonCode } from "@syncrypt/core";
+import { ReasonCode, type SyncOutcome } from "@syncrypt/core";
 
 export type Lang = "en" | "ru";
 /** Settings value: follow Obsidian ("auto") or pin a language. */
@@ -111,6 +111,37 @@ const EN = {
     configSyncConflicted:
       "Obsidian-settings sync: the shared profile was changed on two devices — this device kept its own and the other version is beside it as a conflicted copy. Check the settings.",
     hashCacheCleared: "Cached file hashes forgotten — the next scan re-reads the whole vault once.",
+  },
+
+  /**
+   * Everything the engine reports, phrased here (ADR-0026). The engine hands
+   * over a code and its facts; the wording is ours, in the reader's language.
+   */
+  engine: {
+    syncOutcome: {
+      applied: "Sync finished: changes applied.",
+      "pull-first": "Sync stopped — pull first.",
+      "needs-confirmation": "Sync stopped — waiting for your confirmation.",
+      conflicts: "Sync finished with conflicts — both versions kept.",
+      "no-op": "Sync finished: nothing to do.",
+      aborted: "Sync interrupted — nothing was left half-applied.",
+    } as Record<SyncOutcome, string>,
+    pullFirst: "Sync stopped. Pull first — someone else published a newer version.",
+    confirmationRequired: (destructive: number, total: number) =>
+      `Waiting for confirmation: this sync would delete or overwrite ${String(destructive)} of ${String(total)} local files.`,
+    confirmationRequiredPlain: "Waiting for your confirmation before anything is applied.",
+    confirmationStale: (n: number) =>
+      `The plan changed since you confirmed it (${String(n)} new destructive operations) — confirm again.`,
+    stateUnreadable: (detail: string) =>
+      `Local sync state unreadable — reconciling from scratch, which is slower but safe (${detail}).`,
+    dedupProbeUnavailable: (path: string, detail: string) =>
+      `Could not check whether "${path}" is already in storage — uploading it anyway (${detail}).`,
+  },
+
+  entryDetail: {
+    conflictCopySaved: (copyPath: string) => `remote version saved as "${copyPath}"`,
+    remoteEditRestored: "restored the remotely-edited version; delete again to confirm",
+    localEditKept: "kept the locally-edited file; it will be re-uploaded",
   },
 
   notices: {
@@ -388,6 +419,35 @@ const RU: Strings = {
     configSyncConflicted:
       "Синхронизация настроек Obsidian: общий профиль изменили на двух устройствах — это устройство оставило свой, чужая версия лежит рядом как conflicted copy. Проверьте настройки.",
     hashCacheCleared: "Кэш хешей очищен — следующий скан один раз перечитает всё хранилище.",
+  },
+
+  engine: {
+    syncOutcome: {
+      applied: "Синхронизация завершена: изменения применены.",
+      "pull-first": "Синхронизация остановлена — сначала нужно скачать изменения.",
+      "needs-confirmation": "Синхронизация остановлена — жду вашего подтверждения.",
+      conflicts: "Синхронизация завершена с конфликтами — обе версии сохранены.",
+      "no-op": "Синхронизация завершена: делать было нечего.",
+      aborted: "Синхронизация прервана — ничего не осталось применённым наполовину.",
+    },
+    pullFirst:
+      "Синхронизация остановлена. Сначала скачайте изменения — другое устройство опубликовало более новую версию.",
+    confirmationRequired: (destructive: number, total: number) =>
+      `Жду подтверждения: эта синхронизация удалит или перезапишет ${String(destructive)} из ${String(total)} локальных файлов.`,
+    confirmationRequiredPlain: "Жду вашего подтверждения — до него ничего не применяется.",
+    confirmationStale: (n: number) =>
+      `План изменился после вашего подтверждения (новых разрушающих операций: ${String(n)}) — подтвердите заново.`,
+    stateUnreadable: (detail: string) =>
+      `Локальное состояние синхронизации не читается — сверяюсь с нуля: медленнее, но безопасно (${detail}).`,
+    dedupProbeUnavailable: (path: string, detail: string) =>
+      `Не удалось проверить, есть ли «${path}» в хранилище — загружаю на всякий случай (${detail}).`,
+  },
+
+  entryDetail: {
+    conflictCopySaved: (copyPath: string) => `удалённая версия сохранена как «${copyPath}»`,
+    remoteEditRestored:
+      "восстановлена версия, изменённая на другом устройстве; удалите ещё раз, чтобы подтвердить",
+    localEditKept: "локально изменённый файл оставлен на месте, он будет загружен заново",
   },
 
   notices: {

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSyncEngine,
+  describeEntry,
   isSyncError,
   manifestKey,
   serializeManifest,
@@ -63,7 +64,8 @@ describe("push / pull round trip", () => {
     expect(pushReport.outcome).toBe("applied");
     expect(pushReport.toGeneration).toBe(1);
     expect(pushReport.entries).toHaveLength(2);
-    expect(pushReport.entries.every((e) => e.message.length > 0)).toBe(true);
+    // Every entry carries a reason code that renders to something (RFC-0007 §8.6).
+    expect(pushReport.entries.every((e) => describeEntry(e).length > 0)).toBe(true);
 
     const pullReport = await b.engine.pull();
     expect(pullReport.outcome).toBe("applied");

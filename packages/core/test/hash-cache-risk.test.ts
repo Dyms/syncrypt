@@ -160,7 +160,7 @@ describe("the cache cannot cause a wrong sync on its own", () => {
     // engine re-upload, never delete or overwrite.
     expect(vault.getText("a.md")).toBe("one");
     expect(vault.getText("b.md")).toBe("two");
-    expect(report.entries.every((e) => !e.message.includes("tombstone"))).toBe(true);
+    expect(report.entries.every((e) => e.kind !== "delete-remote")).toBe(true);
     expect(vault.trashed).toEqual([]);
   });
 });

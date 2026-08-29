@@ -80,7 +80,7 @@ describe("widening a device's profile", () => {
     const widened = engineFor(storage, "phone", phone, phoneState);
     const report = await widened.sync();
 
-    expect(report.entries.map((e) => e.message).join(" ")).not.toContain("tombstone");
+    expect(report.entries.map((e) => e.kind)).not.toContain("delete-remote");
     expect(phone.getText("papers/big.pdf")).toBe("PDF BYTES");
 
     // …and the desktop still has it after the phone's sync reaches it.

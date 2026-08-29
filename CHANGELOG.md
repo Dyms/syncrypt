@@ -7,6 +7,15 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **Everything the engine says is now translated** (ADR-0026). The sync log,
+  the confirmation dialog and the conflict lines carried English sentences the
+  engine had already rendered — including the most alarming one, "this sync
+  would delete or overwrite N of M local files". The engine now emits a code
+  plus its facts and the plugin writes the sentence, so the log renders in the
+  reader's language and re-renders when the language changes, history included.
+  Adding an engine message without translating it no longer compiles.
+
 ### Fixed
 - **The Config Sync wording said the opposite of what it meant.** "Устанавливает
   их другое устройство само" reads as "the other device will install them for

@@ -4,8 +4,7 @@
 
 import { SyncError } from "../errors.js";
 import type { Operation } from "../plan.js";
-import { reasonMessage } from "../reasons.js";
-import type { SyncReportEntry } from "../report.js";
+import type { EntryDetail, SyncReportEntry } from "../report.js";
 import type {
   DeviceId,
   FileDescriptor,
@@ -70,16 +69,15 @@ async function fetchVerified(
 
 function reportEntry(
   op: Operation,
-  message: string,
-  bytes?: number,
+  opts: { detail?: EntryDetail; bytes?: number } = {},
 ): SyncReportEntry {
   const e: SyncReportEntry = {
     path: op.path,
     kind: op.kind,
     reason: op.reason,
-    message,
   };
-  if (bytes !== undefined) e.bytes = bytes;
+  if (opts.detail !== undefined) e.detail = opts.detail;
+  if (opts.bytes !== undefined) e.bytes = opts.bytes;
   return e;
 }
 
@@ -142,14 +140,14 @@ export async function applyPullOps(
         if (entry === undefined) continue; // planner/remote drift — nothing to fetch
         const data = await fetchVerified(ctx, op.path, entry);
         await writeAndRemember(ctx, op.path, data, entry.hash);
-        entries.push(reportEntry(op, reasonMessage(op.reason), data.length));
+        entries.push(reportEntry(op, { bytes: data.length }));
         break;
       }
       case "delete-local": {
         // ADR-0010 §1: through trash, never a hard delete.
         await ctx.vault.trash(op.path);
         ctx.hashCache?.delete(op.path);
-        entries.push(reportEntry(op, reasonMessage(op.reason)));
+        entries.push(reportEntry(op));
         break;
       }
       case "conflict": {
@@ -162,11 +160,10 @@ export async function applyPullOps(
           const data = await fetchVerified(ctx, op.path, remoteEntry);
           await writeAndRemember(ctx, copyPath, data, remoteEntry.hash);
           entries.push(
-            reportEntry(
-              op,
-              `${reasonMessage(op.reason)} — remote version saved as "${copyPath}"`,
-              data.length,
-            ),
+            reportEntry(op, {
+              detail: { code: "conflict-copy-saved", copyPath },
+              bytes: data.length,
+            }),
           );
         } else if (remoteEntry !== undefined) {
           // Deleted locally, edited remotely: restore the remote version
@@ -174,21 +171,15 @@ export async function applyPullOps(
           const data = await fetchVerified(ctx, op.path, remoteEntry);
           await writeAndRemember(ctx, op.path, data, remoteEntry.hash);
           entries.push(
-            reportEntry(
-              op,
-              `${reasonMessage(op.reason)} — restored the remotely-edited version; delete again to confirm`,
-              data.length,
-            ),
+            reportEntry(op, {
+              detail: { code: "remote-edit-restored" },
+              bytes: data.length,
+            }),
           );
         } else {
           // Edited locally, deleted remotely: keep the local file untouched;
           // the next push revives it. Edit beats delete.
-          entries.push(
-            reportEntry(
-              op,
-              `${reasonMessage(op.reason)} — kept the locally-edited file; it will be re-uploaded`,
-            ),
-          );
+          entries.push(reportEntry(op, { detail: { code: "local-edit-kept" } }));
         }
         break;
       }
@@ -244,7 +235,11 @@ export async function applyPushOps(
           if (!notFound) {
             if (!(e instanceof SyncError) || e.code !== "StorageTransient") throw e;
             probeAnswered = false;
-            ctx.log.warn(`existence check unavailable (${e.message}) — uploading anyway`);
+            ctx.log.notice({
+              code: "dedup-probe-unavailable",
+              path: op.path,
+              detail: e.message,
+            });
           }
           exists = false;
         }
@@ -268,12 +263,12 @@ export async function applyPushOps(
         }
         const mtime = localByPath.get(op.path)?.mtime ?? ctx.clock.now();
         uploaded[op.path] = { hash, size: data.length, mtime, objectKey };
-        entries.push(reportEntry(op, reasonMessage(op.reason), data.length));
+        entries.push(reportEntry(op, { bytes: data.length }));
         break;
       }
       case "delete-remote": {
         tombstoned.push(op.path);
-        entries.push(reportEntry(op, reasonMessage(op.reason)));
+        entries.push(reportEntry(op));
         break;
       }
       case "download":

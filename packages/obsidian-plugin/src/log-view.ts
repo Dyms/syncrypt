@@ -6,6 +6,7 @@ import { ItemView, type WorkspaceLeaf } from "obsidian";
 
 import { EN_STRINGS, type Strings } from "./i18n.js";
 import type { LogBuffer } from "./log-buffer.js";
+import { renderLine } from "./log-render.js";
 
 export const SYNC_LOG_VIEW_TYPE = "syncrypt-log";
 
@@ -69,9 +70,10 @@ export class SyncLogView extends ItemView {
       const time = new Date(line.at).toLocaleTimeString();
       row.createSpan({ text: `${time}  ` });
       if (line.level === "warn") row.style.color = "var(--text-error)";
-      // A reason code renders in the reader's language; anything else is
-      // already-final text (engine diagnostics, plugin messages).
-      const text = line.reason !== undefined ? t.reasons[line.reason] : line.text;
+      // Everything the engine said arrives as codes (ADR-0026) and is phrased
+      // here, so switching language re-renders history too. Only the plugin's
+      // own messages come in already-final form.
+      const text = renderLine(line, t);
       if (line.path !== undefined) {
         row.createEl("b", { text: line.path });
         row.createSpan({ text: `: ${text}` });

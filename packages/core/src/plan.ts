@@ -24,6 +24,18 @@ export interface Operation {
   baseHash?: Hash;
 }
 
+/**
+ * Why a plan wants a human to look at it before anything is applied — as
+ * numbers, not a sentence, so the client can phrase it (ADR-0026).
+ */
+export interface ConfirmationReason {
+  code: "bulk-change";
+  /** Operations that would destroy or replace existing local bytes. */
+  destructive: number;
+  /** Files scanned locally, for the "N of M" the user actually needs. */
+  total: number;
+}
+
 export interface SyncPlan {
   /** Ordered operations. Deterministic function of (local, base, remote). */
   operations: Operation[];
@@ -32,7 +44,7 @@ export interface SyncPlan {
   /** Set by the Safe-Sync circuit breaker (ADR-0010) — needs confirmation. */
   requiresConfirmation: boolean;
   /** Why confirmation is required (e.g. "would delete 42 files"). */
-  confirmationReason?: string;
+  confirmationReason?: ConfirmationReason;
   /** Convenience counts for UI. */
   summary: {
     uploads: number;
@@ -261,9 +273,11 @@ export function plan(
     summary,
   };
   if (requiresConfirmation) {
-    result.confirmationReason =
-      `this sync would delete or overwrite ${destructive} of ${local.length} ` +
-      `local files — confirm to proceed`;
+    result.confirmationReason = {
+      code: "bulk-change",
+      destructive,
+      total: local.length,
+    };
   }
   return result;
 }
