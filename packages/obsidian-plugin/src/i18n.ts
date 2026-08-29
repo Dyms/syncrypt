@@ -212,6 +212,8 @@ const EN = {
     languageRu: "Русский",
 
     storageHeading: "Storage (S3-compatible)",
+    plaintextEndpointWarning:
+      "This endpoint is plain http://. Your vault stays encrypted, but the storage credentials travel in the clear and anyone on the network can take them. Use https:// unless the server is on this machine.",
     credentialWarning:
       "Storage keys are saved in this plugin's data.json in plain text. Use keys limited to this one bucket, and turn on bucket versioning. Your notes stay protected by the passphrase, which is never written to disk.",
     endpoint: "Endpoint",
@@ -537,6 +539,8 @@ const RU: Strings = {
     languageRu: "Русский",
 
     storageHeading: "Хранилище (S3-совместимое)",
+    plaintextEndpointWarning:
+      "Этот адрес — обычный http://. Само хранилище остаётся зашифрованным, но ключи доступа идут по сети открытым текстом, и забрать их может любой в этой сети. Используйте https://, если сервер не на этой же машине.",
     credentialWarning:
       "Ключи доступа сохраняются в data.json этого плагина открытым текстом. Используйте ключи, ограниченные одним бакетом, и включите версионирование бакета. Сами заметки защищены парольной фразой, которая на диск не пишется.",
     endpoint: "Адрес (endpoint)",

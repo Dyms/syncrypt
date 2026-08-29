@@ -24,7 +24,8 @@ newest beta.
 
 ## 3. Prepare storage (once, any device)
 
-You need either an **S3-compatible bucket** or a **WebDAV folder**.
+You need an **S3-compatible bucket**. (WebDAV exists in the engine and is
+tested, but the Obsidian plugin does not expose it yet.)
 
 **S3 (AWS, MinIO, Cloudflare R2, hosting-provider S3, …):**
 
@@ -34,8 +35,9 @@ You need either an **S3-compatible bucket** or a **WebDAV folder**.
 - Strongly recommended: enable **bucket versioning** — it's your safety net
   against anyone (or anything) with write access damaging the ciphertext.
 
-**WebDAV (Nextcloud, Apache, …):** create a dedicated folder and, if your
-server supports it (Nextcloud does), a dedicated **app password**.
+Use an `https://` endpoint. Over plain `http://` your notes stay encrypted,
+but the storage credentials travel in the clear — the plugin warns about this
+in Settings for anything other than a server on your own machine.
 
 ## 4. Configure Syncrypt
 

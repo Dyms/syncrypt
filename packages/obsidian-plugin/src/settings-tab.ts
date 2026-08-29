@@ -5,6 +5,7 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 
 import { SECRET_BEARING_PLUGINS } from "./config-sync.js";
+import { endpointIsPlaintext } from "./endpoint-warning.js";
 import type { Strings } from "./i18n.js";
 import type SyncryptPlugin from "./main.js";
 
@@ -110,6 +111,16 @@ export class SyncryptSettingTab extends PluginSettingTab {
     s3Text(t.settings.endpoint, () => s.s3.endpoint, (v) => (s.s3.endpoint = v), {
       placeholder: "https://s3.example.com",
     });
+    if (endpointIsPlaintext(s.s3.endpoint)) {
+      // The vault's contents are encrypted before they leave, but the storage
+      // credentials are not: over plain HTTP they travel in the clear, and for
+      // WebDAV Basic auth that is the password itself.
+      const warn = containerEl.createEl("div", {
+        text: `⚠ ${t.settings.plaintextEndpointWarning}`,
+        cls: "setting-item-description",
+      });
+      warn.style.color = "var(--text-error)";
+    }
     s3Text(t.settings.region, () => s.s3.region, (v) => (s.s3.region = v));
     s3Text(t.settings.bucket, () => s.s3.bucket, (v) => (s.s3.bucket = v));
     s3Text(t.settings.prefix, () => s.s3.prefix, (v) => (s.s3.prefix = v), {

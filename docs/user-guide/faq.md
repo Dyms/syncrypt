@@ -23,9 +23,10 @@ passphrase in a password manager.
 No. Only the object storage you already have. There is no Syncrypt server.
 
 **Which storage works?**
-Any S3-compatible service (AWS S3, MinIO, R2, REG.RU S3, …) and **WebDAV**
-(Nextcloud, Apache mod_dav, …) — both are covered by the same test suite
-against real servers. More providers (consumer clouds, local folder) can be
+Any S3-compatible service (AWS S3, MinIO, R2, REG.RU S3, …). A **WebDAV**
+provider (Nextcloud, Apache mod_dav, …) is implemented in the engine and covered
+by the same test suite against a real server, but the Obsidian plugin does not
+offer it in the UI yet. More providers (consumer clouds, local folder) can be
 added without touching the engine.
 
 **Does it work on Android?**

@@ -3,8 +3,9 @@
 ## What you need
 
 - Obsidian on each device (macOS / Windows / Android).
-- Storage you control: an S3-compatible bucket **or** a WebDAV folder — see
-  [install & setup](../install.md).
+- Storage you control: an S3-compatible bucket — see
+  [install & setup](../install.md). (WebDAV exists in the engine but is not
+  offered by the plugin yet.)
 - A strong **passphrase** you will not forget. **If you lose it, your data is
   unrecoverable — by design.**
 
