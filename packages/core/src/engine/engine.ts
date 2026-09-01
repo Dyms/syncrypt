@@ -31,6 +31,7 @@ import type {
   VaultPath,
 } from "../types.js";
 import { markAfterSweep, type ReclaimPlan } from "../reclaim.js";
+import { versionSkew } from "../version.js";
 import { applyPullOps, applyPushOps, buildNextManifest } from "./apply.js";
 import { computeReclaimPlan, listObjects, writeGcMark } from "./reclaim-io.js";
 import type { EngineContext } from "./context.js";
@@ -45,6 +46,14 @@ export interface SyncEngineConfig {
   state?: StateStorePort; // base-manifest persistence (ADR-0011)
   deviceId: DeviceId;
   storagePrefix: string; // bucket key prefix for this vault
+  /**
+   * This client's version, e.g. the plugin's manifest version (ADR-0036).
+   * Recorded in every manifest it publishes, and compared against what it
+   * reads so a vault shared by mismatched devices says so instead of behaving
+   * differently on each of them. Optional: an engine without one records
+   * nothing and warns about nothing.
+   */
+  clientVersion?: string;
   safeSync?: Partial<PlanOptions> & {
     versionsToKeep?: number;
     /** Tombstone expiry window in seconds; 0 disables it (ADR-0031). */
@@ -229,6 +238,8 @@ class Engine implements SyncEngine {
   /** Last blob handed to the state port, to skip writing the same bytes twice. */
   private lastSavedState: string | undefined;
   private stateLoaded = false;
+  /** One version-skew line per session, not one per sync. */
+  private versionSkewReported = false;
   private running = false;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -261,6 +272,7 @@ class Engine implements SyncEngine {
           config.safeSync?.deletionBurstWindow ?? DEFAULT_PLAN_OPTIONS.deletionBurstWindow,
       },
       versionsToKeep: config.safeSync?.versionsToKeep ?? 3,
+      ...(config.clientVersion !== undefined ? { clientVersion: config.clientVersion } : {}),
       tombstoneGraceSeconds:
         config.safeSync?.tombstoneGraceSeconds ?? DEFAULT_TOMBSTONE_GRACE_SECONDS,
       reclaimGraceSeconds:
@@ -460,6 +472,29 @@ class Engine implements SyncEngine {
    * files still classify as no-ops; genuinely divergent ones become conflicts
    * and both versions are kept, which is what ADR-0006 §4 promised all along.
    */
+  /**
+   * Say once per session when this vault is shared by mismatched clients
+   * (ADR-0036).
+   *
+   * It can only ever warn the CURRENT client: an older one does not have this
+   * code and cannot be taught anything by us. That asymmetry is the whole
+   * design — the useful direction is telling a person which of their devices
+   * is the stale one, not stopping a device that is already misbehaving.
+   */
+  private noteVersionSkew(remote: Manifest | null): void {
+    if (remote === null || this.versionSkewReported) return;
+    const self = this.ctx.clientVersion;
+    if (self === undefined) return;
+    const skew = versionSkew(remote.writer, self);
+    if (skew === "same" || skew === "unknown") return;
+    this.versionSkewReported = true;
+    this.ctx.log.notice(
+      skew === "client-behind"
+        ? { code: "vault-written-by-newer", writer: remote.writer ?? "", self }
+        : { code: "vault-written-by-older", ...(remote.writer !== undefined ? { writer: remote.writer } : { writer: undefined }), self },
+    );
+  }
+
   private baseFor(remote: Manifest | null): Manifest | null {
     const base = this.base;
     if (base === null || remote === null) return base;
@@ -565,6 +600,7 @@ class Engine implements SyncEngine {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
     }
+    this.noteVersionSkew(remote.manifest);
     const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
 
     if (p.requiresConfirmation) {
@@ -622,6 +658,7 @@ class Engine implements SyncEngine {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
     }
+    this.noteVersionSkew(remote.manifest);
     const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
 
     if (p.pullFirst) {

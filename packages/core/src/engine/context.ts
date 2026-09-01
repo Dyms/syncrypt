@@ -31,6 +31,8 @@ export interface EngineContext {
   hashCache?: HashCache;
   /** Safe-Sync version retention depth (ADR-0010 §3). */
   versionsToKeep: number;
+  /** This client's version, recorded in what it publishes (ADR-0036). */
+  clientVersion?: string;
   /** Tombstones older than this expire on push; 0 disables it (ADR-0031). */
   tombstoneGraceSeconds: number;
   /** How long an object must have been unreachable before a sweep (ADR-0030). */

@@ -45,4 +45,10 @@ export interface Manifest {
   tombstones: Record<VaultPath, Tombstone>;
   /** Optional retained prior versions per path (Safe Sync, ADR-0010). */
   history?: Record<VaultPath, ManifestEntry[]>;
+  /**
+   * Which client version published this generation (ADR-0036). Absent on
+   * manifests written before this was recorded — which is itself the signal
+   * that a client predating it is still writing to this vault.
+   */
+  writer?: string;
 }

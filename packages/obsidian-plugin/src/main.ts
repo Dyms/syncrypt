@@ -425,6 +425,8 @@ export default class SyncryptPlugin extends Plugin {
         vault: this.vaultPort,
         passphrase,
         deviceId: s.deviceId,
+        // ADR-0036: recorded in what we publish, compared against what we read.
+        clientVersion: this.manifest.version,
         storagePrefix: storagePrefixOf(s),
         state: new AdapterStateStore(adapter),
         log: this.log,

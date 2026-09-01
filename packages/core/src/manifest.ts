@@ -153,6 +153,12 @@ export function parseManifest(bytes: Uint8Array): Manifest {
     tombstones,
   };
 
+  // A version string and nothing else: never trusted for a decision, only
+  // shown to the user, so a malformed one is dropped rather than fatal.
+  if (typeof raw.writer === "string" && raw.writer !== "" && raw.writer.length <= 64) {
+    manifest.writer = raw.writer;
+  }
+
   if (raw.history !== undefined) {
     if (!isRecord(raw.history)) throw corrupt("history is not an object");
     const history: Record<VaultPath, ManifestEntry[]> = {};

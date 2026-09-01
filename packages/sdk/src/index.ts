@@ -24,6 +24,8 @@ export interface OpenSyncEngineOptions {
   /** The user's passphrase — held only for the duration of key derivation. */
   passphrase: string;
   deviceId: DeviceId;
+  /** This client's version, recorded in what it publishes (ADR-0036). */
+  clientVersion?: string;
   /** Bucket key prefix for this vault (default: bucket root). */
   storagePrefix?: string;
   clock?: ClockPort;
@@ -61,6 +63,7 @@ export async function openSyncEngine(opts: OpenSyncEngineOptions): Promise<SyncE
     ...(opts.log !== undefined ? { log: opts.log } : {}),
     ...(opts.state !== undefined ? { state: opts.state } : {}),
     ...(opts.safeSync !== undefined ? { safeSync: opts.safeSync } : {}),
+    ...(opts.clientVersion !== undefined ? { clientVersion: opts.clientVersion } : {}),
   });
 }
 

@@ -203,6 +203,10 @@ const EN = {
       `Could not check whether "${path}" is already in storage — uploading it anyway (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
       `Forgot ${String(count)} manifest entr${count === 1 ? "y" : "ies"} (generation ${String(generation)}). No file was deleted; a device that still carries one will re-add it.`,
+    vaultWrittenByNewer: (writer: string, self: string) =>
+      `This vault was last published by Syncrypt ${writer}, and this device is running ${self}. Update this device before making big changes here: a newer version can write things an older one reads differently.`,
+    vaultWrittenByOlder: (writer: string | undefined, self: string) =>
+      `Another device is running ${writer === undefined || writer === "" ? "an older Syncrypt" : `Syncrypt ${writer}`}; this one is running ${self}. Syncing works, but until every device is updated they do not all behave the same way — update the others when you can.`,
     forkLost: (generation: number) =>
       `Two devices published generation ${String(generation)} at the same moment, and this one did not win (ADR-0006 §4). Its own view of that generation is not what the others will read, so this sync compares against the published version instead of it. Files that differ come back as conflicts with both versions kept — nothing is overwritten, and nothing you deleted around then stays deleted.`,
     tombstonesExpired: (count: number, days: number) =>
@@ -596,6 +600,10 @@ const RU: Strings = {
       `Не удалось проверить, есть ли «${path}» в хранилище — загружаю на всякий случай (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
       `Забыто записей манифеста: ${String(count)} (поколение ${String(generation)}). Ни один файл не удалён; устройство, которое ещё носит запись, вернёт её.`,
+    vaultWrittenByNewer: (writer: string, self: string) =>
+      `Это хранилище последним публиковал Syncrypt ${writer}, а на этом устройстве ${self}. Обнови это устройство, прежде чем делать здесь что-то серьёзное: более новая версия пишет то, что старая может прочитать иначе.`,
+    vaultWrittenByOlder: (writer: string | undefined, self: string) =>
+      `На другом устройстве ${writer === undefined || writer === "" ? "более старый Syncrypt" : `Syncrypt ${writer}`}, на этом — ${self}. Синхронизация работает, но пока обновлены не все устройства, ведут себя они по-разному — обнови остальные, когда сможешь.`,
     forkLost: (generation: number) =>
       `Два устройства опубликовали поколение ${String(generation)} в один момент, и это устройство не выиграло (ADR-0006 §4). Его собственная версия этого поколения — не та, которую прочитают остальные, поэтому синхронизация сверяется с опубликованной, а не с ней. Расходящиеся файлы вернутся конфликтами, обе версии сохранятся; ничего не перезаписывается, но и удаления, сделанные примерно тогда же, могут вернуться.`,
     tombstonesExpired: (count: number, days: number) =>

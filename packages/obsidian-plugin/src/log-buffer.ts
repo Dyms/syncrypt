@@ -32,6 +32,7 @@ export interface LogLine {
 const WARNING_NOTICES: ReadonlySet<EngineNotice["code"]> = new Set([
   "confirmation-required",
   "fork-lost",
+  "vault-written-by-newer",
   "confirmation-stale",
   "state-unreadable",
   "dedup-probe-unavailable",

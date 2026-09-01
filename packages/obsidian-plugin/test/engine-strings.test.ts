@@ -38,6 +38,16 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     discount: { destructive: 37, effective: 8, paced: 31, spanSeconds: 25_200 },
   },
   "fork-lost": { code: "fork-lost", generation: 42 },
+  "vault-written-by-newer": {
+    code: "vault-written-by-newer",
+    writer: "1.0.0-beta.10",
+    self: "1.0.0-beta.9",
+  },
+  "vault-written-by-older": {
+    code: "vault-written-by-older",
+    writer: "1.0.0-beta.9",
+    self: "1.0.0-beta.10",
+  },
   "tombstones-expired": {
     code: "tombstones-expired",
     count: 12,

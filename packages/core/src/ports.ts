@@ -171,6 +171,8 @@ export type EngineNotice =
   | { code: "deletions-paced"; discount: PacingDiscount }
   | { code: "tombstones-expired"; count: number; graceSeconds: number }
   | { code: "fork-lost"; generation: number }
+  | { code: "vault-written-by-newer"; writer: string; self: string }
+  | { code: "vault-written-by-older"; writer: string | undefined; self: string }
   | {
       code: "storage-reclaimed";
       deleted: number;

@@ -351,5 +351,6 @@ export function buildNextManifest(
     tombstones,
   };
   if (Object.keys(history).length > 0) manifest.history = history;
+  if (ctx.clientVersion !== undefined) manifest.writer = ctx.clientVersion;
   return manifest;
 }

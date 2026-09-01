@@ -9,6 +9,36 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **A vault shared by devices on different versions now says so** (ADR-0036).
+  Devices do not update together, and this project's own history is two
+  data-loss defects (ADR-0022, ADR-0025) where an older client meeting a newer
+  one's manifest tombstoned files for everybody. The mitigation was a line in a
+  checklist; a checklist is not a mechanism.
+
+  Each manifest now records the version that published it, and a client
+  compares on read: one line per session saying either "this device is the
+  stale one, update it" or "another device is older, update it when you can". A
+  manifest with no recorded version is read as evidence of a client older
+  still, not as unknown.
+
+  It warns rather than blocking, because refusing to sync would take a person's
+  notes hostage over a version string, and most version pairs are perfectly
+  compatible. The case that must fail hard already has its mechanism —
+  `Manifest.version`, which older clients reject fail-closed — and this ADR
+  writes down when to use it: a change an older client would MISREAD bumps the
+  format version; a change it can safely ignore does not. Nothing in beta.10
+  needed it.
+
+  Being honest about the gap: **this does nothing for the beta.9 → beta.10
+  transition itself.** beta.9 does not have this code and will never mention
+  beta.10. Update your devices reasonably close together this once; from here
+  on the plugin says it for you.
+
+  (Comparison is semver rather than string order, because `1.0.0-beta.9` and
+  `1.0.0-beta.10` are exactly the two versions most likely to be running side
+  by side, and a string comparison puts them in the wrong order.)
+
 ### Fixed
 - **The loser of a fork it never saw lost its edit, silently** (ADR-0035).
   `publishManifest` re-LISTs after its own write, which catches a fork that

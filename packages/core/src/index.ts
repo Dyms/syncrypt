@@ -9,6 +9,7 @@ export * from "./paths.js";
 export * from "./manifest.js";
 export * from "./scan.js";
 export * from "./plan.js";
+export * from "./version.js";
 export * from "./reclaim.js";
 export * from "./gc-mark.js";
 export * from "./engine/engine.js";
