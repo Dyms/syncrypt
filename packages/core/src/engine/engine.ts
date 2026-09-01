@@ -437,6 +437,37 @@ class Engine implements SyncEngine {
     });
   }
 
+  /**
+   * The base to plan against — null when ours lost a fork (ADR-0035).
+   *
+   * `publishManifest` re-LISTs after its own write, so it detects a fork that
+   * already exists at that instant. It CANNOT detect one created afterwards:
+   * if we publish generation G and the eventual winner publishes G a moment
+   * later, our re-LIST saw only us, we reported success, and we adopted our
+   * own manifest as base. Nothing has told us since.
+   *
+   * From then on our base is a manifest that no device will ever read again,
+   * and it is the one thing the planner trusts as the common ancestor. It says
+   * "local == base" for our own change, so the winner's version of the same
+   * file classifies as `download` — a silent overwrite of our edit, which is
+   * the one thing RFC-0004 promises never happens.
+   *
+   * Detecting it is cheap: at a given generation there is exactly one
+   * authoritative manifest (the smallest deviceId, ADR-0006 §4). If the
+   * authoritative manifest at OUR base's generation was published by somebody
+   * else, our base is not it. There is no honest ancestor to fall back on — we
+   * overwrote it when we adopted our own — so we plan without one. Identical
+   * files still classify as no-ops; genuinely divergent ones become conflicts
+   * and both versions are kept, which is what ADR-0006 §4 promised all along.
+   */
+  private baseFor(remote: Manifest | null): Manifest | null {
+    const base = this.base;
+    if (base === null || remote === null) return base;
+    if (remote.generation !== base.generation || remote.device === base.device) return base;
+    this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
+    return null;
+  }
+
   // -- storage reclamation (ADR-0030) -----------------------------------------
 
   previewReclaim(signal?: AbortSignal): Promise<ReclaimPlan> {
@@ -534,7 +565,7 @@ class Engine implements SyncEngine {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
     }
-    const p = plan(local, this.base, remote.manifest, this.ctx.planOptions);
+    const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
 
     if (p.requiresConfirmation) {
       // Invariant §8.7: never auto-apply; the caller must confirmAndApply.
@@ -591,7 +622,7 @@ class Engine implements SyncEngine {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
     }
-    const p = plan(local, this.base, remote.manifest, this.ctx.planOptions);
+    const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
 
     if (p.pullFirst) {
       // ADR-0002 / RFC-0002 FR-8: someone published since our last pull.
@@ -684,7 +715,7 @@ class Engine implements SyncEngine {
       await this.loadStateOnce();
       const remote = await readRemote(this.ctx);
       const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache, signal);
-      return plan(local, this.base, remote.manifest, this.ctx.planOptions);
+      return plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
     });
   }
 
@@ -708,7 +739,7 @@ class Engine implements SyncEngine {
     if (signal?.aborted) {
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
     }
-    const fresh = plan(local, this.base, remote.manifest, this.ctx.planOptions);
+    const fresh = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
     const confirmedDestructive = new Set(
       confirmed.operations.map(destructiveKey).filter((k) => k !== null),
     );

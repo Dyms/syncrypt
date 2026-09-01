@@ -42,6 +42,8 @@ export function renderLine(line: LogLine, t: Strings): string {
         return t.engine.dedupProbeUnavailable(n.path, n.detail);
       case "manifest-entries-forgotten":
         return t.engine.manifestEntriesForgotten(n.count, n.generation);
+      case "fork-lost":
+        return t.engine.forkLost(n.generation);
       case "tombstones-expired":
         return t.engine.tombstonesExpired(n.count, Math.round(n.graceSeconds / 86_400));
       case "storage-reclaimed":

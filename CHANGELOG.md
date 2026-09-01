@@ -9,6 +9,37 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **The loser of a fork it never saw lost its edit, silently** (ADR-0035).
+  `publishManifest` re-LISTs after its own write, which catches a fork that
+  already exists at that instant — not one created a moment later. Publish
+  generation 2, see only yourself, report success, adopt your own manifest as
+  base; the eventual winner publishes generation 2 straight after and nothing
+  ever tells you. From then on the planner trusts a manifest no device will
+  read again as the common ancestor, so the winner's version of a file you also
+  changed reads as "remote is newer" and overwrites yours. No conflicted copy,
+  nothing in the trash, nothing in the log — the one thing RFC-0004 says can
+  never happen, and the reason this project exists.
+
+  It is detected on the next read, from what is already there: at any
+  generation there is exactly one authoritative manifest (ADR-0006 §4), so an
+  authoritative manifest published by somebody else means ours was not it. The
+  sync then reconciles WITHOUT a base, because the honest ancestor was
+  overwritten and inventing one would be guessing. Files identical on both
+  sides stay no-ops — `classify()` compares hashes before it consults the base
+  — and only genuinely divergent ones produce an operation, as conflicts with
+  both versions kept. Which is what ADR-0006 §4 promised the loser would get
+  all along.
+
+  One side effect worth knowing: deletions made around the same time can come
+  back, because without a base a path you deleted is indistinguishable from one
+  you never had. A file reappearing is the opposite direction of failure from
+  the one being fixed.
+
+  This matters most where there is least protection. On S3 conditional writes
+  make the fork rare; on WebDAV they do not exist, and the LIST rule is the
+  only thing between two devices and a lost update.
+
 ### Security
 - **Installed by hand from a release zip, the plugin's own `data.json` — the
   storage credentials — could be uploaded** (ADR-0034). The rule that keeps it

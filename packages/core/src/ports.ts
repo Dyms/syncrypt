@@ -170,6 +170,7 @@ export type EngineNotice =
   | { code: "manifest-entries-forgotten"; count: number; generation: number }
   | { code: "deletions-paced"; discount: PacingDiscount }
   | { code: "tombstones-expired"; count: number; graceSeconds: number }
+  | { code: "fork-lost"; generation: number }
   | {
       code: "storage-reclaimed";
       deleted: number;

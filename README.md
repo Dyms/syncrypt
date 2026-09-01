@@ -75,11 +75,9 @@ warning — this is.
 
 Data loss, in order of how likely you are to meet it:
 
-- **Two devices publishing in the same few seconds can lose one side's edit.**
-  Edit a note on two devices, then bring both online at once: one edit can
-  replace the other with no conflict copy and nothing in the trash. Synced one
-  after another — the ordinary case — you get both versions as designed.
-  *Until it is fixed:* let one device finish syncing before waking the next.
+- ~~**Two devices publishing in the same few seconds can lose one side's
+  edit.**~~ Fixed after 1.0.0-beta.9. On beta.9 and earlier, let one device
+  finish syncing before waking the next.
 - **Notes whose names differ only in case can overwrite each other.**
   `Note.md` and `note.md` are two files on Android and Linux, one file on macOS
   and Windows. Publish both from a case-sensitive device and the second

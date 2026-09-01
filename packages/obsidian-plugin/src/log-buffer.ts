@@ -31,6 +31,7 @@ export interface LogLine {
 /** Which notices read as a warning rather than as progress. */
 const WARNING_NOTICES: ReadonlySet<EngineNotice["code"]> = new Set([
   "confirmation-required",
+  "fork-lost",
   "confirmation-stale",
   "state-unreadable",
   "dedup-probe-unavailable",

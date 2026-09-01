@@ -37,6 +37,7 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     code: "deletions-paced",
     discount: { destructive: 37, effective: 8, paced: 31, spanSeconds: 25_200 },
   },
+  "fork-lost": { code: "fork-lost", generation: 42 },
   "tombstones-expired": {
     code: "tombstones-expired",
     count: 12,
