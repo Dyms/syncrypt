@@ -9,19 +9,8 @@ import { Modal, type App } from "obsidian";
 
 import type { UncarriedEntry, VaultPath } from "@syncrypt/core";
 
+import { formatBytes } from "./format-bytes.js";
 import { EN_STRINGS, type Strings } from "./i18n.js";
-
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${String(n)} B`;
-  const units = ["KiB", "MiB", "GiB"];
-  let value = n / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit] ?? "B"}`;
-}
 
 export class ForgetPathsModal extends Modal {
   private readonly selected = new Set<VaultPath>();

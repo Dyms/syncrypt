@@ -315,6 +315,33 @@ export function buildNextManifest(
     tombstones[path] = { deletedAt: ctx.clock.now(), device: ctx.deviceId };
   }
 
+  // ADR-0031: a tombstone older than the grace window has done its job. The
+  // worst this costs is a file coming BACK on a device that has been offline
+  // longer than the window (RFC-0004's A,A,⌀ anomaly re-uploads it) — the
+  // opposite failure from every other one in this project. Never expiring them
+  // means the manifest grows with every deletion the vault has ever seen, and
+  // the ciphertext of deleted files can never be reclaimed (ADR-0030), because
+  // `history` keeps pointing at it.
+  let expired = 0;
+  if (ctx.tombstoneGraceSeconds > 0) {
+    const cutoff = ctx.clock.now() - ctx.tombstoneGraceSeconds;
+    for (const [path, tombstone] of Object.entries(tombstones)) {
+      if (tombstone.deletedAt >= cutoff) continue;
+      delete tombstones[path];
+      // Retained versions of a path nobody remembers deleting are unreachable
+      // by definition — they go with it, or GC can never free them.
+      delete history[path];
+      expired++;
+    }
+  }
+  if (expired > 0) {
+    ctx.log.notice({
+      code: "tombstones-expired",
+      count: expired,
+      graceSeconds: ctx.tombstoneGraceSeconds,
+    });
+  }
+
   const manifest: Manifest = {
     version: 1,
     generation,

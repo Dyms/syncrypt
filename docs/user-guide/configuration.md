@@ -88,7 +88,10 @@ rails (ADR-0010):
 
 - deleted files are moved to a local `.obsidian/sync-trash/` (never synced), not
   hard-deleted;
-- remote deletions are deferred via tombstones with a grace window;
+- remote deletions are deferred via tombstones, which the manifest remembers for
+  **30 days** by default and then forgets. Shorten that window and a device that
+  has been offline longer than it will bring its copies of those files back;
+  set it to 0 and the manifest remembers every deletion for ever;
 - the last few versions of changed files are retained;
 - a **bulk-change circuit breaker** pauses for your confirmation if a sync would
   delete or overwrite an unusually large number of files (default > 20 files or
@@ -102,3 +105,26 @@ what an accident looks like. The window that separates the two is
 **Deletion burst window** (default 300 s).
 
 Keep Safe Mode on unless you have a specific reason not to.
+
+## Reclaiming storage
+
+Nothing in your bucket is deleted as a side effect of syncing. Replaced
+versions past the retention depth, the ciphertext of deleted files, and entries
+you forgot with **Review manifest entries** all keep costing storage until you
+run **Reclaim storage** from the command palette.
+
+It is the one thing Syncrypt does that nothing undoes — a deleted object has no
+trash, no retained version, and no other device that puts it back — so it works
+in two steps. The first run records what nothing references any more and tells
+you when it can go; a run after the safety window (default 24 hours) deletes it,
+re-checking first that nothing has started pointing at it in the meantime. That
+re-check is what makes the deletion safe against a sync running elsewhere at the
+same time, so do not shorten the window to nothing.
+
+The same command prunes old manifest generations beyond **Manifest generations
+to keep** (default 10). Those generations are point-in-time history: after
+pruning you can still recover from the newest generations and from each file's
+retained versions, and no further back.
+
+One storage prefix holds one vault. Two vaults sharing a prefix cannot work in
+the first place, and with reclamation they would delete each other's data.

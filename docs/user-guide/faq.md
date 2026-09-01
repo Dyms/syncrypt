@@ -50,6 +50,12 @@ circuit breaker that pauses when a sync would touch an unusually large number of
 files *at once*. Deletions you made one at a time over hours are recognized as
 your own work and do not trip it; deletions that all landed together do.
 
+**Does my bucket grow for ever?**
+Only until you run **Reclaim storage**. Nothing is deleted as a side effect of
+syncing; that command deletes the encrypted objects nothing references any more,
+in two steps a safety window apart. Deletion records themselves are forgotten
+after 30 days by default.
+
 **Can I recover files without Syncrypt?**
 Yes — with your passphrase and the documented format you can decrypt the manifest
 and any object with a short script — see [manual recovery](./manual-recovery.md).

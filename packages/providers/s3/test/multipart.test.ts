@@ -33,7 +33,17 @@ if (live === null) {
 
         const back = await storage.get("attachments/big.bin");
         expect(back.length).toBe(data.length);
-        expect(back).toEqual(data);
+        // Byte-wise, NOT expect().toEqual(): a deep-equal over 12 MiB of typed
+        // array takes minutes on a slow machine and turns a passing test into
+        // a timeout. The assertion is the same; only its cost differs.
+        let firstDifference = -1;
+        for (let i = 0; i < data.length; i++) {
+          if (back[i] !== data[i]) {
+            firstDifference = i;
+            break;
+          }
+        }
+        expect(firstDifference, "first differing byte offset").toBe(-1);
 
         const stat = await storage.stat("attachments/big.bin");
         expect(stat.size).toBe(data.length);

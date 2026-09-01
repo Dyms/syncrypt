@@ -30,7 +30,9 @@ import type {
   ObjectKey,
   VaultPath,
 } from "../types.js";
+import { markAfterSweep, type ReclaimPlan } from "../reclaim.js";
 import { applyPullOps, applyPushOps, buildNextManifest } from "./apply.js";
+import { computeReclaimPlan, listObjects, writeGcMark } from "./reclaim-io.js";
 import type { EngineContext } from "./context.js";
 import { publishManifest, readRemote, type RemoteState } from "./remote.js";
 
@@ -43,7 +45,15 @@ export interface SyncEngineConfig {
   state?: StateStorePort; // base-manifest persistence (ADR-0011)
   deviceId: DeviceId;
   storagePrefix: string; // bucket key prefix for this vault
-  safeSync?: Partial<PlanOptions> & { versionsToKeep?: number };
+  safeSync?: Partial<PlanOptions> & {
+    versionsToKeep?: number;
+    /** Tombstone expiry window in seconds; 0 disables it (ADR-0031). */
+    tombstoneGraceSeconds?: number;
+    /** How long an object must sit unreachable before a sweep (ADR-0030). */
+    reclaimGraceSeconds?: number;
+    /** Manifest generations retained (ADR-0030). */
+    generationsToKeep?: number;
+  };
   network?: {
     // resource-aware auto-sync (RFC-0004); consumed by clients, not the engine
     wifiOnly?: boolean;
@@ -127,6 +137,41 @@ export interface SyncEngine {
    * guess is that the entry comes back a generation later.
    */
   forgetPaths(paths: VaultPath[], signal?: AbortSignal): Promise<ForgetResult>;
+
+  /**
+   * What reclaiming storage would delete, WITHOUT deleting anything (ADR-0030).
+   *
+   * Reads every manifest and lists every object, computes reachability over the
+   * retained generations, and reports three numbers: what is deletable now,
+   * what is still waiting out its grace window, and which manifest generations
+   * would be pruned. Publishes nothing and marks nothing.
+   */
+  previewReclaim(signal?: AbortSignal): Promise<ReclaimPlan>;
+
+  /**
+   * Reclaim storage: prune manifest generations below the retention cut, delete
+   * the objects that have been unreachable for longer than the grace window,
+   * and record the rest so they can go on a later run (ADR-0030).
+   *
+   * The one operation nothing undoes. It never touches anything outside
+   * `objects/` and never deletes an object that any retained manifest still
+   * references — re-checked at the moment of deletion, which is what makes the
+   * deduplication probe in `applyPushOps` safe against it.
+   */
+  reclaimStorage(signal?: AbortSignal): Promise<ReclaimResult>;
+}
+
+export interface ReclaimResult {
+  /** Object keys actually deleted. */
+  deleted: ObjectKey[];
+  /** Bytes those objects occupied, as storage reported them. */
+  bytesFreed: number;
+  /** Manifest objects pruned by the generation-retention rule. */
+  prunedManifests: number;
+  /** Unreachable objects now waiting out the grace window. */
+  waiting: number;
+  /** When the oldest of them ripens (epoch seconds); null when none wait. */
+  ripeAt: number | null;
 }
 
 /** One manifest entry this device does not carry — enough to recognize it. */
@@ -144,6 +189,13 @@ export interface ForgetResult {
   /** The generation published, or null when there was nothing to do. */
   generation: number | null;
 }
+
+/** RFC-0004 §Deletion & tombstone GC — 30 days, resolved by ADR-0031. */
+export const DEFAULT_TOMBSTONE_GRACE_SECONDS = 30 * 24 * 60 * 60;
+/** Long enough that no single push can outlive it; short enough to be usable. */
+export const DEFAULT_RECLAIM_GRACE_SECONDS = 24 * 60 * 60;
+/** Manifest generations kept for point-in-time recovery (ADR-0030). */
+export const DEFAULT_GENERATIONS_TO_KEEP = 10;
 
 const noopLog: LogPort = {
   entry: () => undefined,
@@ -209,6 +261,11 @@ class Engine implements SyncEngine {
           config.safeSync?.deletionBurstWindow ?? DEFAULT_PLAN_OPTIONS.deletionBurstWindow,
       },
       versionsToKeep: config.safeSync?.versionsToKeep ?? 3,
+      tombstoneGraceSeconds:
+        config.safeSync?.tombstoneGraceSeconds ?? DEFAULT_TOMBSTONE_GRACE_SECONDS,
+      reclaimGraceSeconds:
+        config.safeSync?.reclaimGraceSeconds ?? DEFAULT_RECLAIM_GRACE_SECONDS,
+      generationsToKeep: config.safeSync?.generationsToKeep ?? DEFAULT_GENERATIONS_TO_KEEP,
     };
   }
 
@@ -377,6 +434,60 @@ class Engine implements SyncEngine {
         generation,
       });
       return { forgotten, generation };
+    });
+  }
+
+  // -- storage reclamation (ADR-0030) -----------------------------------------
+
+  previewReclaim(signal?: AbortSignal): Promise<ReclaimPlan> {
+    return this.exclusive(() => computeReclaimPlan(this.ctx, signal));
+  }
+
+  reclaimStorage(signal?: AbortSignal): Promise<ReclaimResult> {
+    return this.exclusive(async () => {
+      // Recomputed here, not taken from the caller's preview: between a
+      // preview and a click another device can publish a generation that
+      // adopts one of these objects (the dedup probe in applyPushOps). The
+      // re-check IS the safety property — never sweep a stale plan.
+      const plan = await computeReclaimPlan(this.ctx, signal);
+      const deleted: ObjectKey[] = [];
+      let bytesFreed = 0;
+      const sizes = new Map(
+        (await listObjects(this.ctx, signal)).map((o) => [o.key, o.size] as const),
+      );
+
+      for (const key of plan.sweep) {
+        if (signal?.aborted) break;
+        await this.ctx.storage.delete(this.ctx.key(key));
+        deleted.push(key);
+        bytesFreed += sizes.get(key) ?? 0;
+      }
+
+      let prunedManifests = 0;
+      for (const key of plan.prunedManifests) {
+        if (signal?.aborted) break;
+        await this.ctx.storage.delete(this.ctx.key(key));
+        prunedManifests++;
+      }
+
+      // Persist what is still waiting so the next run does not restart their
+      // clocks. A failure here costs one more grace window, never a file.
+      await writeGcMark(this.ctx, markAfterSweep(plan)).catch(() => undefined);
+
+      this.ctx.log.notice({
+        code: "storage-reclaimed",
+        deleted: deleted.length,
+        bytesFreed,
+        prunedManifests,
+        waiting: plan.waiting,
+      });
+      return {
+        deleted,
+        bytesFreed,
+        prunedManifests,
+        waiting: plan.waiting,
+        ripeAt: plan.ripeAt,
+      };
     });
   }
 

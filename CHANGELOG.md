@@ -23,6 +23,39 @@ All notable changes to this project are documented here. Format based on
   changes" became "Apply changes"; the list above it already shows what happens,
   and the reason line above that still carries the numbers.
 
+### Added
+- **Reclaim storage** (ADR-0030) — the last genuinely destructive operation the
+  project did not have. Nothing in the bucket was ever deleted: replaced
+  versions past the retention depth, the ciphertext of deleted files, entries
+  forgotten with ADR-0027, and — nobody had written this one down — every
+  manifest generation ever published. A new command deletes what nothing
+  references any more, in two steps a safety window apart.
+
+  The obvious rule, and the one RFC-0004 sketched, is not safe: "unreferenced by
+  the current manifest and older than the grace window". The deduplication probe
+  in the push skips uploading content that is already stored, so an old
+  unreferenced object can be adopted by a push that is in flight right now —
+  what bounds that window is the duration of one push, not the object's age. So
+  an object is recorded with the time it was *first seen unreachable*, has to
+  sit that way for 24 hours by default, and reachability is re-checked at the
+  moment of deletion. Nothing outside `objects/` is ever a candidate: the
+  `meta/keyfile-params.json` salt, whose loss would lock every device out of a
+  bucket that still holds all the data, is out of reach by construction and by
+  test.
+
+  Reclaiming also prunes manifest generations beyond the newest 10. That bounds
+  a promise the docs used to make by accident — "free point-in-time history" was
+  an artefact of never deleting anything — to the retained generations plus each
+  file's retained versions, and says so.
+- **Deletion records expire after 30 days** (ADR-0031). Every deletion the vault
+  had ever seen was remembered for ever, re-encrypted and re-uploaded in every
+  generation on every device, and its `history` kept the deleted file's
+  ciphertext permanently reachable. They now expire during the normal push,
+  taking that path's retained versions with them. The worst this costs is the
+  opposite failure from every other one here: a device offline for longer than
+  the window brings its copies back, and you delete them again. The window is a
+  setting; `0` keeps the old behaviour.
+
 ### Changed
 - **The bulk-change breaker counts bursts at the source, not operations in one
   sync** (ADR-0029). Deleting thirty notes one at a time over an afternoon on a

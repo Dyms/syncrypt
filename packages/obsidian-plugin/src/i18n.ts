@@ -144,6 +144,29 @@ const EN = {
    * Everything the engine reports, phrased here (ADR-0026). The engine hands
    * over a code and its facts; the wording is ours, in the reader's language.
    */
+  reclaimModal: {
+    title: "Reclaim storage",
+    nothing:
+      "Nothing to reclaim: every stored object is still referenced, and there are no old manifest generations to prune.",
+    ready: (objects: number, size: string) =>
+      `${String(objects)} object${objects === 1 ? "" : "s"} (${size}) are referenced by nothing and have waited out the safety window.`,
+    alsoManifests: (manifests: number) =>
+      `${String(manifests)} old manifest generation${manifests === 1 ? "" : "s"} would be pruned as well. Point-in-time recovery stays available for the newest generations and for each file's retained versions.`,
+    waiting: (objects: number, size: string, when: string) =>
+      `${String(objects)} object${objects === 1 ? "" : "s"} (${size}) are referenced by nothing, but have not waited out the safety window yet. Run this again after ${when} and they can go.`,
+    marked:
+      "They are noted, with the time they were first seen unreferenced — running this command again in the meantime does not restart their clock.",
+    danger:
+      "This is the one thing Syncrypt does that nothing undoes. A deleted object is gone: no trash, no retained version, no other device that puts it back. It is safe because nothing any kept manifest still points at is ever a candidate — and that is checked again at the moment of deletion, never taken from this preview.",
+    cancel: "Cancel",
+    confirm: "Reclaim",
+    close: "Close",
+    done: (deleted: number, freed: string) =>
+      `Syncrypt: ${String(deleted)} object${deleted === 1 ? "" : "s"} deleted, ${freed} freed.`,
+    noneYet: (when: string) =>
+      `Syncrypt: nothing is deletable yet — the objects are noted and can go after ${when}.`,
+  },
+
   forgetModal: {
     title: "Files in the manifest that this device does not carry",
     intro: (n: number) =>
@@ -180,6 +203,10 @@ const EN = {
       `Could not check whether "${path}" is already in storage — uploading it anyway (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
       `Forgot ${String(count)} manifest entr${count === 1 ? "y" : "ies"} (generation ${String(generation)}). No file was deleted; a device that still carries one will re-add it.`,
+    tombstonesExpired: (count: number, days: number) =>
+      `${String(count)} deletion record${count === 1 ? "" : "s"} older than ${String(days)} days dropped from the manifest (ADR-0031). The files stay deleted; only the record of the deletion is gone. A device that has been offline longer than that will bring its copies back — delete them again if it does.`,
+    storageReclaimed: (deleted: number, freed: string, manifests: number, waiting: number) =>
+      `Storage reclaimed: ${String(deleted)} object${deleted === 1 ? "" : "s"} deleted (${freed}), ${String(manifests)} old manifest generation${manifests === 1 ? "" : "s"} pruned, ${String(waiting)} object${waiting === 1 ? "" : "s"} still waiting out the safety window.`,
     deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
       `${String(paced)} deletions came in from another device, spread over ${spanEn(spanSeconds)} — the pace of someone working, not of something going wrong, so the confirmation for ${String(destructive)} destructive changes was not asked for (ADR-0029). The deleted files are in the sync trash.`,
   },
@@ -223,6 +250,7 @@ const EN = {
     addDevice: "Add this device from a ticket",
     rehashVault: "Re-hash the vault (forget cached file hashes)",
     reviewManifest: "Review manifest entries this device does not carry",
+    reclaimStorage: "Reclaim storage (delete unreferenced objects)",
   },
 
   settings: {
@@ -321,6 +349,15 @@ const EN = {
     vaultFraction: "Vault fraction",
     vaultFractionDesc:
       "Between floor and cap, prompt when the change exceeds this fraction (0.1 = 10%).",
+    tombstoneGrace: "Forget a deletion after (days)",
+    tombstoneGraceDesc:
+      "How long the manifest remembers that a file was deleted. 0 = for ever. Shorten it and a device that has been offline longer than this brings its copies of those files back.",
+    reclaimGrace: "Reclaim safety window (hours)",
+    reclaimGraceDesc:
+      "How long an object must have been referenced by nothing before it can be deleted. The window is what makes deletion safe against a sync that is in flight — do not shorten it below an hour.",
+    generationsToKeep: "Manifest generations to keep",
+    generationsToKeepDesc:
+      "Older generations are pruned when you reclaim storage. They are the point-in-time history beyond each file's retained versions.",
     deletionBurstWindow: "Deletion burst window (seconds)",
     deletionBurstWindowDesc:
       "Deletions that arrive from one device inside this window count as ONE event. Deleting notes one at a time over a day no longer counts as a bulk change; a wipe, which lands all at once, still does.",
@@ -482,6 +519,29 @@ const RU: Strings = {
     hashCacheCleared: "Кэш хешей очищен — следующий скан один раз перечитает всё хранилище.",
   },
 
+  reclaimModal: {
+    title: "Освободить место в хранилище",
+    nothing:
+      "Освобождать нечего: на все хранимые объекты кто-то ссылается, старых поколений манифеста для удаления тоже нет.",
+    ready: (objects: number, size: string) =>
+      `Объектов, на которые не ссылается ничто и защитное окно для которых прошло: ${String(objects)} (${size}).`,
+    alsoManifests: (manifests: number) =>
+      `Заодно будет убрано старых поколений манифеста: ${String(manifests)}. Восстановление на момент времени останется доступным по свежим поколениям и по сохранённым версиям каждого файла.`,
+    waiting: (objects: number, size: string, when: string) =>
+      `Объектов, на которые не ссылается ничто, но защитное окно ещё не прошло: ${String(objects)} (${size}). Запустите команду снова после ${when} — и их можно будет удалить.`,
+    marked:
+      "Они помечены вместе со временем, когда их впервые увидели ненужными: повторный запуск команды до срока не сбрасывает им отсчёт.",
+    danger:
+      "Это единственное, что Syncrypt делает без возможности отката. Удалённый объект исчезает: ни корзины, ни сохранённой версии, ни устройства, которое вернёт его обратно. Безопасно это потому, что кандидатом никогда не станет то, на что ссылается хоть один сохраняемый манифест, — и проверяется это заново в момент удаления, а не берётся из этого предпросмотра.",
+    cancel: "Отмена",
+    confirm: "Освободить",
+    close: "Закрыть",
+    done: (deleted: number, freed: string) =>
+      `Syncrypt: удалено объектов — ${String(deleted)}, освобождено ${freed}.`,
+    noneYet: (when: string) =>
+      `Syncrypt: удалять пока нечего — объекты помечены, их можно будет убрать после ${when}.`,
+  },
+
   forgetModal: {
     title: "Файлы в манифесте, которых нет на этом устройстве",
     intro: (n: number) =>
@@ -519,6 +579,10 @@ const RU: Strings = {
       `Не удалось проверить, есть ли «${path}» в хранилище — загружаю на всякий случай (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
       `Забыто записей манифеста: ${String(count)} (поколение ${String(generation)}). Ни один файл не удалён; устройство, которое ещё носит запись, вернёт её.`,
+    tombstonesExpired: (count: number, days: number) =>
+      `Из манифеста убрано записей об удалении старше ${String(days)} дн.: ${String(count)} (ADR-0031). Сами файлы остаются удалёнными — исчезла только запись о том, что их удалили. Устройство, простоявшее офлайн дольше этого срока, вернёт свои копии; если так случится, удалите их ещё раз.`,
+    storageReclaimed: (deleted: number, freed: string, manifests: number, waiting: number) =>
+      `Хранилище очищено: удалено объектов — ${String(deleted)} (${freed}), убрано старых поколений манифеста — ${String(manifests)}, ждут окончания защитного окна — ${String(waiting)}.`,
     deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
       `С другого устройства пришло удалений: ${String(paced)}, растянутых на ${spanRu(spanSeconds)} — это темп работы человека, а не сбоя, поэтому подтверждение на ${String(destructive)} разрушающих изменений не запрашивалось (ADR-0029). Удалённые файлы лежат в корзине синхронизации.`,
   },
@@ -564,6 +628,7 @@ const RU: Strings = {
     addDevice: "Добавить это устройство по тикету",
     rehashVault: "Пересчитать хеши хранилища (забыть кэш)",
     reviewManifest: "Разобрать записи манифеста, которых нет на этом устройстве",
+    reclaimStorage: "Освободить место в хранилище (удалить ненужные объекты)",
   },
 
   settings: {
@@ -663,6 +728,15 @@ const RU: Strings = {
     vaultFraction: "Доля хранилища",
     vaultFractionDesc:
       "Между порогом и верхней границей спрашивать, если изменение превышает эту долю (0.1 = 10%).",
+    tombstoneGrace: "Забывать удаление через (дней)",
+    tombstoneGraceDesc:
+      "Сколько манифест помнит, что файл был удалён. 0 — помнить всегда. Если сократить, устройство, простоявшее офлайн дольше этого срока, вернёт свои копии таких файлов.",
+    reclaimGrace: "Защитное окно очистки (часов)",
+    reclaimGraceDesc:
+      "Сколько объект должен простоять никому не нужным, прежде чем его можно удалить. Именно это окно делает удаление безопасным для синхронизации, идущей прямо сейчас, — не ставьте меньше часа.",
+    generationsToKeep: "Хранить поколений манифеста",
+    generationsToKeepDesc:
+      "Более старые убираются при очистке хранилища. Это история на момент времени сверх сохранённых версий каждого файла.",
     deletionBurstWindow: "Окно всплеска удалений (секунды)",
     deletionBurstWindowDesc:
       "Удаления, пришедшие с одного устройства в пределах этого окна, считаются ОДНИМ событием. Удаление заметок по одной в течение дня перестаёт быть массовым изменением; разовое стирание, которое приходит целиком, им остаётся.",

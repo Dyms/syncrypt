@@ -20,6 +20,8 @@ import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
 import { conflictCopyFor, shortlist } from "./conflict-report.js";
 import { ForgetPathsModal } from "./forget-modal.js";
+import { formatBytes } from "./format-bytes.js";
+import { ReclaimStorageModal } from "./reclaim-modal.js";
 import { OBSIDIAN_DIR, SYNCRYPT_PLUGIN_ID } from "./config-sync.js";
 import {
   adoptSharedConfig,
@@ -136,6 +138,11 @@ export default class SyncryptPlugin extends Plugin {
       id: "review-manifest",
       name: this.strings.commands.reviewManifest,
       callback: () => void this.reviewManifest(),
+    });
+    this.addCommand({
+      id: "reclaim-storage",
+      name: this.strings.commands.reclaimStorage,
+      callback: () => void this.reclaimStorage(),
     });
 
     // Pull on start (RFC-0004 §Triggers) — once the user unlocks.
@@ -684,6 +691,47 @@ export default class SyncryptPlugin extends Plugin {
       return;
     }
     new Notice(this.strings.forgetModal.done(result.forgotten.length), 8000);
+    await this.refreshFacts().catch(() => undefined);
+    this.renderStatus();
+  }
+
+  /**
+   * Reclaim storage (ADR-0030): preview, confirm, sweep. The one operation
+   * nothing undoes, so it is a command the user runs deliberately, never a
+   * side effect of syncing — and the plan shown is recomputed inside the
+   * engine before anything is deleted, never executed as previewed.
+   */
+  async reclaimStorage(): Promise<void> {
+    if (this.engine === null) {
+      this.promptUnlock();
+      return;
+    }
+    const engine = this.engine;
+    const plan = await engine.previewReclaim();
+    const approved = await new Promise<boolean>((resolve) => {
+      new ReclaimStorageModal(this.app, plan, resolve, this.strings).open();
+    });
+    // Nothing ripe and nothing to prune is the NORMAL first outcome: there was
+    // no decision to make, so closing the dialog is not a "no". Persist the
+    // mark, or the grace window would never start for a user who only looks.
+    // When there WAS something to approve, cancel means cancel — running the
+    // operation anyway would prune the generations they just declined.
+    const actionable = plan.sweep.length > 0 || plan.prunedManifests.length > 0;
+    if (!approved) {
+      if (!actionable && plan.waiting > 0 && plan.ripeAt !== null) {
+        await engine.reclaimStorage();
+        new Notice(
+          this.strings.reclaimModal.noneYet(new Date(plan.ripeAt * 1000).toLocaleString()),
+          8000,
+        );
+      }
+      return;
+    }
+    const result = await engine.reclaimStorage();
+    new Notice(
+      this.strings.reclaimModal.done(result.deleted.length, formatBytes(result.bytesFreed)),
+      8000,
+    );
     await this.refreshFacts().catch(() => undefined);
     this.renderStatus();
   }

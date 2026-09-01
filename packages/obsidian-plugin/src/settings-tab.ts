@@ -365,6 +365,26 @@ export class SyncryptSettingTab extends PluginSettingTab {
       () => s.safeSync.versionsToKeep,
       (v) => (s.safeSync.versionsToKeep = Math.floor(v)),
     );
+    // Days and hours in the UI, seconds in the engine: nobody reasons about a
+    // deletion-memory window in seconds.
+    num(
+      t.settings.tombstoneGrace,
+      t.settings.tombstoneGraceDesc,
+      () => Math.round(s.safeSync.tombstoneGraceSeconds / 86_400),
+      (v) => (s.safeSync.tombstoneGraceSeconds = Math.floor(v) * 86_400),
+    );
+    num(
+      t.settings.reclaimGrace,
+      t.settings.reclaimGraceDesc,
+      () => Math.round(s.safeSync.reclaimGraceSeconds / 3600),
+      (v) => (s.safeSync.reclaimGraceSeconds = Math.max(1, Math.floor(v)) * 3600),
+    );
+    num(
+      t.settings.generationsToKeep,
+      t.settings.generationsToKeepDesc,
+      () => s.safeSync.generationsToKeep,
+      (v) => (s.safeSync.generationsToKeep = Math.max(1, Math.floor(v))),
+    );
 
     // --- Vault creation profile (ADR-0018) -----------------------------------
     new Setting(containerEl)

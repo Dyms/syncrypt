@@ -37,6 +37,18 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     code: "deletions-paced",
     discount: { destructive: 37, effective: 8, paced: 31, spanSeconds: 25_200 },
   },
+  "tombstones-expired": {
+    code: "tombstones-expired",
+    count: 12,
+    graceSeconds: 30 * 24 * 60 * 60,
+  },
+  "storage-reclaimed": {
+    code: "storage-reclaimed",
+    deleted: 118,
+    bytesFreed: 4_194_304,
+    prunedManifests: 40,
+    waiting: 3,
+  },
 };
 
 const DETAILS: Record<EntryDetail["code"], EntryDetail> = {

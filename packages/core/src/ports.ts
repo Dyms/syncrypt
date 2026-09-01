@@ -168,7 +168,15 @@ export type EngineNotice =
   | { code: "state-unreadable"; detail: string }
   | { code: "dedup-probe-unavailable"; path: VaultPath; detail: string }
   | { code: "manifest-entries-forgotten"; count: number; generation: number }
-  | { code: "deletions-paced"; discount: PacingDiscount };
+  | { code: "deletions-paced"; discount: PacingDiscount }
+  | { code: "tombstones-expired"; count: number; graceSeconds: number }
+  | {
+      code: "storage-reclaimed";
+      deleted: number;
+      bytesFreed: number;
+      prunedManifests: number;
+      waiting: number;
+    };
 
 export interface LogPort {
   /** One applied action, as data (path + reason code + detail). */

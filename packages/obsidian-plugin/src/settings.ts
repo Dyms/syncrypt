@@ -27,6 +27,12 @@ export interface SyncryptSettings {
     /** Seconds within which deletions from one device are one burst (ADR-0029). */
     deletionBurstWindow: number;
     versionsToKeep: number;
+    /** Tombstones older than this expire on push; 0 = never (ADR-0031). */
+    tombstoneGraceSeconds: number;
+    /** How long an object must sit unreferenced before a sweep (ADR-0030). */
+    reclaimGraceSeconds: number;
+    /** Manifest generations kept; reachability is computed from them (ADR-0030). */
+    generationsToKeep: number;
   };
   autoSync: {
     enabled: boolean;
@@ -64,6 +70,9 @@ export const DEFAULT_SETTINGS: SyncryptSettings = {
     bulkChangeMaxFraction: 0.1,
     deletionBurstWindow: 300,
     versionsToKeep: 3,
+    tombstoneGraceSeconds: 30 * 24 * 60 * 60,
+    reclaimGraceSeconds: 24 * 60 * 60,
+    generationsToKeep: 10,
   },
   autoSync: {
     enabled: true,

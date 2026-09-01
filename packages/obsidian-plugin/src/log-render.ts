@@ -4,6 +4,7 @@
 // strings), so the "no English leaks to a Russian reader" guarantee is
 // unit-testable without Obsidian's runtime.
 
+import { formatBytes } from "./format-bytes.js";
 import type { Strings } from "./i18n.js";
 import type { LogLine } from "./log-buffer.js";
 
@@ -41,6 +42,15 @@ export function renderLine(line: LogLine, t: Strings): string {
         return t.engine.dedupProbeUnavailable(n.path, n.detail);
       case "manifest-entries-forgotten":
         return t.engine.manifestEntriesForgotten(n.count, n.generation);
+      case "tombstones-expired":
+        return t.engine.tombstonesExpired(n.count, Math.round(n.graceSeconds / 86_400));
+      case "storage-reclaimed":
+        return t.engine.storageReclaimed(
+          n.deleted,
+          formatBytes(n.bytesFreed),
+          n.prunedManifests,
+          n.waiting,
+        );
       case "deletions-paced":
         return t.engine.deletionsPaced(
           n.discount.paced,

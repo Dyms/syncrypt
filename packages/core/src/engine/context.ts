@@ -31,4 +31,10 @@ export interface EngineContext {
   hashCache?: HashCache;
   /** Safe-Sync version retention depth (ADR-0010 §3). */
   versionsToKeep: number;
+  /** Tombstones older than this expire on push; 0 disables it (ADR-0031). */
+  tombstoneGraceSeconds: number;
+  /** How long an object must have been unreachable before a sweep (ADR-0030). */
+  reclaimGraceSeconds: number;
+  /** Manifest generations kept — reachability is computed from these (ADR-0030). */
+  generationsToKeep: number;
 }

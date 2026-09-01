@@ -1,0 +1,167 @@
+// Storage reclamation — the pure half (ADR-0030).
+//
+// Deleting a storage object is the ONE thing this project does that nothing
+// undoes: a trashed file is in the trash, a forgotten entry comes back from the
+// device that carries it, a lost conflict resolution is a copy on disk. So the
+// arithmetic that decides what is garbage lives here, with no I/O anywhere near
+// it, and is tested on its own.
+//
+// The rule is mark → wait → sweep. "Unreferenced and old" is NOT safe: the
+// deduplication probe in applyPushOps skips uploading content that is already
+// stored, so an old unreferenced object can be adopted by a push that is in
+// flight right now. What bounds that window is the duration of one push, not
+// the object's age — hence a grace period measured from when the object was
+// FIRST SEEN unreachable, plus a re-check at sweep time.
+
+import type { Manifest, ObjectKey } from "./types.js";
+
+/** Content objects live here and nothing else is ever a GC candidate. */
+export const OBJECTS_PREFIX = "objects/";
+
+/** Where the pending mark is kept (encrypted with the manifest key). */
+export const GC_MARK_KEY: ObjectKey = "meta/gc-mark.json";
+
+/**
+ * Object keys seen unreachable, and when they were FIRST seen that way.
+ * Persisted so that running the command twice in a minute does not restart
+ * everybody's clock.
+ */
+export interface GcMark {
+  version: 1;
+  updatedAt: number; // epoch seconds
+  unreachableSince: Record<ObjectKey, number>; // epoch seconds
+}
+
+/** One manifest object in storage, with the generation its key encodes. */
+export interface ManifestInStorage {
+  key: ObjectKey;
+  generation: number;
+  manifest: Manifest;
+}
+
+export interface ReclaimPlan {
+  /** Deletable NOW: marked long enough ago and still unreachable. */
+  sweep: ObjectKey[];
+  sweepBytes: number;
+  /** Unreachable, but not yet ripe — including anything marked by this run. */
+  waiting: number;
+  waitingBytes: number;
+  /** Epoch seconds at which the oldest waiting object ripens; null if none. */
+  ripeAt: number | null;
+  /** Manifest objects below the retention cut. Pruned without a grace. */
+  prunedManifests: ObjectKey[];
+  /** The mark to persist after acting on this plan. */
+  nextMark: GcMark;
+  /** Highest generation in storage; 0 when the vault has no manifest. */
+  generation: number;
+}
+
+/**
+ * Every object key any retained manifest still points at — live entries and
+ * retained prior versions alike (ADR-0010 §3).
+ */
+export function reachableObjectKeys(manifests: readonly Manifest[]): Set<ObjectKey> {
+  const reachable = new Set<ObjectKey>();
+  for (const m of manifests) {
+    for (const entry of Object.values(m.files)) reachable.add(entry.objectKey);
+    for (const versions of Object.values(m.history ?? {})) {
+      for (const entry of versions) reachable.add(entry.objectKey);
+    }
+  }
+  return reachable;
+}
+
+/**
+ * The newest `keep` GENERATIONS — not the newest `keep` manifests. A fork
+ * (ADR-0006 §4) leaves two manifests at one generation, and the loser's objects
+ * must stay alive until it has re-planned; keeping generations rather than
+ * objects is what guarantees that.
+ */
+export function retainedGenerations(
+  generations: readonly number[],
+  keep: number,
+): Set<number> {
+  const distinct = [...new Set(generations)].sort((a, b) => b - a);
+  return new Set(distinct.slice(0, Math.max(1, keep)));
+}
+
+export interface ReclaimInput {
+  now: number; // epoch seconds
+  graceSeconds: number;
+  generationsToKeep: number;
+  /** Every manifest object found under manifests/. */
+  manifests: readonly ManifestInStorage[];
+  /** Every object found under objects/ — nothing else is ever a candidate. */
+  objects: readonly { key: ObjectKey; size: number }[];
+  /** The mark as last persisted, or null when there is none. */
+  mark: GcMark | null;
+}
+
+/**
+ * Decide what may go. Deterministic and total: same inputs, same answer, no
+ * clock of its own, no I/O.
+ */
+export function planReclaim(input: ReclaimInput): ReclaimPlan {
+  const { now, graceSeconds, manifests, objects, mark } = input;
+
+  const retained = retainedGenerations(
+    manifests.map((m) => m.generation),
+    input.generationsToKeep,
+  );
+  const prunedManifests = manifests
+    .filter((m) => !retained.has(m.generation))
+    .map((m) => m.key)
+    .sort();
+  const reachable = reachableObjectKeys(
+    manifests.filter((m) => retained.has(m.generation)).map((m) => m.manifest),
+  );
+
+  const previous = mark?.unreachableSince ?? {};
+  const unreachableSince: Record<ObjectKey, number> = {};
+  const sweep: ObjectKey[] = [];
+  let sweepBytes = 0;
+  let waiting = 0;
+  let waitingBytes = 0;
+  let ripeAt: number | null = null;
+
+  for (const object of objects) {
+    // Structural, not a policy: manifests are pruned by the generation rule
+    // above and meta/ holds the KDF salt every device needs. Only objects/.
+    if (!object.key.startsWith(OBJECTS_PREFIX)) continue;
+    if (reachable.has(object.key)) continue;
+
+    // An object already in the mark keeps its ORIGINAL timestamp — otherwise
+    // running the command often would mean nothing ever ripens.
+    const since = Math.min(previous[object.key] ?? now, now);
+    unreachableSince[object.key] = since;
+
+    if (since + graceSeconds <= now) {
+      sweep.push(object.key);
+      sweepBytes += object.size;
+    } else {
+      waiting++;
+      waitingBytes += object.size;
+      const ripe = since + graceSeconds;
+      ripeAt = ripeAt === null ? ripe : Math.min(ripeAt, ripe);
+    }
+  }
+
+  sweep.sort();
+  return {
+    sweep,
+    sweepBytes,
+    waiting,
+    waitingBytes,
+    ripeAt,
+    prunedManifests,
+    nextMark: { version: 1, updatedAt: now, unreachableSince },
+    generation: manifests.reduce((max, m) => Math.max(max, m.generation), 0),
+  };
+}
+
+/** The mark to persist once `plan.sweep` has actually been deleted. */
+export function markAfterSweep(plan: ReclaimPlan): GcMark {
+  const unreachableSince = { ...plan.nextMark.unreachableSince };
+  for (const key of plan.sweep) delete unreachableSince[key];
+  return { ...plan.nextMark, unreachableSince };
+}
