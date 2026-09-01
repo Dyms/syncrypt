@@ -23,7 +23,12 @@ import { conflictCopyFor, shortlist } from "./conflict-report.js";
 import { ForgetPathsModal } from "./forget-modal.js";
 import { formatBytes } from "./format-bytes.js";
 import { ReclaimStorageModal } from "./reclaim-modal.js";
-import { configPaths, DEFAULT_CONFIG_DIR, SYNCRYPT_PLUGIN_ID, type ConfigPaths } from "./config-sync.js";
+import {
+  configPaths,
+  DEFAULT_CONFIG_DIR,
+  pluginFolderIsOurs,
+  type ConfigPaths,
+} from "./config-sync.js";
 import {
   adoptSharedConfig,
   parseSharedConfig,
@@ -98,7 +103,13 @@ export default class SyncryptPlugin extends Plugin {
     // (ADR-0032). `configDir` is documented but absent from some stubs and
     // older builds, so the default stands in rather than an empty rule set.
     const configDir: unknown = (this.app.vault as { configDir?: unknown }).configDir;
-    this.paths = configPaths(typeof configDir === "string" ? configDir : DEFAULT_CONFIG_DIR);
+    // ADR-0034: where we are ACTUALLY installed, not where a BRAT install puts
+    // us. `manifest.dir` is vault-relative and may be absent on older clients.
+    const ownDir: unknown = (this.manifest as { dir?: unknown }).dir;
+    this.paths = configPaths(
+      typeof configDir === "string" ? configDir : DEFAULT_CONFIG_DIR,
+      typeof ownDir === "string" ? ownDir : undefined,
+    );
 
     this.settings = withDefaults(await this.loadData(), { mobile: Platform.isMobile });
     this.applyLanguage();
@@ -284,6 +295,11 @@ export default class SyncryptPlugin extends Plugin {
   /**
    * Installed third-party plugins, for the config-sync opt-in list (RFC-0008).
    * Reads only manifests; Syncrypt itself is never offered (ADR-0016).
+   *
+   * The entry's `id` is the FOLDER name, because that is what appears in the
+   * paths the sync rules match. Whether an entry is US, however, is decided by
+   * the manifest's id — a folder called "syncrypt-1.0.0-beta.9" is still us,
+   * and offering it would offer our own storage credentials (ADR-0034).
    */
   async listInstalledPlugins(): Promise<{ id: string; name: string }[]> {
     const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
@@ -293,19 +309,24 @@ export default class SyncryptPlugin extends Plugin {
     const out: { id: string; name: string }[] = [];
     for (const folder of folders) {
       const id = folder.slice(folder.lastIndexOf("/") + 1);
-      if (id === SYNCRYPT_PLUGIN_ID) continue;
+      // Anything the hard exclusions already cover is not a candidate, whatever
+      // it is called — that check knows our real install folder.
+      if (this.paths.hardExcluded(`${folder}/data.json`)) continue;
       let name = id;
+      let manifestId = "";
       try {
         const raw: unknown = JSON.parse(
           new TextDecoder().decode(new Uint8Array(await adapter.readBinary(`${folder}/manifest.json`))),
         );
         if (typeof raw === "object" && raw !== null) {
-          const manifestName = (raw as Record<string, unknown>).name;
-          if (typeof manifestName === "string" && manifestName !== "") name = manifestName;
+          const record = raw as Record<string, unknown>;
+          if (typeof record.name === "string" && record.name !== "") name = record.name;
+          if (typeof record.id === "string") manifestId = record.id;
         }
       } catch {
         // No readable manifest — show the folder id, still opt-in-able.
       }
+      if (pluginFolderIsOurs(id, manifestId)) continue;
       out.push({ id, name });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

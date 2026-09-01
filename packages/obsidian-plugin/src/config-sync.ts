@@ -69,10 +69,18 @@ export const SYNCRYPT_PLUGIN_ID = "syncrypt";
  * pass the folder name would still compile and would quietly protect the wrong
  * directory. Here there is nothing to forget — the rules do not exist apart
  * from the folder they are about.
+ *
+ * The same reasoning applies twice over (ADR-0034): the rule also has to know
+ * where THIS plugin is actually installed. Matching the folder name "syncrypt"
+ * protects a BRAT install and nothing else — unzip a release by hand and the
+ * folder is called "syncrypt-1.0.0-beta.9", whose data.json holds the storage
+ * credentials and was, until now, an ordinary syncable config file.
  */
 export interface ConfigPaths {
   /** The vault's config folder, normalized, never empty. */
   readonly dir: string;
+  /** Where THIS plugin is installed, as the client reported it; "" if unknown. */
+  readonly ownPluginDir: string;
   /** The shared Config Sync profile inside it (ADR-0024). */
   readonly sharedProfile: string;
   /** Syncrypt's own recycle bin (ADR-0010 §1). Never synced, never walked. */
@@ -92,7 +100,7 @@ export interface ConfigPaths {
   worthWalking(path: string, cs: ConfigSyncSettings): boolean;
 }
 
-export function configPaths(dir: string): ConfigPaths {
+export function configPaths(dir: string, ownPluginDir?: string): ConfigPaths {
   // A vault whose configDir is missing, blank, or slash-suffixed must not turn
   // into rules about "" — which would make every path in the vault "inside the
   // config folder" and hand the whole thing to the config-sync allow-list.
@@ -101,6 +109,10 @@ export function configPaths(dir: string): ConfigPaths {
 
   const sharedProfile = `${base}/syncrypt-config-sync.json`;
   const syncTrash = `${base}/sync-trash`;
+  // Where Obsidian actually put us (`Plugin.manifest.dir`). Normalized the same
+  // way as the config folder, and simply absent on a client that does not
+  // report it — in which case the conventional location below still stands.
+  const ownDir = (ownPluginDir ?? "").trim().replace(/\/+$/, "");
 
   const inside = (path: string): boolean =>
     path === base || path.startsWith(`${base}/`);
@@ -110,6 +122,9 @@ export function configPaths(dir: string): ConfigPaths {
     // configured name is ever wrong — a stale setting, an Obsidian API that
     // answers differently than expected — the classic location stays
     // protected. Belt and braces on the one rule whose failure uploads keys.
+    // Where we are actually installed, whatever that folder is called. This
+    // is the case the folder-name rule below cannot see (ADR-0034).
+    if (ownDir !== "" && (path === ownDir || path.startsWith(`${ownDir}/`))) return true;
     for (const root of new Set([base, DEFAULT_CONFIG_DIR])) {
       if (
         path === `${root}/workspace.json` ||
@@ -164,7 +179,30 @@ export function configPaths(dir: string): ConfigPaths {
     return false;
   };
 
-  return { dir: base, sharedProfile, syncTrash, inside, hardExcluded, allowed, worthWalking };
+  return {
+    dir: base,
+    ownPluginDir: ownDir,
+    sharedProfile,
+    syncTrash,
+    inside,
+    hardExcluded,
+    allowed,
+    worthWalking,
+  };
+}
+
+/**
+ * Is this plugin folder US, whatever the folder happens to be called?
+ *
+ * The config-sync list matches FOLDER names, because that is what appears in
+ * the paths — but a folder called "syncrypt-1.0.0-beta.9" is still us, and
+ * offering it would offer our own storage credentials (ADR-0034). Decided by
+ * the manifest's id where there is one, and fails closed on the folder name
+ * where the manifest could not be read.
+ */
+export function pluginFolderIsOurs(folderId: string, manifestId: string): boolean {
+  if (manifestId !== "") return manifestId === SYNCRYPT_PLUGIN_ID;
+  return folderId.startsWith(SYNCRYPT_PLUGIN_ID);
 }
 
 /**

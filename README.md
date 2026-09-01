@@ -93,11 +93,10 @@ Data loss, in order of how likely you are to meet it:
 
 Security:
 
-- **Installed by hand from a release zip, your storage credentials can be
-  uploaded.** The rule that keeps `data.json` out of sync matches the folder
-  name `syncrypt`; an unzipped release folder is named `syncrypt-1.0.0-beta.9`.
-  *Until it is fixed:* install with BRAT, or rename the folder to `syncrypt`,
-  or leave Obsidian-settings sync off.
+- ~~**Installed by hand from a release zip, your storage credentials can be
+  uploaded.**~~ Fixed after 1.0.0-beta.9; if you are on beta.9 or earlier and
+  installed by hand, install with BRAT, rename the folder to `syncrypt`, or
+  leave Obsidian-settings sync off until you update.
 - **Anyone who can delete objects in your bucket can roll your notes back.**
   Deleting the newest manifest makes clients accept the previous one and
   restore older versions of files, with no warning. This needs write access to

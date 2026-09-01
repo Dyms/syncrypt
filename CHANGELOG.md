@@ -9,6 +9,28 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Security
+- **Installed by hand from a release zip, the plugin's own `data.json` — the
+  storage credentials — could be uploaded** (ADR-0034). The rule that keeps it
+  out of Config Sync matched the folder name `syncrypt`, which is what BRAT
+  creates; unzip a release and the folder is called `syncrypt-1.0.0-beta.9`,
+  and that file became an ordinary syncable config file. The opt-in list made
+  it worse: it derived the id from the folder name and skipped only the exact
+  string, while showing the manifest's name — so the list offered an entry
+  called "Syncrypt", with no warning beside it, inviting the user to tick the
+  box that uploads their bucket keys.
+
+  The exclusion now takes the plugin's real installation folder from
+  `Plugin.manifest.dir`, and whether an entry in the list is *us* is decided by
+  the manifest's id rather than by what the folder happens to be called —
+  failing closed on the folder name when no manifest can be read. The
+  conventional location stays excluded regardless, so this adds a rule rather
+  than replacing one: three independent checks over the same file, two of them
+  there in case the third is told the wrong thing.
+
+  Same shape as ADR-0032 one level down — there the rule knew a folder name it
+  should have asked for; here it knew an id and used it as a folder name.
+
 ### Documentation
 - **README gained a "Known limitations" section, and it is not short.** An
   audit before 1.0 found defects that contradict promises made further up the

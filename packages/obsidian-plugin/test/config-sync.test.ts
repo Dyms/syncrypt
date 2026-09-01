@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   configPaths,
   DEFAULT_CONFIG_DIR,
+  pluginFolderIsOurs,
   DEFAULT_CONFIG_SYNC,
   SECRET_BEARING_PLUGINS,
   type ConfigSyncSettings,
@@ -181,5 +182,78 @@ describe("a configDir the vault answers badly", () => {
     }
     expect(configPaths(".my-config/").dir).toBe(".my-config");
     expect(configPaths(" .my-config ").dir).toBe(".my-config");
+  });
+});
+
+// ADR-0034. Matching the folder name "syncrypt" protects a BRAT install and
+// nothing else: unzip a release by hand and the folder is called
+// "syncrypt-1.0.0-beta.9", whose data.json holds the storage credentials.
+describe("the plugin's OWN folder, whatever it is called", () => {
+  const MANUAL = ".obsidian/plugins/syncrypt-1.0.0-beta.9";
+  const P2 = configPaths(DEFAULT_CONFIG_DIR, MANUAL);
+  const on = () => ({ ...DEFAULT_CONFIG_SYNC, enabled: true, plugins: ["syncrypt-1.0.0-beta.9"] });
+
+  it("KEEPS THE KEYS IN when installed by hand from a release zip", () => {
+    expect(P2.hardExcluded(`${MANUAL}/data.json`)).toBe(true);
+    expect(P2.hardExcluded(`${MANUAL}/sync-state.json`)).toBe(true);
+    expect(P2.hardExcluded(`${MANUAL}/main.js`)).toBe(true);
+    // Even asked directly, with that exact folder opted in by name.
+    expect(P2.allowed(`${MANUAL}/data.json`, on())).toBe(false);
+    expect(P2.worthWalking(MANUAL, on())).toBe(false);
+  });
+
+  it("this is EXACTLY what used to leak", () => {
+    // The old rules knew only the conventional folder name.
+    expect(P.hardExcluded(`${MANUAL}/data.json`)).toBe(false);
+    expect(P.allowed(`${MANUAL}/data.json`, on())).toBe(true);
+  });
+
+  it("still protects the conventional folder, and does not over-reach", () => {
+    expect(P2.hardExcluded(".obsidian/plugins/syncrypt/data.json")).toBe(true);
+    expect(P2.hardExcluded(".obsidian/plugins/dataview/data.json")).toBe(false);
+    // A sibling folder sharing the prefix is somebody else's plugin.
+    expect(P2.hardExcluded(".obsidian/plugins/syncrypt-1.0.0-beta.9-fork/data.json")).toBe(false);
+    expect(P2.ownPluginDir).toBe(MANUAL);
+  });
+
+  it("works together with a renamed config folder", () => {
+    const both = configPaths(".my-config", ".my-config/plugins/Syncrypt-main");
+    expect(both.hardExcluded(".my-config/plugins/Syncrypt-main/data.json")).toBe(true);
+    expect(both.hardExcluded(".obsidian/plugins/syncrypt/data.json")).toBe(true);
+    expect(both.allowed(".my-config/appearance.json", { ...DEFAULT_CONFIG_SYNC, enabled: true })).toBe(true);
+  });
+
+  it("a client that does not report its folder falls back, never to nothing", () => {
+    for (const bad of [undefined, "", "   ", "/"]) {
+      const p = configPaths(DEFAULT_CONFIG_DIR, bad);
+      expect(p.ownPluginDir, JSON.stringify(bad)).toBe("");
+      // The conventional location is still protected…
+      expect(p.hardExcluded(".obsidian/plugins/syncrypt/data.json"), JSON.stringify(bad)).toBe(true);
+      // …and an empty own-dir must not swallow the whole vault.
+      expect(p.hardExcluded("notes/a.md"), JSON.stringify(bad)).toBe(false);
+      expect(p.hardExcluded(".obsidian/appearance.json"), JSON.stringify(bad)).toBe(false);
+    }
+  });
+});
+
+describe("what the plugin list is allowed to offer", () => {
+  it("recognizes us by the manifest, not by the folder name", () => {
+    expect(pluginFolderIsOurs("syncrypt", "syncrypt")).toBe(true);
+    expect(pluginFolderIsOurs("syncrypt-1.0.0-beta.9", "syncrypt")).toBe(true);
+    expect(pluginFolderIsOurs("Syncrypt-main", "syncrypt")).toBe(true);
+    expect(pluginFolderIsOurs("anything-at-all", "syncrypt")).toBe(true);
+  });
+
+  it("does not mistake somebody else for us", () => {
+    expect(pluginFolderIsOurs("dataview", "dataview")).toBe(false);
+    // A plugin that merely NAMES itself after us in its folder is still not us
+    // once its manifest says otherwise.
+    expect(pluginFolderIsOurs("syncrypt-companion", "syncrypt-companion")).toBe(false);
+  });
+
+  it("fails closed when the manifest could not be read", () => {
+    expect(pluginFolderIsOurs("syncrypt-1.0.0-beta.9", "")).toBe(true);
+    expect(pluginFolderIsOurs("syncrypt", "")).toBe(true);
+    expect(pluginFolderIsOurs("dataview", "")).toBe(false);
   });
 });
