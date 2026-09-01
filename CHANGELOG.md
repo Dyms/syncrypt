@@ -9,6 +9,24 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Documentation
+- **README gained a "Known limitations" section, and it is not short.** An
+  audit before 1.0 found defects that contradict promises made further up the
+  same page — most sharply "no silent data loss, by construction", which does
+  not hold when two devices publish within the same few seconds. Every entry is
+  reproduced rather than suspected, each says what to do until it is fixed, and
+  the Status section no longer implies the test suite covers what it does not:
+  these were found by reading the code against its own specification, which is
+  exactly where property tests over randomized histories were not looking.
+  "Beta" in a version number is not a warning; this is.
+- **`docs/security.md` said tampering fails loudly and stolen bucket
+  credentials cost availability only.** Deleting the newest manifest is not
+  tampering — everything decrypts perfectly and older versions of notes are
+  restored without a word. That is an integrity attack, and the risk table now
+  says so.
+- SECURITY.md points at GitHub private vulnerability reporting instead of a
+  contact "to be listed before the first release".
+
 ### Fixed
 - **Config Sync did nothing at all on a vault with a renamed config folder**
   (ADR-0032). Obsidian lets a vault call that folder anything it likes; every

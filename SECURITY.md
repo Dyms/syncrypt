@@ -4,9 +4,10 @@ Syncrypt handles private notes and encryption keys. We take that seriously.
 
 ## Reporting a vulnerability
 
-Please **do not** open a public issue for security problems. Instead, report
-privately to the maintainer (contact to be listed here before the first
-release). Include:
+Please **do not** open a public issue for security problems. Use GitHub's
+[private vulnerability reporting](https://github.com/Dyms/syncrypt/security/advisories/new)
+on this repository — it reaches the maintainer directly and keeps the report
+private until a fix ships. Include:
 
 - a description and impact assessment,
 - reproduction steps or a proof of concept,
