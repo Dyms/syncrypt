@@ -241,6 +241,35 @@ describe("reclaiming storage (ADR-0030)", () => {
     expect(reader.vault.getText("note.md")).toBe("irreplaceable");
   });
 
+  it("reads only the RETAINED manifests, not every generation ever published", async () => {
+    // A vault that has synced for a month has thousands of generations, and one
+    // manifest for a three-thousand-file vault is most of a megabyte. Fetching
+    // them all to decide which keys to delete would move gigabytes over a
+    // mobile connection to answer a question about a handful of objects.
+    const storage = new MemoryStorage();
+    const clock = new FixedClock();
+    const d = makeDevice(storage, "dev-1", clock, { generationsToKeep: 2 });
+    for (let i = 0; i < 12; i++) {
+      d.vault.setFile(`note-${String(i)}.md`, "x".repeat(i + 1));
+      await d.engine.sync();
+    }
+    expect(manifests(storage)).toHaveLength(12);
+
+    const fetched: string[] = [];
+    const original = storage.get.bind(storage);
+    storage.get = (key: string) => {
+      fetched.push(key);
+      return original(key);
+    };
+    await d.engine.previewReclaim();
+
+    const manifestReads = fetched.filter((k) => k.startsWith("manifests/"));
+    expect(manifestReads).toHaveLength(2);
+    expect(manifestReads.every((k) => k.includes("000000011") || k.includes("000000012"))).toBe(
+      true,
+    );
+  });
+
   it("previewReclaim publishes nothing and marks nothing", async () => {
     const storage = new MemoryStorage();
     const clock = new FixedClock();

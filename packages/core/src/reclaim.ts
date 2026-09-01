@@ -13,6 +13,7 @@
 // the object's age — hence a grace period measured from when the object was
 // FIRST SEEN unreachable, plus a re-check at sweep time.
 
+import { SyncError } from "./errors.js";
 import type { Manifest, ObjectKey } from "./types.js";
 
 /** Content objects live here and nothing else is ever a GC candidate. */
@@ -32,11 +33,20 @@ export interface GcMark {
   unreachableSince: Record<ObjectKey, number>; // epoch seconds
 }
 
-/** One manifest object in storage, with the generation its key encodes. */
+/**
+ * One manifest object in storage, with the generation its key encodes.
+ *
+ * `manifest` is loaded ONLY for the retained generations. A vault that has
+ * synced for a month has thousands of generations, and a manifest for a
+ * three-thousand-file vault is most of a megabyte — fetching and decrypting
+ * all of them to learn which keys to delete would move gigabytes to answer a
+ * question about a handful of them. Generations below the cut are pruned by
+ * their key alone; nothing about their contents matters.
+ */
 export interface ManifestInStorage {
   key: ObjectKey;
   generation: number;
-  manifest: Manifest;
+  manifest?: Manifest;
 }
 
 export interface ReclaimPlan {
@@ -112,9 +122,20 @@ export function planReclaim(input: ReclaimInput): ReclaimPlan {
     .filter((m) => !retained.has(m.generation))
     .map((m) => m.key)
     .sort();
-  const reachable = reachableObjectKeys(
-    manifests.filter((m) => retained.has(m.generation)).map((m) => m.manifest),
-  );
+  // Fail CLOSED. A retained manifest that was not loaded would make everything
+  // it references look unreachable — the exact shape of a mass deletion.
+  const retainedManifests: Manifest[] = [];
+  for (const m of manifests) {
+    if (!retained.has(m.generation)) continue;
+    if (m.manifest === undefined) {
+      throw new SyncError(
+        "ManifestCorrupt",
+        `refusing to reclaim: manifest for retained generation ${String(m.generation)} was not loaded`,
+      );
+    }
+    retainedManifests.push(m.manifest);
+  }
+  const reachable = reachableObjectKeys(retainedManifests);
 
   const previous = mark?.unreachableSince ?? {};
   const unreachableSince: Record<ObjectKey, number> = {};

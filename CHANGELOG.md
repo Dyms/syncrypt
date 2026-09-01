@@ -57,6 +57,15 @@ All notable changes to this project are documented here. Format based on
   setting; `0` keeps the old behaviour.
 
 ### Changed
+- **Reclaiming storage reads only the retained manifests.** The first cut
+  fetched and decrypted *every* generation in the bucket to work out what was
+  reachable. Only the retained ones can make anything reachable; the rest are
+  pruned by their key, and their contents never mattered. On a vault that has
+  synced for a month — thousands of generations, most of a megabyte each for a
+  three-thousand-file vault — the difference is gigabytes moved over a phone
+  connection versus a handful of objects read. A retained manifest that fails
+  to load is now fatal rather than skipped: treating it as absent would make
+  everything it references look like garbage.
 - **The bulk-change breaker counts bursts at the source, not operations in one
   sync** (ADR-0029). Deleting thirty notes one at a time over an afternoon on a
   phone used to stop the desktop with a mass-deletion warning as soon as it

@@ -78,7 +78,7 @@ describe("reachability", () => {
       files: [`${OBJECTS_PREFIX}live`],
       history: { "note.md": [`${OBJECTS_PREFIX}old1`, `${OBJECTS_PREFIX}old2`] },
     });
-    expect([...reachableObjectKeys([m.manifest])].sort()).toEqual([
+    expect([...reachableObjectKeys([m.manifest as Manifest])].sort()).toEqual([
       `${OBJECTS_PREFIX}live`,
       `${OBJECTS_PREFIX}old1`,
       `${OBJECTS_PREFIX}old2`,
@@ -195,6 +195,35 @@ describe("the races that make 'unreferenced and old' the wrong rule", () => {
     const plan = run({ manifests: [manifestAt({ generation: 1 })], objects: [], mark });
     expect(plan.sweep).toEqual([]);
     expect(plan.nextMark.unreachableSince).toEqual({});
+  });
+});
+
+describe("a retained manifest that was not loaded is fatal, never 'unreachable'", () => {
+  it("refuses to plan rather than treating its objects as garbage", () => {
+    // Only the retained generations are fetched (they are the only ones whose
+    // contents matter). If one of them is missing, everything it references
+    // looks unreferenced — the exact shape of a mass deletion. Fail closed.
+    expect(() =>
+      run({
+        generationsToKeep: 1,
+        manifests: [{ key: "manifests/000000009-dev-a.json", generation: 9 }],
+        objects: [obj(`${OBJECTS_PREFIX}live`)],
+      }),
+    ).toThrow(/retained generation 9/);
+  });
+
+  it("a PRUNED generation needs no manifest at all — only its key", () => {
+    const plan = run({
+      generationsToKeep: 1,
+      manifests: [
+        manifestAt({ generation: 9, files: [`${OBJECTS_PREFIX}live`] }),
+        { key: "manifests/000000008-dev-a.json", generation: 8 }, // never fetched
+      ],
+      objects: [obj(`${OBJECTS_PREFIX}live`), obj(`${OBJECTS_PREFIX}dead`)],
+      mark: { version: 1, updatedAt: 0, unreachableSince: { [`${OBJECTS_PREFIX}dead`]: 0 } },
+    });
+    expect(plan.prunedManifests).toEqual(["manifests/000000008-dev-a.json"]);
+    expect(plan.sweep).toEqual([`${OBJECTS_PREFIX}dead`]);
   });
 });
 
