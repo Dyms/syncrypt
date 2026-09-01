@@ -7,6 +7,41 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.9] — 2026-09-01
+
+### Fixed
+- **A conflict no longer names no file.** The status bar said "1 conflict —
+  merge them and sync again" and the log said "check the settings", and between
+  them nothing said *which file*. The status tooltip now lists the conflicting
+  paths (five, then a count), a single conflict is named in the notice itself,
+  and one summary line in the log lists them all. The Obsidian-settings conflict
+  line — the one that started this, added with ADR-0024 — now names both the
+  shared profile and the conflicted copy beside it, and says what to do with
+  them: they live in a folder Obsidian does not show, so an unnamed copy was
+  effectively invisible.
+- **The confirmation button no longer counts at you.** "Apply 37 destructive
+  changes" became "Apply changes"; the list above it already shows what happens,
+  and the reason line above that still carries the numbers.
+
+### Changed
+- **The bulk-change breaker counts bursts at the source, not operations in one
+  sync** (ADR-0029). Deleting thirty notes one at a time over an afternoon on a
+  phone used to stop the desktop with a mass-deletion warning as soon as it
+  caught up — the change was only "bulk" because the desktop had not been
+  listening. The breaker now reads the tombstones' own timestamps and devices:
+  deletions spread out over time are the pace of a person working; deletions
+  written all at once are what an accident looks like, and still stop
+  everything. When pacing keeps the breaker quiet on a change that would once
+  have tripped it, the log says so. New setting: **Deletion burst window**
+  (default 300 s). Overwrites and this device's own deletions are never
+  discounted — an entry's mtime is the file's, not the change's, so pacing on
+  those would disarm the breaker for exactly the restore-gone-wrong it exists
+  for.
+- The settings tab shows the installed plugin version, top right. Installed
+  through BRAT, "did the update actually land?" is the first question.
+- The status tooltip shows the **date** of the last sync once it was not today.
+  A bare "12:49:13" made yesterday's sync look like a fresh one.
+
 ## [1.0.0-beta.8] — 2026-08-29
 
 ### Security

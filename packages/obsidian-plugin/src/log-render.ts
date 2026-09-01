@@ -41,6 +41,12 @@ export function renderLine(line: LogLine, t: Strings): string {
         return t.engine.dedupProbeUnavailable(n.path, n.detail);
       case "manifest-entries-forgotten":
         return t.engine.manifestEntriesForgotten(n.count, n.generation);
+      case "deletions-paced":
+        return t.engine.deletionsPaced(
+          n.discount.paced,
+          n.discount.spanSeconds,
+          n.discount.destructive,
+        );
     }
   }
   return line.text ?? "";

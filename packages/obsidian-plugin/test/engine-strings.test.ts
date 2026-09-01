@@ -33,6 +33,10 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     count: 4,
     generation: 12,
   },
+  "deletions-paced": {
+    code: "deletions-paced",
+    discount: { destructive: 37, effective: 8, paced: 31, spanSeconds: 25_200 },
+  },
 };
 
 const DETAILS: Record<EntryDetail["code"], EntryDetail> = {

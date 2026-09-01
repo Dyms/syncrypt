@@ -65,7 +65,8 @@ describe("translation completeness", () => {
       lastOutcome: "applied",
       lastSyncAt: Date.parse("2026-08-22T12:00:00Z"),
       lastError: null,
-      conflicts: 0,
+      conflicts: [],
+      now: Date.parse("2026-08-22T13:00:00Z"),
       counts: { notes: 1960, attachments: 1078 },
     };
     const ru = deriveSyncState(input, stringsFor("ru").status);
@@ -75,5 +76,33 @@ describe("translation completeness", () => {
     expect(ru.tooltip).toContain("поколение №3");
     // The default stays English, so pure callers and tests are unaffected.
     expect(deriveSyncState(input).label).toBe(EN_STRINGS.status.syncedLabel);
+  });
+});
+
+describe("the confirmation button does not do the scaring", () => {
+  it("is a plain call to action — the list above already shows what happens", () => {
+    for (const lang of ["en", "ru"] as const) {
+      const label = stringsFor(lang).confirmModal.apply;
+      expect(typeof label, lang).toBe("string");
+      expect(label, lang).not.toMatch(/\d/);
+    }
+    expect(stringsFor("ru").confirmModal.apply).not.toBe(stringsFor("en").confirmModal.apply);
+  });
+
+  it("the reason above it still carries the numbers", () => {
+    for (const lang of ["en", "ru"] as const) {
+      const why = stringsFor(lang).engine.confirmationRequired(37, 3000);
+      expect(why, lang).toContain("37");
+      expect(why, lang).toContain("3000");
+    }
+  });
+});
+
+describe("the installed version is shown, in the reader's language", () => {
+  it("carries the version string itself", () => {
+    for (const lang of ["en", "ru"] as const) {
+      expect(stringsFor(lang).settings.version("1.0.0-beta.9"), lang).toContain("1.0.0-beta.9");
+    }
+    expect(stringsFor("ru").settings.version("x")).not.toBe(stringsFor("en").settings.version("x"));
   });
 });

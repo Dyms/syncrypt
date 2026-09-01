@@ -28,6 +28,17 @@ export class SyncryptSettingTab extends PluginSettingTab {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see note on display()
     const rerender = (): void => { this.display(); };
 
+    // --- Which build is this? --------------------------------------------
+    // Installed through BRAT, the first question is always "did the update
+    // actually land?". The answer is in the manifest; show it quietly.
+    const versionEl = containerEl.createEl("div", {
+      text: t.settings.version(this.plugin.manifest.version),
+    });
+    versionEl.style.textAlign = "right";
+    versionEl.style.color = "var(--text-muted)";
+    versionEl.style.fontSize = "0.8em";
+    versionEl.style.marginBottom = "0.5em";
+
     // --- Sync status (same honest derivation as the status bar) ----------
     const view = this.plugin.getStatusView();
     const statusSetting = new Setting(containerEl)
@@ -341,6 +352,12 @@ export class SyncryptSettingTab extends PluginSettingTab {
       t.settings.vaultFractionDesc,
       () => s.safeSync.bulkChangeMaxFraction,
       (v) => (s.safeSync.bulkChangeMaxFraction = v),
+    );
+    num(
+      t.settings.deletionBurstWindow,
+      t.settings.deletionBurstWindowDesc,
+      () => s.safeSync.deletionBurstWindow,
+      (v) => (s.safeSync.deletionBurstWindow = Math.floor(v)),
     );
     num(
       t.settings.versionsToKeep,

@@ -3,7 +3,7 @@
 
 import type { Hash, ObjectKey, VaultPath } from "./types.js";
 import type { SyncOutcome, SyncReportEntry } from "./report.js";
-import type { ConfirmationReason } from "./plan.js";
+import type { ConfirmationReason, PacingDiscount } from "./plan.js";
 
 // ---------------------------------------------------------------------------
 // StoragePort (RFC-0006). "StorageProvider" in RFC-0006 is the same contract.
@@ -167,7 +167,8 @@ export type EngineNotice =
   | { code: "confirmation-stale"; newDestructive: number }
   | { code: "state-unreadable"; detail: string }
   | { code: "dedup-probe-unavailable"; path: VaultPath; detail: string }
-  | { code: "manifest-entries-forgotten"; count: number; generation: number };
+  | { code: "manifest-entries-forgotten"; count: number; generation: number }
+  | { code: "deletions-paced"; discount: PacingDiscount };
 
 export interface LogPort {
   /** One applied action, as data (path + reason code + detail). */

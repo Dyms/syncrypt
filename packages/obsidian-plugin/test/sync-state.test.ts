@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { classifyCounts, deriveSyncState, type SyncStateInput } from "../src/sync-state.js";
+import {
+  classifyCounts,
+  deriveSyncState,
+  formatSyncTime,
+  type SyncStateInput,
+} from "../src/sync-state.js";
 
 const base: SyncStateInput = {
   locked: false,
@@ -13,7 +18,8 @@ const base: SyncStateInput = {
   lastOutcome: "applied",
   lastSyncAt: Date.parse("2026-07-18T10:00:00Z"),
   lastError: null,
-  conflicts: 0,
+  conflicts: [],
+  now: Date.parse("2026-07-18T10:05:00Z"),
   counts: { notes: 120, attachments: 14 },
 };
 
@@ -36,10 +42,10 @@ describe("deriveSyncState", () => {
   it("state priorities: locked > syncing > offline > error > conflict", () => {
     expect(deriveSyncState({ ...base, locked: true, syncing: true }).kind).toBe("locked");
     expect(deriveSyncState({ ...base, syncing: true, onLine: false }).kind).toBe("syncing");
-    expect(deriveSyncState({ ...base, onLine: false, conflicts: 2 }).kind).toBe("offline");
+    expect(deriveSyncState({ ...base, onLine: false, conflicts: ["a.md", "b.md"] }).kind).toBe("offline");
     expect(deriveSyncState({ ...base, lastError: "network" }).kind).toBe("offline");
-    expect(deriveSyncState({ ...base, lastError: "other", conflicts: 2 }).kind).toBe("error");
-    expect(deriveSyncState({ ...base, conflicts: 2 }).kind).toBe("conflict");
+    expect(deriveSyncState({ ...base, lastError: "other", conflicts: ["a.md", "b.md"] }).kind).toBe("error");
+    expect(deriveSyncState({ ...base, conflicts: ["a.md", "b.md"] }).kind).toBe("conflict");
   });
 
   it("syncing shows live progress from applied entries", () => {
@@ -60,7 +66,7 @@ describe("deriveSyncState", () => {
   });
 
   it("conflict labels count the unresolved files", () => {
-    expect(deriveSyncState({ ...base, conflicts: 3 }).label).toBe("Syncrypt: conflict (3)");
+    expect(deriveSyncState({ ...base, conflicts: ["a.md", "b.md", "c.md"] }).label).toBe("Syncrypt: conflict (3)");
   });
 });
 
@@ -69,5 +75,28 @@ describe("classifyCounts", () => {
     expect(
       classifyCounts(["a.md", "b.canvas", "img.png", "doc.pdf", "dir/c.md"]),
     ).toEqual({ notes: 3, attachments: 2 });
+  });
+});
+
+describe("the last-sync fact carries a date once it is not today", () => {
+  const at = Date.parse("2026-09-01T12:49:13Z");
+  const sameDay = Date.parse("2026-09-01T23:59:00Z");
+  const nextDay = Date.parse("2026-09-02T00:01:00Z");
+
+  it("today shows the time alone — the date would be noise", () => {
+    expect(formatSyncTime(at, sameDay)).toBe(new Date(at).toLocaleTimeString());
+  });
+
+  it("yesterday must not look like a minute ago", () => {
+    const shown = formatSyncTime(at, nextDay);
+    expect(shown).not.toBe(new Date(at).toLocaleTimeString());
+    expect(shown).toContain(new Date(at).toLocaleDateString());
+  });
+
+  it("the tooltip uses it, so a stale sync reads as stale", () => {
+    const stale = deriveSyncState({ ...base, lastSyncAt: at, now: nextDay });
+    expect(stale.tooltip).toContain(new Date(at).toLocaleDateString());
+    const fresh = deriveSyncState({ ...base, lastSyncAt: at, now: sameDay });
+    expect(fresh.tooltip).not.toContain(new Date(at).toLocaleDateString());
   });
 });

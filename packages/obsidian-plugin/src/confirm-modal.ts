@@ -59,7 +59,7 @@ export class ConfirmSyncModal extends Modal {
     const cancel = buttons.createEl("button", { text: this.t.confirmModal.cancel });
     cancel.addEventListener("click", () => { this.decide(false); });
     const ok = buttons.createEl("button", {
-      text: this.t.confirmModal.apply(destructive.length),
+      text: this.t.confirmModal.apply,
       cls: "mod-warning",
     });
     ok.addEventListener("click", () => { this.decide(true); });

@@ -94,4 +94,11 @@ rails (ADR-0010):
   delete or overwrite an unusually large number of files (default > 20 files or
   > 10% of the vault).
 
+The breaker judges the *burst at the source*, not the size of one sync. Deleting
+thirty notes one at a time over an afternoon on your phone does not stop your
+desktop when it finally catches up — the deletions arrived at the pace of
+someone working. Thirty deletions written at once still stop it, because that is
+what an accident looks like. The window that separates the two is
+**Deletion burst window** (default 300 s).
+
 Keep Safe Mode on unless you have a specific reason not to.

@@ -7,8 +7,9 @@
 // i.e. the local base IS the published generation. Anything less is
 // "Pending". The green check never runs ahead of the truth.
 
-import type { SyncOutcome } from "@syncrypt/core";
+import type { SyncOutcome, VaultPath } from "@syncrypt/core";
 
+import { shortlist } from "./conflict-report.js";
 import { EN_STRINGS, type Strings } from "./i18n.js";
 
 type StatusStrings = Strings["status"];
@@ -32,8 +33,14 @@ export interface SyncStateInput {
   lastSyncAt: number | null;
   /** Classified failure of the last attempt, if it threw. */
   lastError: "network" | "other" | null;
-  /** Unresolved conflicts reported by the last sync. */
-  conflicts: number;
+  /**
+   * Unresolved conflicts reported by the last sync — the PATHS, not a count.
+   * A count cannot be acted on: "1 conflict, merge it" without a file name is
+   * a dead end, which is exactly what beta.8 shipped.
+   */
+  conflicts: VaultPath[];
+  /** Epoch ms "now", so a sync from yesterday can be shown with its date. */
+  now: number;
   counts: SyncCounts | null;
 }
 
@@ -89,11 +96,14 @@ export function deriveSyncState(
       tooltip: s.errorTooltip + facts,
     };
   }
-  if (i.conflicts > 0) {
+  if (i.conflicts.length > 0) {
+    const { shown, more } = shortlist(i.conflicts, CONFLICTS_IN_TOOLTIP);
     return {
       kind: "conflict",
-      label: s.conflictLabel(i.conflicts),
-      tooltip: s.conflictTooltip(i.conflicts) + facts,
+      label: s.conflictLabel(i.conflicts.length),
+      // The paths go BEFORE the facts line: what to open is the actionable
+      // part, and a tooltip is read top-down.
+      tooltip: s.conflictTooltip(i.conflicts.length) + s.conflictPaths(shown, more) + facts,
     };
   }
 
@@ -117,10 +127,28 @@ export function deriveSyncState(
   return { kind: "pending", label: s.pendingLabel, tooltip: why + facts };
 }
 
+/** How many conflicting paths a tooltip lists before it starts counting. */
+const CONFLICTS_IN_TOOLTIP = 5;
+
+/**
+ * A bare "12:49:13" makes a sync from yesterday look like a sync from a minute
+ * ago. Show the date as soon as it was not today — and only then, because the
+ * date is noise for the case that is true almost always.
+ */
+export function formatSyncTime(at: number, now: number): string {
+  const d = new Date(at);
+  const n = new Date(now);
+  const sameDay =
+    d.getFullYear() === n.getFullYear() &&
+    d.getMonth() === n.getMonth() &&
+    d.getDate() === n.getDate();
+  return sameDay ? d.toLocaleTimeString() : d.toLocaleString();
+}
+
 function factsLine(i: SyncStateInput, s: StatusStrings): string {
   const parts: string[] = [];
   if (i.lastSyncAt !== null) {
-    parts.push(s.factsLastSync(new Date(i.lastSyncAt).toLocaleTimeString()));
+    parts.push(s.factsLastSync(formatSyncTime(i.lastSyncAt, i.now)));
   }
   if (i.counts !== null) {
     parts.push(s.factsCounts(i.counts.notes, i.counts.attachments));

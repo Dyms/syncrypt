@@ -8,6 +8,27 @@
 
 import { ReasonCode, type SyncOutcome } from "@syncrypt/core";
 
+/**
+ * A span a reader can judge at a glance ("7 h 12 min", "40 min"). Deliberately
+ * coarse: the point of ADR-0029's line is "this took hours", not a stopwatch.
+ */
+function spanParts(seconds: number): { hours: number; minutes: number } {
+  const total = Math.max(0, Math.round(seconds / 60));
+  return { hours: Math.floor(total / 60), minutes: total % 60 };
+}
+
+function spanEn(seconds: number): string {
+  const { hours, minutes } = spanParts(seconds);
+  if (hours === 0) return `${String(minutes)} min`;
+  return minutes === 0 ? `${String(hours)} h` : `${String(hours)} h ${String(minutes)} min`;
+}
+
+function spanRu(seconds: number): string {
+  const { hours, minutes } = spanParts(seconds);
+  if (hours === 0) return `${String(minutes)} мин`;
+  return minutes === 0 ? `${String(hours)} ч` : `${String(hours)} ч ${String(minutes)} мин`;
+}
+
 export type Lang = "en" | "ru";
 /** Settings value: follow Obsidian ("auto") or pin a language. */
 export type LangSetting = "auto" | Lang;
@@ -60,6 +81,8 @@ const EN = {
     conflictLabel: (n: number) => `Syncrypt: conflict (${String(n)})`,
     conflictTooltip: (n: number) =>
       `${String(n)} conflict(s) — both versions were kept; merge them and sync again.`,
+    conflictPaths: (shown: string[], more: number) =>
+      `\n${shown.join(" · ")}${more > 0 ? ` … and ${String(more)} more` : ""}`,
     syncedLabel: "Syncrypt: synced ✓",
     syncedTooltip: "Everything is synced.",
     pendingLabel: "Syncrypt: pending",
@@ -108,8 +131,12 @@ const EN = {
       "Obsidian-settings sync: published this device's profile for the other devices.",
     configSyncUnreadable:
       "Obsidian-settings sync: the shared profile file could not be read — keeping this device's own settings.",
-    configSyncConflicted:
-      "Obsidian-settings sync: the shared profile was changed on two devices — this device kept its own and the other version is beside it as a conflicted copy. Check the settings.",
+    configSyncConflicted: (sharedPath: string, copyPath: string | undefined) =>
+      copyPath === undefined
+        ? `Obsidian-settings sync: "${sharedPath}" was changed on two devices — this device kept its own settings and nothing was overwritten. Set the options you want here and this device will publish them for the others.`
+        : `Obsidian-settings sync: "${sharedPath}" was changed on two devices. This device kept its own settings; the other device's version is beside it as "${copyPath}". Both files live in a folder Obsidian does not show in the file list — compare them in a file manager, or simply set the options you want here and this device will publish them for the others.`,
+    conflictsFound: (shown: string[], more: number) =>
+      `Conflicts — both versions were kept, nothing was overwritten. Merge these by hand, then sync again: ${shown.join(", ")}${more > 0 ? ` … and ${String(more)} more` : ""}`,
     hashCacheCleared: "Cached file hashes forgotten — the next scan re-reads the whole vault once.",
   },
 
@@ -153,6 +180,8 @@ const EN = {
       `Could not check whether "${path}" is already in storage — uploading it anyway (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
       `Forgot ${String(count)} manifest entr${count === 1 ? "y" : "ies"} (generation ${String(generation)}). No file was deleted; a device that still carries one will re-add it.`,
+    deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
+      `${String(paced)} deletions came in from another device, spread over ${spanEn(spanSeconds)} — the pace of someone working, not of something going wrong, so the confirmation for ${String(destructive)} destructive changes was not asked for (ADR-0029). The deleted files are in the sync trash.`,
   },
 
   entryDetail: {
@@ -170,6 +199,8 @@ const EN = {
       `Syncrypt: ${String(n)} migration warning(s) — see the sync log before continuing.`,
     conflicts: (n: number) =>
       `Syncrypt: ${String(n)} conflict(s) — both versions kept, see the sync log.`,
+    conflictOne: (path: string) =>
+      `Syncrypt: conflict in "${path}" — both versions kept, see the sync log.`,
     alreadyInSync: "Syncrypt: already in sync.",
     ticketCopied: "Ticket copied.",
     ticketRejected: (detail: string) => `Syncrypt: ticket rejected — ${detail}`,
@@ -195,6 +226,7 @@ const EN = {
   },
 
   settings: {
+    version: (v: string) => `version ${v}`,
     syncNow: "Sync now",
     showLog: "Show sync log",
     unlockedName: "Unlocked",
@@ -289,6 +321,9 @@ const EN = {
     vaultFraction: "Vault fraction",
     vaultFractionDesc:
       "Between floor and cap, prompt when the change exceeds this fraction (0.1 = 10%).",
+    deletionBurstWindow: "Deletion burst window (seconds)",
+    deletionBurstWindowDesc:
+      "Deletions that arrive from one device inside this window count as ONE event. Deleting notes one at a time over a day no longer counts as a bulk change; a wipe, which lands all at once, still does.",
     versionsToKeep: "Versions to keep",
     versionsToKeepDesc: "Prior encrypted versions retained per changed file.",
 
@@ -338,7 +373,7 @@ const EN = {
     deleteRemote: "delete remotely (tombstone)",
     overwriteLocal: "overwrite local file",
     cancel: "Cancel (do nothing)",
-    apply: (n: number) => `Apply ${String(n)} destructive changes`,
+    apply: "Apply changes",
   },
 
   shareModal: {
@@ -388,6 +423,8 @@ const RU: Strings = {
     conflictLabel: (n: number) => `Syncrypt: конфликтов ${String(n)}`,
     conflictTooltip: (n: number) =>
       `Конфликтов: ${String(n)}. Обе версии сохранены — сведите их и синхронизируйте снова.`,
+    conflictPaths: (shown: string[], more: number) =>
+      `\n${shown.join(" · ")}${more > 0 ? ` … и ещё ${String(more)}` : ""}`,
     syncedLabel: "Syncrypt: синхронизировано ✓",
     syncedTooltip: "Всё синхронизировано.",
     pendingLabel: "Syncrypt: есть несохранённое",
@@ -436,8 +473,12 @@ const RU: Strings = {
       "Синхронизация настроек Obsidian: профиль этого устройства опубликован для остальных.",
     configSyncUnreadable:
       "Синхронизация настроек Obsidian: файл общего профиля прочитать не удалось — оставляю настройки этого устройства.",
-    configSyncConflicted:
-      "Синхронизация настроек Obsidian: общий профиль изменили на двух устройствах — это устройство оставило свой, чужая версия лежит рядом как conflicted copy. Проверьте настройки.",
+    configSyncConflicted: (sharedPath: string, copyPath: string | undefined) =>
+      copyPath === undefined
+        ? `Синхронизация настроек Obsidian: «${sharedPath}» изменили на двух устройствах — это устройство оставило свои настройки, ничего не перезаписано. Задайте здесь нужные настройки, и это устройство опубликует их для остальных.`
+        : `Синхронизация настроек Obsidian: «${sharedPath}» изменили на двух устройствах. Это устройство оставило свои настройки, чужая версия лежит рядом как «${copyPath}». Оба файла — в папке, которую Obsidian не показывает в списке файлов: сравните их файловым менеджером или просто задайте здесь нужные настройки, и это устройство опубликует их для остальных.`,
+    conflictsFound: (shown: string[], more: number) =>
+      `Конфликты — обе версии сохранены, ничего не перезаписано. Сведите их вручную и синхронизируйте снова: ${shown.join(", ")}${more > 0 ? ` … и ещё ${String(more)}` : ""}`,
     hashCacheCleared: "Кэш хешей очищен — следующий скан один раз перечитает всё хранилище.",
   },
 
@@ -478,6 +519,8 @@ const RU: Strings = {
       `Не удалось проверить, есть ли «${path}» в хранилище — загружаю на всякий случай (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
       `Забыто записей манифеста: ${String(count)} (поколение ${String(generation)}). Ни один файл не удалён; устройство, которое ещё носит запись, вернёт её.`,
+    deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
+      `С другого устройства пришло удалений: ${String(paced)}, растянутых на ${spanRu(spanSeconds)} — это темп работы человека, а не сбоя, поэтому подтверждение на ${String(destructive)} разрушающих изменений не запрашивалось (ADR-0029). Удалённые файлы лежат в корзине синхронизации.`,
   },
 
   entryDetail: {
@@ -496,6 +539,8 @@ const RU: Strings = {
       `Syncrypt: предупреждений о миграции — ${String(n)}. Откройте журнал перед продолжением.`,
     conflicts: (n: number) =>
       `Syncrypt: конфликтов — ${String(n)}. Обе версии сохранены, подробности в журнале.`,
+    conflictOne: (path: string) =>
+      `Syncrypt: конфликт в «${path}» — обе версии сохранены, подробности в журнале.`,
     alreadyInSync: "Syncrypt: уже синхронизировано.",
     ticketCopied: "Тикет скопирован.",
     ticketRejected: (detail: string) => `Syncrypt: тикет отклонён — ${detail}`,
@@ -522,6 +567,7 @@ const RU: Strings = {
   },
 
   settings: {
+    version: (v: string) => `версия ${v}`,
     syncNow: "Синхронизировать сейчас",
     showLog: "Открыть журнал",
     unlockedName: "Разблокировано",
@@ -617,6 +663,9 @@ const RU: Strings = {
     vaultFraction: "Доля хранилища",
     vaultFractionDesc:
       "Между порогом и верхней границей спрашивать, если изменение превышает эту долю (0.1 = 10%).",
+    deletionBurstWindow: "Окно всплеска удалений (секунды)",
+    deletionBurstWindowDesc:
+      "Удаления, пришедшие с одного устройства в пределах этого окна, считаются ОДНИМ событием. Удаление заметок по одной в течение дня перестаёт быть массовым изменением; разовое стирание, которое приходит целиком, им остаётся.",
     versionsToKeep: "Хранить версий",
     versionsToKeepDesc: "Сколько прошлых зашифрованных версий держать для изменённого файла.",
 
@@ -667,7 +716,7 @@ const RU: Strings = {
     deleteRemote: "удалить в хранилище (пометка удаления)",
     overwriteLocal: "перезаписать локальный файл",
     cancel: "Отмена (ничего не делать)",
-    apply: (n: number) => `Применить разрушающих изменений: ${String(n)}`,
+    apply: "Применить изменения",
   },
 
   shareModal: {

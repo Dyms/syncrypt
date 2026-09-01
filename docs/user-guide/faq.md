@@ -47,7 +47,8 @@ None. Ever. See the [privacy policy](../security/privacy-policy.md).
 Safe Sync (on by default): local `.obsidian/sync-trash/` before deletes, deferred
 remote deletes (tombstones + grace), retained file versions, and a bulk-change
 circuit breaker that pauses when a sync would touch an unusually large number of
-files.
+files *at once*. Deletions you made one at a time over hours are recognized as
+your own work and do not trip it; deletions that all landed together do.
 
 **Can I recover files without Syncrypt?**
 Yes — with your passphrase and the documented format you can decrypt the manifest

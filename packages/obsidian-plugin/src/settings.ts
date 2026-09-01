@@ -24,6 +24,8 @@ export interface SyncryptSettings {
     bulkChangeFloor: number;
     bulkChangeMaxFiles: number;
     bulkChangeMaxFraction: number;
+    /** Seconds within which deletions from one device are one burst (ADR-0029). */
+    deletionBurstWindow: number;
     versionsToKeep: number;
   };
   autoSync: {
@@ -60,6 +62,7 @@ export const DEFAULT_SETTINGS: SyncryptSettings = {
     bulkChangeFloor: 5,
     bulkChangeMaxFiles: 20,
     bulkChangeMaxFraction: 0.1,
+    deletionBurstWindow: 300,
     versionsToKeep: 3,
   },
   autoSync: {

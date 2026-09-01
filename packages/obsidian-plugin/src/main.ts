@@ -18,6 +18,7 @@ import { S3Storage } from "@syncrypt/provider-s3";
 
 import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
+import { conflictCopyFor, shortlist } from "./conflict-report.js";
 import { ForgetPathsModal } from "./forget-modal.js";
 import { OBSIDIAN_DIR, SYNCRYPT_PLUGIN_ID } from "./config-sync.js";
 import {
@@ -54,6 +55,9 @@ import {
 import { PassphraseModal } from "./unlock.js";
 import { ObsidianVault, SYNC_TRASH_DIR } from "./vault-adapter.js";
 
+/** How many conflicting paths the summary log line names before it counts. */
+const CONFLICTS_IN_LOG = 20;
+
 export default class SyncryptPlugin extends Plugin {
   settings: SyncryptSettings = DEFAULT_SETTINGS;
   private engine: SyncEngine | null = null;
@@ -68,7 +72,7 @@ export default class SyncryptPlugin extends Plugin {
   private lastOutcome: SyncOutcome | null = null;
   private lastSyncAt: number | null = null;
   private lastError: "network" | "other" | null = null;
-  private conflictsCount = 0;
+  private conflictPaths: string[] = [];
   private counts: SyncCounts | null = null;
   private engineStatus: { baseGeneration: number | null; dirtyFiles: number } | null = null;
   private syncStartLogLength = 0;
@@ -237,7 +241,8 @@ export default class SyncryptPlugin extends Plugin {
       lastOutcome: this.lastOutcome,
       lastSyncAt: this.lastSyncAt,
       lastError: this.lastError,
-      conflicts: this.conflictsCount,
+      conflicts: this.conflictPaths,
+      now: Date.now(),
       counts: this.counts,
     }, this.strings.status);
   }
@@ -606,14 +611,31 @@ export default class SyncryptPlugin extends Plugin {
   private finishReport(report: SyncReport, origin: string): void {
     this.lastOutcome = report.outcome;
     this.lastSyncAt = Date.now();
-    this.conflictsCount = report.conflicts.length;
+    this.conflictPaths = [...report.conflicts];
     if (report.conflicts.length > 0) {
-      new Notice(this.strings.notices.conflicts(report.conflicts.length), 8000);
+      // Naming the file is the whole point: "1 conflict — merge them" with no
+      // path is advice the user cannot act on.
+      new Notice(
+        report.conflicts.length === 1 && report.conflicts[0] !== undefined
+          ? this.strings.notices.conflictOne(report.conflicts[0])
+          : this.strings.notices.conflicts(report.conflicts.length),
+        8000,
+      );
+      // One summary line that survives scrolling, next to the per-file entries.
+      const { shown, more } = shortlist(report.conflicts, CONFLICTS_IN_LOG);
+      this.log.warn(this.strings.log.conflictsFound(shown, more));
     }
     if (report.conflicts.includes(SHARED_CONFIG_SYNC_PATH)) {
       // A conflicted copy of the shared profile is not itself syncable, so it
-      // would otherwise sit in `.obsidian` unmentioned (ADR-0024).
-      this.log.warn(this.strings.log.configSyncConflicted);
+      // would otherwise sit in `.obsidian` unmentioned (ADR-0024) — and
+      // `.obsidian` is not in Obsidian's own file list, so an unnamed copy is
+      // effectively invisible. Name both paths and say what to do with them.
+      this.log.warn(
+        this.strings.log.configSyncConflicted(
+          SHARED_CONFIG_SYNC_PATH,
+          conflictCopyFor(report, SHARED_CONFIG_SYNC_PATH),
+        ),
+      );
     }
     if (origin === "manual" && report.outcome === "no-op") {
       new Notice(this.strings.notices.alreadyInSync);

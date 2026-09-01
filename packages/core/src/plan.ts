@@ -5,7 +5,7 @@
 // when both sides changed differently, the op is a conflict.
 
 import { ReasonCode } from "./reasons.js";
-import type { FileDescriptor, Hash, Manifest, VaultPath } from "./types.js";
+import type { DeviceId, FileDescriptor, Hash, Manifest, VaultPath } from "./types.js";
 
 export type OperationKind =
   | "upload" // local → storage
@@ -36,6 +36,22 @@ export interface ConfirmationReason {
   total: number;
 }
 
+/**
+ * Why the breaker did NOT fire on a plan that, counted the old way, would have
+ * (ADR-0029). Present only in that case, so a client can say so and stay quiet
+ * the rest of the time.
+ */
+export interface PacingDiscount {
+  /** Destructive ops in the plan, counted the way beta.8 counted them. */
+  destructive: number;
+  /** What the breaker actually judged: unpaced ops + the largest burst. */
+  effective: number;
+  /** Local deletions whose tombstones carried a time and a device. */
+  paced: number;
+  /** Seconds between the earliest and the latest of those deletions. */
+  spanSeconds: number;
+}
+
 export interface SyncPlan {
   /** Ordered operations. Deterministic function of (local, base, remote). */
   operations: Operation[];
@@ -45,6 +61,8 @@ export interface SyncPlan {
   requiresConfirmation: boolean;
   /** Why confirmation is required (e.g. "would delete 42 files"). */
   confirmationReason?: ConfirmationReason;
+  /** Set when deletion pacing kept the breaker quiet (ADR-0029). */
+  pacingDiscount?: PacingDiscount;
   /** Convenience counts for UI. */
   summary: {
     uploads: number;
@@ -60,6 +78,12 @@ export interface PlanOptions {
   bulkChangeMaxFiles: number; // default 20 — at or above: always prompt
   bulkChangeMaxFraction: number; // default 0.10 — in between: prompt if ≥ 10% of vault
   /**
+   * Seconds within which deletions from ONE device count as one burst
+   * (ADR-0029). Deletions spread wider than this are the pace of a person
+   * working, and the breaker does not count them all against itself.
+   */
+  deletionBurstWindow: number; // default 300
+  /**
    * Does this device's profile cover the path (ADR-0022)? Paths that answer
    * false are skipped entirely: not downloaded here, and — crucially — never
    * mistaken for a local deletion just because this device does not list them.
@@ -72,7 +96,49 @@ export const DEFAULT_PLAN_OPTIONS: PlanOptions = {
   bulkChangeFloor: 5,
   bulkChangeMaxFiles: 20,
   bulkChangeMaxFraction: 0.1,
+  deletionBurstWindow: 300,
 };
+
+/**
+ * The largest number of deletions from ONE device inside one window of
+ * `windowSeconds` (ADR-0029). Per device on purpose: two people tidying at once
+ * are two people, and a device's own clock skew cancels within its own group
+ * instead of inflating somebody else's burst.
+ */
+export function peakBurst(
+  deletions: readonly { at: number; device: DeviceId }[],
+  windowSeconds: number,
+): number {
+  const byDevice = new Map<DeviceId, number[]>();
+  for (const d of deletions) {
+    const list = byDevice.get(d.device);
+    if (list === undefined) byDevice.set(d.device, [d.at]);
+    else list.push(d.at);
+  }
+  let peak = 0;
+  for (const times of byDevice.values()) {
+    times.sort((a, b) => a - b);
+    let start = 0;
+    for (let end = 0; end < times.length; end++) {
+      // `times` is sorted and both indices are in range; the non-null
+      // assertions are the price of noUncheckedIndexedAccess.
+      while ((times[end] ?? 0) - (times[start] ?? 0) > windowSeconds) start++;
+      peak = Math.max(peak, end - start + 1);
+    }
+  }
+  return peak;
+}
+
+function span(deletions: readonly { at: number }[]): number {
+  if (deletions.length === 0) return 0;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const d of deletions) {
+    lo = Math.min(lo, d.at);
+    hi = Math.max(hi, d.at);
+  }
+  return hi - lo;
+}
 
 /** Per-path view of one side of the three-way diff. */
 type SideState =
@@ -252,16 +318,32 @@ export function plan(
   // local file. New-file downloads and uploads never destroy local bytes.
   // ≤ floor: routine, never prompt. ≥ maxFiles: always prompt. In between:
   // prompt when the change is a large fraction of the vault.
-  const destructive = operations.filter(
+  //
+  // ADR-0029: what is counted is the largest BURST at the source, not the size
+  // of this plan — a plan is only as big as the gap since this device last
+  // synced. A `delete-local` whose tombstone says when and by whom is paced;
+  // everything else counts in full, because nothing else in the manifest
+  // records WHEN a change was published (an entry's mtime is the file's, and a
+  // restore from backup carries mtimes from years ago).
+  const destructiveOps = operations.filter(
     (o) =>
       o.kind === "delete-local" ||
       o.kind === "delete-remote" ||
       (o.kind === "download" && o.localHash !== undefined),
-  ).length;
-  const requiresConfirmation =
-    destructive > opts.bulkChangeFloor &&
-    (destructive >= opts.bulkChangeMaxFiles ||
-      destructive >= opts.bulkChangeMaxFraction * local.length);
+  );
+  const pacedDeletions: { at: number; device: DeviceId }[] = [];
+  let unpaced = 0;
+  for (const op of destructiveOps) {
+    const tombstone = op.kind === "delete-local" ? remote?.tombstones[op.path] : undefined;
+    if (tombstone === undefined) unpaced++;
+    else pacedDeletions.push({ at: tombstone.deletedAt, device: tombstone.device });
+  }
+  const destructive = destructiveOps.length;
+  const effective = unpaced + peakBurst(pacedDeletions, opts.deletionBurstWindow);
+  const fires = (n: number): boolean =>
+    n > opts.bulkChangeFloor &&
+    (n >= opts.bulkChangeMaxFiles || n >= opts.bulkChangeMaxFraction * local.length);
+  const requiresConfirmation = fires(effective);
 
   const pullFirst =
     remote !== null && remote.generation > (base?.generation ?? 0);
@@ -277,6 +359,15 @@ export function plan(
       code: "bulk-change",
       destructive,
       total: local.length,
+    };
+  } else if (fires(destructive)) {
+    // The one case where a safety net deliberately did not fire — say so
+    // rather than letting a day's deletions land in silence (ADR-0029).
+    result.pacingDiscount = {
+      destructive,
+      effective,
+      paced: pacedDeletions.length,
+      spanSeconds: span(pacedDeletions),
     };
   }
   return result;

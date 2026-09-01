@@ -205,6 +205,8 @@ class Engine implements SyncEngine {
         bulkChangeMaxFraction:
           config.safeSync?.bulkChangeMaxFraction ??
           DEFAULT_PLAN_OPTIONS.bulkChangeMaxFraction,
+        deletionBurstWindow:
+          config.safeSync?.deletionBurstWindow ?? DEFAULT_PLAN_OPTIONS.deletionBurstWindow,
       },
       versionsToKeep: config.safeSync?.versionsToKeep ?? 3,
     };
@@ -431,6 +433,11 @@ class Engine implements SyncEngine {
       });
       return this.report(startedAt, "needs-confirmation", [], fromGen, fromGen);
     }
+    if (p.pacingDiscount !== undefined) {
+      // The breaker stayed quiet on a change that would once have stopped it
+      // (ADR-0029) — the user should hear that, not just find fewer files.
+      this.ctx.log.notice({ code: "deletions-paced", discount: p.pacingDiscount });
+    }
     if (remote.manifest === null) {
       return this.report(startedAt, "no-op", [], fromGen, fromGen);
     }
@@ -486,6 +493,9 @@ class Engine implements SyncEngine {
         ...(p.confirmationReason !== undefined ? { reason: p.confirmationReason } : {}),
       });
       return this.report(startedAt, "needs-confirmation", [], fromGen, fromGen);
+    }
+    if (p.pacingDiscount !== undefined) {
+      this.ctx.log.notice({ code: "deletions-paced", discount: p.pacingDiscount });
     }
     if (p.summary.conflicts > 0) {
       // Possible only after losing a manifest fork (ADR-0006 §4): a pull will
