@@ -271,7 +271,21 @@ const EN = {
     languageEn: "English",
     languageRu: "Русский",
 
-    storageHeading: "Storage (S3-compatible)",
+    storageHeading: "Storage",
+    provider: "Provider",
+    providerDesc:
+      "Which kind of storage this vault lives on. Switching keeps the other provider's settings, and locks the vault so the next unlock connects to the new one.",
+    providerS3: "S3-compatible (R2, MinIO, Backblaze, AWS…)",
+    providerWebdav: "WebDAV (Nextcloud, ownCloud, Apache…)",
+    webdavUrl: "Collection URL",
+    webdavUsername: "Username",
+    webdavPassword: "Password",
+    webdavAppPasswordHint:
+      "Use an app password where your server offers one (Nextcloud: Settings → Security → Devices & sessions). It can be revoked on its own, and it is not your account password.",
+    webdavNoConditionalWrites:
+      "WebDAV cannot do conditional writes, so two devices publishing at the same instant are resolved after the fact instead of being prevented. Nothing is lost — the loser re-plans and reports its conflicts — but on S3 that race cannot happen at all.",
+    plaintextWebdavWarning:
+      "This URL is plain http://. Your notes are encrypted before they leave, but WebDAV Basic auth sends your username and password on EVERY request, in the clear. Use https://.",
     plaintextEndpointWarning:
       "This endpoint is plain http://. Your vault stays encrypted, but the storage credentials travel in the clear and anyone on the network can take them. Use https:// unless the server is on this machine.",
     credentialWarning:
@@ -650,7 +664,21 @@ const RU: Strings = {
     languageEn: "English",
     languageRu: "Русский",
 
-    storageHeading: "Хранилище (S3-совместимое)",
+    storageHeading: "Хранилище",
+    provider: "Провайдер",
+    providerDesc:
+      "На каком хранилище живёт это хранилище заметок. Переключение сохраняет настройки второго провайдера и блокирует хранилище: следующая разблокировка подключится уже к новому.",
+    providerS3: "S3-совместимое (R2, MinIO, Backblaze, AWS…)",
+    providerWebdav: "WebDAV (Nextcloud, ownCloud, Apache…)",
+    webdavUrl: "URL коллекции",
+    webdavUsername: "Имя пользователя",
+    webdavPassword: "Пароль",
+    webdavAppPasswordHint:
+      "Если сервер умеет пароли приложений — используйте их (Nextcloud: Настройки → Безопасность → Устройства и сеансы). Такой пароль отзывается отдельно и не является паролем от аккаунта.",
+    webdavNoConditionalWrites:
+      "WebDAV не умеет условную запись, поэтому два устройства, опубликовавшие изменения в один момент, разбираются постфактум, а не предотвращаются. Ничего не теряется — проигравший перепланирует и покажет конфликты, — но на S3 такой гонки не бывает вовсе.",
+    plaintextWebdavWarning:
+      "Этот URL — обычный http://. Заметки шифруются до отправки, но WebDAV Basic auth шлёт имя пользователя и пароль в КАЖДОМ запросе, открытым текстом. Используйте https://.",
     plaintextEndpointWarning:
       "Этот адрес — обычный http://. Само хранилище остаётся зашифрованным, но ключи доступа идут по сети открытым текстом, и забрать их может любой в этой сети. Используйте https://, если сервер не на этой же машине.",
     credentialWarning:

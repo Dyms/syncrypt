@@ -15,6 +15,7 @@ import {
   openSyncEngine,
 } from "@syncrypt/sdk";
 import { S3Storage } from "@syncrypt/provider-s3";
+import { WebDavStorage } from "@syncrypt/provider-webdav";
 
 import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
@@ -43,7 +44,13 @@ import { SyncLogView, SYNC_LOG_VIEW_TYPE } from "./log-view.js";
 import { migrationPreflight } from "./migration.js";
 import { autoSyncAllowed, currentConnection } from "./network.js";
 import { AutoSyncScheduler } from "./scheduler.js";
-import { DEFAULT_SETTINGS, settingsComplete, withDefaults, type SyncryptSettings } from "./settings.js";
+import {
+  DEFAULT_SETTINGS,
+  settingsComplete,
+  storagePrefixOf,
+  withDefaults,
+  type SyncryptSettings,
+} from "./settings.js";
 import { SyncryptSettingTab } from "./settings-tab.js";
 import { AdapterStateStore } from "./state-store.js";
 import { AddDeviceModal, ShareConnectionModal } from "./ticket-modals.js";
@@ -369,16 +376,27 @@ export default class SyncryptPlugin extends Plugin {
     try {
       this.statusEl?.setText(this.strings.status.unlocking);
       const s = this.settings;
-      const storage = await S3Storage.create({
-        endpoint: s.s3.endpoint,
-        region: s.s3.region,
-        bucket: s.s3.bucket,
-        accessKeyId: s.s3.accessKeyId,
-        secretAccessKey: s.s3.secretAccessKey,
-        forcePathStyle: s.s3.forcePathStyle,
-        // requestUrl() bypasses webview CORS (RFC-0006 §Injectable transport).
-        transport: obsidianTransport,
-      });
+      // Both providers go through requestUrl(): it issues a NATIVE request and
+      // bypasses webview CORS, which is what made Android work at all
+      // (RFC-0006 §Injectable transport). A WebDAV server is no likelier to
+      // send permissive CORS headers than an S3 one.
+      const storage =
+        s.provider === "webdav"
+          ? await WebDavStorage.create({
+              baseUrl: s.webdav.url,
+              username: s.webdav.username,
+              password: s.webdav.password,
+              transport: obsidianTransport,
+            })
+          : await S3Storage.create({
+              endpoint: s.s3.endpoint,
+              region: s.s3.region,
+              bucket: s.s3.bucket,
+              accessKeyId: s.s3.accessKeyId,
+              secretAccessKey: s.s3.secretAccessKey,
+              forcePathStyle: s.s3.forcePathStyle,
+              transport: obsidianTransport,
+            });
       const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
       this.vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
       this.engine = await openSyncEngine({
@@ -386,7 +404,7 @@ export default class SyncryptPlugin extends Plugin {
         vault: this.vaultPort,
         passphrase,
         deviceId: s.deviceId,
-        storagePrefix: s.s3.prefix,
+        storagePrefix: storagePrefixOf(s),
         state: new AdapterStateStore(adapter),
         log: this.log,
         safeSync: s.safeSync,

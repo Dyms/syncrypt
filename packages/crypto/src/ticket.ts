@@ -27,23 +27,46 @@ import {
   zeroize,
 } from "./keys.js";
 
-export interface ConnectionTicketPayload {
+interface TicketCommon {
   v: 1;
-  provider: "s3";
-  endpoint: string;
-  region: string;
-  bucket: string;
   prefix: string;
-  forcePathStyle: boolean;
-  /** Optional: the cautious can export a creds-less ticket (config only). */
-  accessKeyId?: string;
-  secretAccessKey?: string;
   /** Random ticket id — lets UIs refer to "this ticket" and hint deletion. */
   nonce: string;
   createdAt: number; // epoch seconds
 }
 
-export type ConnectionTicketInput = Omit<ConnectionTicketPayload, "v" | "nonce" | "createdAt">;
+export interface S3TicketPayload extends TicketCommon {
+  provider: "s3";
+  endpoint: string;
+  region: string;
+  bucket: string;
+  forcePathStyle: boolean;
+  /** Optional: the cautious can export a creds-less ticket (config only). */
+  accessKeyId?: string;
+  secretAccessKey?: string;
+}
+
+export interface WebDavTicketPayload extends TicketCommon {
+  provider: "webdav";
+  /** Collection URL that is the vault's storage root. */
+  url: string;
+  /** Optional for the same reason S3's keys are: a config-only ticket. */
+  username?: string;
+  password?: string;
+}
+
+/**
+ * Which provider a ticket describes is part of the ticket (ADR-0033). A build
+ * that does not know a provider must refuse the ticket rather than guess at
+ * its fields — validation below rejects anything it cannot fully understand,
+ * so an older client meeting a WebDAV ticket fails closed with a clear error
+ * instead of applying half of it.
+ */
+export type ConnectionTicketPayload = S3TicketPayload | WebDavTicketPayload;
+
+export type ConnectionTicketInput =
+  | Omit<S3TicketPayload, "v" | "nonce" | "createdAt">
+  | Omit<WebDavTicketPayload, "v" | "nonce" | "createdAt">;
 
 const MAGIC = new Uint8Array([0x53, 0x59, 0x54, 0x4b]); // "SYTK"
 /**
@@ -100,12 +123,13 @@ export async function createConnectionTicket(
   passphrase: string,
   now: () => number = () => Math.floor(Date.now() / 1000),
 ): Promise<string> {
-  const payload: ConnectionTicketPayload = {
-    v: 1,
-    ...input,
+  const stamp = {
+    v: 1 as const,
     nonce: base64Encode(crypto.getRandomValues(new Uint8Array(8))),
     createdAt: now(),
   };
+  const payload: ConnectionTicketPayload =
+    input.provider === "s3" ? { ...input, ...stamp } : { ...input, ...stamp };
 
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   const params: KdfParams = { ...CROSS_DEVICE_KDF_PRESET, salt: base64Encode(salt) };
@@ -200,16 +224,31 @@ function validatePayload(plaintext: Uint8Array): ConnectionTicketPayload {
   if (typeof raw !== "object" || raw === null) throw corrupt("payload is not an object");
   const r = raw as Record<string, unknown>;
   if (r.v !== 1) throw corrupt("unsupported payload version");
-  if (r.provider !== "s3") throw corrupt(`unsupported provider "${String(r.provider)}"`);
-  for (const field of ["endpoint", "region", "bucket", "prefix", "nonce"]) {
+  for (const field of ["prefix", "nonce"]) {
     if (typeof r[field] !== "string") throw corrupt(`missing field ${field}`);
   }
-  if (typeof r.forcePathStyle !== "boolean") throw corrupt("missing field forcePathStyle");
   if (typeof r.createdAt !== "number") throw corrupt("missing field createdAt");
-  for (const field of ["accessKeyId", "secretAccessKey"]) {
-    if (r[field] !== undefined && typeof r[field] !== "string") {
-      throw corrupt(`invalid field ${field}`);
+
+  const optionalStrings = (fields: string[]): void => {
+    for (const field of fields) {
+      if (r[field] !== undefined && typeof r[field] !== "string") {
+        throw corrupt(`invalid field ${field}`);
+      }
     }
+  };
+
+  if (r.provider === "s3") {
+    for (const field of ["endpoint", "region", "bucket"]) {
+      if (typeof r[field] !== "string") throw corrupt(`missing field ${field}`);
+    }
+    if (typeof r.forcePathStyle !== "boolean") throw corrupt("missing field forcePathStyle");
+    optionalStrings(["accessKeyId", "secretAccessKey"]);
+    return r as unknown as ConnectionTicketPayload;
   }
-  return r as unknown as ConnectionTicketPayload;
+  if (r.provider === "webdav") {
+    if (typeof r.url !== "string") throw corrupt("missing field url");
+    optionalStrings(["username", "password"]);
+    return r as unknown as ConnectionTicketPayload;
+  }
+  throw corrupt(`unsupported provider "${String(r.provider)}"`);
 }

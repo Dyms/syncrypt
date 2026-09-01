@@ -3,7 +3,11 @@
 
 import { Modal, Notice, Setting, type App } from "obsidian";
 
-import { createConnectionTicket, openConnectionTicket } from "@syncrypt/crypto";
+import {
+  createConnectionTicket,
+  openConnectionTicket,
+  type ConnectionTicketInput,
+} from "@syncrypt/crypto";
 
 import type SyncryptPlugin from "./main.js";
 import { applyTicketToSettings, ticketIsCredsLess } from "./ticket-flow.js";
@@ -43,21 +47,31 @@ export class ShareConnectionModal extends Modal {
 
   private async generate(): Promise<void> {
     if (this.passphrase.length === 0) return;
-    const s = this.plugin.settings.s3;
-    const ticket = await createConnectionTicket(
-      {
-        provider: "s3",
-        endpoint: s.endpoint,
-        region: s.region,
-        bucket: s.bucket,
-        prefix: s.prefix,
-        forcePathStyle: s.forcePathStyle,
-        ...(this.includeCreds
-          ? { accessKeyId: s.accessKeyId, secretAccessKey: s.secretAccessKey }
-          : {}),
-      },
-      this.passphrase,
-    );
+    const settings = this.plugin.settings;
+    const s3 = settings.s3;
+    const dav = settings.webdav;
+    // The ticket describes the provider this device actually uses (ADR-0033);
+    // a device enrolled from it comes up pointed at the same backend.
+    const input: ConnectionTicketInput =
+      settings.provider === "webdav"
+        ? {
+            provider: "webdav",
+            url: dav.url,
+            prefix: dav.prefix,
+            ...(this.includeCreds ? { username: dav.username, password: dav.password } : {}),
+          }
+        : {
+            provider: "s3",
+            endpoint: s3.endpoint,
+            region: s3.region,
+            bucket: s3.bucket,
+            prefix: s3.prefix,
+            forcePathStyle: s3.forcePathStyle,
+            ...(this.includeCreds
+              ? { accessKeyId: s3.accessKeyId, secretAccessKey: s3.secretAccessKey }
+              : {}),
+          };
+    const ticket = await createConnectionTicket(input, this.passphrase);
     this.passphrase = "";
 
     const t = this.plugin.t();

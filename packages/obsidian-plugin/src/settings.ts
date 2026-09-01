@@ -1,9 +1,12 @@
-// Plugin settings — persisted in data.json (ADR-0016: S3 credentials live
-// here BY DECISION, with a UI warning; the passphrase NEVER does).
+// Plugin settings — persisted in data.json (ADR-0016: storage credentials
+// live here BY DECISION, with a UI warning; the passphrase NEVER does).
 
 import { DEFAULT_CONFIG_SYNC, type ConfigSyncSettings } from "./config-sync.js";
 import type { LangSetting } from "./i18n.js";
 import { DEFAULT_PROFILE, type SyncProfile } from "./profile.js";
+
+/** The backends the plugin can talk to (ADR-0033). */
+export type StorageProviderKind = "s3" | "webdav";
 
 export interface SyncryptSettings {
   /** UI language; "auto" follows Obsidian's own setting (ADR-0021). */
@@ -16,6 +19,19 @@ export interface SyncryptSettings {
     accessKeyId: string;
     secretAccessKey: string;
     forcePathStyle: boolean;
+  };
+  /**
+   * Which backend this vault talks to (ADR-0033). Absent in settings written
+   * before beta.10 — those vaults are S3 by definition, which is what
+   * withDefaults() fills in.
+   */
+  provider: StorageProviderKind;
+  webdav: {
+    /** Collection URL that is the vault's storage root. */
+    url: string;
+    username: string;
+    password: string;
+    prefix: string;
   };
   profile: SyncProfile;
   /** Obsidian settings sync — opt-in, per-item (RFC-0008). */
@@ -62,6 +78,13 @@ export const DEFAULT_SETTINGS: SyncryptSettings = {
     secretAccessKey: "",
     forcePathStyle: true,
   },
+  provider: "s3",
+  webdav: {
+    url: "",
+    username: "",
+    password: "",
+    prefix: "",
+  },
   profile: DEFAULT_PROFILE,
   configSync: DEFAULT_CONFIG_SYNC,
   safeSync: {
@@ -103,6 +126,11 @@ export function withDefaults(
         ? raw.language
         : DEFAULT_SETTINGS.language,
     s3: { ...DEFAULT_SETTINGS.s3, ...raw.s3 },
+    // A vault configured before beta.10 has no `provider` and is S3 — the only
+    // backend the UI could reach. Anything unrecognized falls back the same
+    // way rather than leaving the plugin pointed at nothing.
+    provider: raw.provider === "webdav" ? "webdav" : "s3",
+    webdav: { ...DEFAULT_SETTINGS.webdav, ...raw.webdav },
     profile: {
       include: raw.profile?.include ?? DEFAULT_SETTINGS.profile.include,
       exclude: raw.profile?.exclude ?? DEFAULT_SETTINGS.profile.exclude,
@@ -126,11 +154,28 @@ export function generateDeviceId(): string {
   return `dev-${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/**
+ * Enough filled in to attempt a connection. Per provider: WebDAV needs a URL
+ * and Basic credentials; S3 needs an endpoint, a bucket and a key pair.
+ */
 export function settingsComplete(s: SyncryptSettings): boolean {
+  if (s.provider === "webdav") {
+    return s.webdav.url !== "" && s.webdav.username !== "" && s.webdav.password !== "";
+  }
   return (
     s.s3.endpoint !== "" &&
     s.s3.bucket !== "" &&
     s.s3.accessKeyId !== "" &&
     s.s3.secretAccessKey !== ""
   );
+}
+
+/** The URL whose scheme decides the plaintext-endpoint warning, per provider. */
+export function endpointOf(s: SyncryptSettings): string {
+  return s.provider === "webdav" ? s.webdav.url : s.s3.endpoint;
+}
+
+/** The storage key prefix for the active provider. */
+export function storagePrefixOf(s: SyncryptSettings): string {
+  return s.provider === "webdav" ? s.webdav.prefix : s.s3.prefix;
 }

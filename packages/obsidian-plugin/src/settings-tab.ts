@@ -20,7 +20,7 @@ import {
   type SectionId,
   type SectionMemory,
 } from "./settings-sections.js";
-import { settingsComplete } from "./settings.js";
+import { endpointOf, settingsComplete } from "./settings.js";
 
 export class SyncryptSettingTab extends PluginSettingTab {
   constructor(
@@ -120,18 +120,44 @@ export class SyncryptSettingTab extends PluginSettingTab {
           }),
       );
 
-    // --- S3 provider -------------------------------------------------------
+    // --- Storage provider ---------------------------------------------------
     const storageEl = section("storage", t.settings.storageHeading);
+    const webdav = s.provider === "webdav";
+
+    new Setting(storageEl)
+      .setName(t.settings.provider)
+      .setDesc(t.settings.providerDesc)
+      .addDropdown((d) =>
+        d
+          .addOption("s3", t.settings.providerS3)
+          .addOption("webdav", t.settings.providerWebdav)
+          .setValue(s.provider)
+          .onChange(async (v) => {
+            // Switching providers does not clear the other one's settings: a
+            // user comparing two backends should not have to retype either.
+            // Nothing is connected until Unlock, and the engine is rebuilt
+            // from scratch there.
+            s.provider = v === "webdav" ? "webdav" : "s3";
+            await this.plugin.saveSettings();
+            if (this.plugin.isUnlocked()) this.plugin.lock();
+            rerender();
+          }),
+      );
+
     // ADR-0016, stated once and calmly: a note, not an alarm. Shown only once
-    // keys are actually stored — before that there is nothing to warn about.
-    if (s.s3.accessKeyId !== "" || s.s3.secretAccessKey !== "") {
+    // credentials are actually stored — before that there is nothing to warn
+    // about. WebDAV's password sits in the same file for the same reason.
+    const hasSecrets = webdav
+      ? s.webdav.username !== "" || s.webdav.password !== ""
+      : s.s3.accessKeyId !== "" || s.s3.secretAccessKey !== "";
+    if (hasSecrets) {
       storageEl.createEl("div", {
         text: `⚠ ${t.settings.credentialWarning}`,
         cls: "setting-item-description",
       });
     }
 
-    const s3Text = (
+    const storageText = (
       name: string,
       get: () => string,
       set: (v: string) => void,
@@ -148,40 +174,80 @@ export class SyncryptSettingTab extends PluginSettingTab {
           });
       });
     };
-    s3Text(t.settings.endpoint, () => s.s3.endpoint, (v) => (s.s3.endpoint = v), {
-      placeholder: "https://s3.example.com",
-    });
-    if (endpointIsPlaintext(s.s3.endpoint)) {
+
+    const plaintextWarning = (): void => {
+      if (!endpointIsPlaintext(endpointOf(s))) return;
       // The vault's contents are encrypted before they leave, but the storage
       // credentials are not: over plain HTTP they travel in the clear, and for
-      // WebDAV Basic auth that is the password itself.
+      // WebDAV Basic auth that IS the password, on every single request.
       const warn = storageEl.createEl("div", {
-        text: `⚠ ${t.settings.plaintextEndpointWarning}`,
+        text: `⚠ ${webdav ? t.settings.plaintextWebdavWarning : t.settings.plaintextEndpointWarning}`,
         cls: "setting-item-description",
       });
       warn.style.color = "var(--text-error)";
-    }
-    s3Text(t.settings.region, () => s.s3.region, (v) => (s.s3.region = v));
-    s3Text(t.settings.bucket, () => s.s3.bucket, (v) => (s.s3.bucket = v));
-    s3Text(t.settings.prefix, () => s.s3.prefix, (v) => (s.s3.prefix = v), {
-      placeholder: t.settings.prefixPlaceholder,
-    });
-    s3Text(t.settings.accessKeyId, () => s.s3.accessKeyId, (v) => (s.s3.accessKeyId = v));
-    s3Text(
-      t.settings.secretAccessKey,
-      () => s.s3.secretAccessKey,
-      (v) => (s.s3.secretAccessKey = v),
-      { secret: true },
-    );
-    new Setting(storageEl)
-      .setName(t.settings.pathStyle)
-      .setDesc(t.settings.pathStyleDesc)
-      .addToggle((tg) =>
-        tg.setValue(s.s3.forcePathStyle).onChange(async (v) => {
-          s.s3.forcePathStyle = v;
-          await this.plugin.saveSettings();
-        }),
+    };
+
+    if (webdav) {
+      storageText(t.settings.webdavUrl, () => s.webdav.url, (v) => (s.webdav.url = v), {
+        placeholder: "https://cloud.example.com/remote.php/dav/files/user/vault",
+      });
+      plaintextWarning();
+      storageText(
+        t.settings.webdavUsername,
+        () => s.webdav.username,
+        (v) => (s.webdav.username = v),
       );
+      storageText(
+        t.settings.webdavPassword,
+        () => s.webdav.password,
+        (v) => (s.webdav.password = v),
+        { secret: true },
+      );
+      storageEl.createEl("div", {
+        text: t.settings.webdavAppPasswordHint,
+        cls: "setting-item-description",
+      });
+      storageText(t.settings.prefix, () => s.webdav.prefix, (v) => (s.webdav.prefix = v), {
+        placeholder: t.settings.prefixPlaceholder,
+      });
+      // ADR-0006: WebDAV has no conditional writes, so two devices publishing
+      // the same generation are resolved by the LIST rule instead of being
+      // prevented. Nothing is lost — but the user should know it is different.
+      storageEl.createEl("div", {
+        text: t.settings.webdavNoConditionalWrites,
+        cls: "setting-item-description",
+      });
+    } else {
+      storageText(t.settings.endpoint, () => s.s3.endpoint, (v) => (s.s3.endpoint = v), {
+        placeholder: "https://s3.example.com",
+      });
+      plaintextWarning();
+      storageText(t.settings.region, () => s.s3.region, (v) => (s.s3.region = v));
+      storageText(t.settings.bucket, () => s.s3.bucket, (v) => (s.s3.bucket = v));
+      storageText(t.settings.prefix, () => s.s3.prefix, (v) => (s.s3.prefix = v), {
+        placeholder: t.settings.prefixPlaceholder,
+      });
+      storageText(
+        t.settings.accessKeyId,
+        () => s.s3.accessKeyId,
+        (v) => (s.s3.accessKeyId = v),
+      );
+      storageText(
+        t.settings.secretAccessKey,
+        () => s.s3.secretAccessKey,
+        (v) => (s.s3.secretAccessKey = v),
+        { secret: true },
+      );
+      new Setting(storageEl)
+        .setName(t.settings.pathStyle)
+        .setDesc(t.settings.pathStyleDesc)
+        .addToggle((tg) =>
+          tg.setValue(s.s3.forcePathStyle).onChange(async (v) => {
+            s.s3.forcePathStyle = v;
+            await this.plugin.saveSettings();
+          }),
+        );
+    }
 
     // --- Devices (ADR-0020) -------------------------------------------------
     const devicesEl = section("devices", t.settings.devicesHeading);

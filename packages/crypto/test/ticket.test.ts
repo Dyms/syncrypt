@@ -24,7 +24,7 @@ import {
 } from "../src/index.js";
 import type { KdfParams } from "@syncrypt/core";
 
-const INPUT: ConnectionTicketInput = {
+const INPUT: Extract<ConnectionTicketInput, { provider: "s3" }> = {
   provider: "s3",
   endpoint: "https://s3.example.com",
   region: "eu-central-1",
@@ -52,6 +52,7 @@ describe("connection ticket (ADR-0020)", () => {
     const { accessKeyId: _a, secretAccessKey: _s, ...credsLess } = INPUT;
     const ticket = await createConnectionTicket(credsLess, PASSPHRASE);
     const payload = await openConnectionTicket(ticket, PASSPHRASE);
+    if (payload.provider !== "s3") throw new Error("expected an S3 ticket");
     expect(payload.accessKeyId).toBeUndefined();
     expect(payload.secretAccessKey).toBeUndefined();
     expect(payload.bucket).toBe(INPUT.bucket);
@@ -158,6 +159,7 @@ describe("ticket key domain separation (ADR-0028)", () => {
     out.set(blob, HEADER_LENGTH);
 
     const parsed = await openConnectionTicket(base64Encode(out), PASSPHRASE);
+    if (parsed.provider !== "s3") throw new Error("expected an S3 ticket");
     expect(parsed.bucket).toBe(INPUT.bucket);
   });
 
@@ -167,4 +169,87 @@ describe("ticket key domain separation (ADR-0028)", () => {
     bytes[4] = 1; // claim it is legacy: the key derivation no longer matches
     await expect(openConnectionTicket(base64Encode(bytes), PASSPHRASE)).rejects.toThrow();
   });
+});
+
+// ADR-0033: which provider a ticket describes is part of the ticket.
+describe("WebDAV tickets", () => {
+  const DAV: ConnectionTicketInput = {
+    provider: "webdav",
+    url: "https://cloud.example.com/remote.php/dav/files/dmitriy/vault",
+    prefix: "notes",
+    username: "dmitriy",
+    password: "app-password-abc123",
+  };
+
+  it("round-trips, and the encoded form leaks none of it", async () => {
+    const ticket = await createConnectionTicket(DAV, PASSPHRASE, () => 1_752_800_000);
+    const payload = await openConnectionTicket(ticket, PASSPHRASE);
+    expect(payload).toMatchObject({ v: 1, ...DAV });
+
+    // The password above all: a ticket travels by copy-paste.
+    const encoded = ticket.toLowerCase();
+    for (const secret of ["app-password-abc123", "dmitriy", "cloud.example.com", "webdav"]) {
+      expect(encoded, secret).not.toContain(secret.toLowerCase());
+    }
+    const decoded = new TextDecoder("utf-8", { fatal: false })
+      .decode(base64Decode(ticket))
+      .toLowerCase();
+    for (const secret of ["app-password-abc123", "cloud.example.com"]) {
+      expect(decoded, secret).not.toContain(secret.toLowerCase());
+    }
+  }, 30_000);
+
+  it("creds-less mode works the same way", async () => {
+    const { username: _u, password: _p, ...credsLess } = DAV;
+    const payload = await openConnectionTicket(
+      await createConnectionTicket(credsLess, PASSPHRASE),
+      PASSPHRASE,
+    );
+    expect(payload.provider).toBe("webdav");
+    if (payload.provider !== "webdav") throw new Error("unreachable");
+    expect(payload.username).toBeUndefined();
+    expect(payload.password).toBeUndefined();
+    expect(payload.url).toBe(DAV.url);
+  }, 30_000);
+
+  it("a WebDAV ticket missing its URL is refused, not half-applied", async () => {
+    // Validation is what stops a build that does not understand a provider
+    // from guessing at its fields — it refuses anything it cannot fully read.
+    const bad = await createConnectionTicket(
+      { provider: "webdav", prefix: "" } as unknown as ConnectionTicketInput,
+      PASSPHRASE,
+    );
+    await expect(openConnectionTicket(bad, PASSPHRASE)).rejects.toSatisfy(
+      (e: unknown) => isSyncError(e) && e.message.includes("missing field url"),
+    );
+  }, 30_000);
+
+  it("an unknown provider is refused outright", async () => {
+    const bad = await createConnectionTicket(
+      { provider: "ftp", prefix: "" } as unknown as ConnectionTicketInput,
+      PASSPHRASE,
+    );
+    await expect(openConnectionTicket(bad, PASSPHRASE)).rejects.toSatisfy(
+      (e: unknown) => isSyncError(e) && e.message.includes("unsupported provider"),
+    );
+  }, 30_000);
+
+  it("an S3 ticket is still an S3 ticket — the union did not loosen either side", async () => {
+    const payload = await openConnectionTicket(
+      await createConnectionTicket(INPUT, PASSPHRASE),
+      PASSPHRASE,
+    );
+    expect(payload.provider).toBe("s3");
+    if (payload.provider !== "s3") throw new Error("unreachable");
+    expect(payload.bucket).toBe(INPUT.bucket);
+    // An S3 ticket without forcePathStyle is incomplete and must be refused.
+    const { forcePathStyle: _f, ...noPathStyle } = INPUT as Record<string, unknown>;
+    const bad = await createConnectionTicket(
+      noPathStyle as unknown as ConnectionTicketInput,
+      PASSPHRASE,
+    );
+    await expect(openConnectionTicket(bad, PASSPHRASE)).rejects.toSatisfy(
+      (e: unknown) => isSyncError(e) && e.message.includes("forcePathStyle"),
+    );
+  }, 60_000);
 });

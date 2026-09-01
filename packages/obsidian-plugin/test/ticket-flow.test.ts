@@ -14,13 +14,13 @@ import {
 } from "@syncrypt/crypto";
 
 import { DEFAULT_PROFILE } from "../src/profile.js";
-import { settingsComplete, withDefaults } from "../src/settings.js";
+import { settingsComplete, storagePrefixOf, withDefaults } from "../src/settings.js";
 import { applyTicketToSettings, ticketIsCredsLess } from "../src/ticket-flow.js";
 import { ObsidianVault } from "../src/vault-adapter.js";
 import { MockDataAdapter } from "./mock-adapter.js";
 
 const PASSPHRASE = "enrollment passphrase";
-const CONNECTION: ConnectionTicketInput = {
+const CONNECTION: Extract<ConnectionTicketInput, { provider: "s3" }> = {
   provider: "s3",
   endpoint: "https://s3.example.com",
   region: "eu-central-1",
@@ -95,7 +95,7 @@ describe("ticket → settings flow", () => {
       vault: new ObsidianVault(adapter, DEFAULT_PROFILE),
       passphrase: PASSPHRASE,
       deviceId: settings.deviceId,
-      storagePrefix: settings.s3.prefix,
+      storagePrefix: storagePrefixOf(settings),
       state: new MemoryStateStore(),
       kdfDefaults: {
         kdf: "argon2id",
@@ -108,5 +108,66 @@ describe("ticket → settings flow", () => {
     const status = await engine.status();
     expect(status.locked).toBe(false);
     expect((await engine.sync()).outcome).toBe("no-op"); // connected & clean
+  }, 30_000);
+});
+
+// ADR-0033: a ticket says which backend it describes, and enrolling switches
+// the device to it.
+describe("WebDAV enrollment", () => {
+  const DAV: Extract<ConnectionTicketInput, { provider: "webdav" }> = {
+    provider: "webdav",
+    url: "https://cloud.example.com/remote.php/dav/files/dmitriy/vault",
+    prefix: "notes",
+    username: "dmitriy",
+    password: "app-password",
+  };
+
+  it("switches the device to WebDAV and fills every field", async () => {
+    const payload = await openConnectionTicket(
+      await createConnectionTicket(DAV, PASSPHRASE),
+      PASSPHRASE,
+    );
+    const fresh = withDefaults(null);
+    const applied = applyTicketToSettings(fresh, payload);
+    expect(applied.provider).toBe("webdav");
+    expect(applied.webdav).toEqual({
+      url: DAV.url,
+      username: DAV.username,
+      password: DAV.password,
+      prefix: DAV.prefix,
+    });
+    expect(settingsComplete(applied)).toBe(true);
+    expect(storagePrefixOf(applied)).toBe("notes");
+    expect(ticketIsCredsLess(payload)).toBe(false);
+    expect(fresh.provider).toBe("s3"); // the input object is never mutated
+  }, 30_000);
+
+  it("does not clobber the S3 settings the device already had", async () => {
+    // Someone moving a vault from R2 to Nextcloud should be able to move back
+    // without retyping a bucket and a key pair.
+    const existing = withDefaults({
+      s3: { endpoint: "https://r2", bucket: "b", accessKeyId: "k", secretAccessKey: "s" },
+    });
+    const payload = await openConnectionTicket(
+      await createConnectionTicket(DAV, PASSPHRASE),
+      PASSPHRASE,
+    );
+    const applied = applyTicketToSettings(existing, payload);
+    expect(applied.provider).toBe("webdav");
+    expect(applied.s3.bucket).toBe("b");
+    expect(applied.s3.accessKeyId).toBe("k");
+  }, 30_000);
+
+  it("a creds-less WebDAV ticket still needs the password typed in", async () => {
+    const { username: _u, password: _p, ...configOnly } = DAV;
+    const payload = await openConnectionTicket(
+      await createConnectionTicket(configOnly, PASSPHRASE),
+      PASSPHRASE,
+    );
+    expect(ticketIsCredsLess(payload)).toBe(true);
+    const applied = applyTicketToSettings(withDefaults(null), payload);
+    expect(applied.webdav.url).toBe(DAV.url);
+    expect(applied.webdav.password).toBe("");
+    expect(settingsComplete(applied)).toBe(false);
   }, 30_000);
 });
