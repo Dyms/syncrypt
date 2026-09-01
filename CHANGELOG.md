@@ -74,6 +74,11 @@ All notable changes to this project are documented here. Format based on
   through BRAT, "did the update actually land?" is the first question.
 - The status tooltip shows the **date** of the last sync once it was not today.
   A bare "12:49:13" made yesterday's sync look like a fresh one.
+- The encrypted-sync test that proves object keys do not embed the plaintext
+  content hash looked for a **four-character prefix** of that hash anywhere in
+  the key. Four hex characters collide with random hex roughly once every 450
+  runs — and did, failing a release build on a key that embedded nothing at
+  all. It now compares against the whole hash.
 
 ## [1.0.0-beta.8] — 2026-08-29
 

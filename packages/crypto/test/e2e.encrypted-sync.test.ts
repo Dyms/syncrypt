@@ -27,6 +27,7 @@ interface Device {
   engine: SyncEngine;
   vault: MemoryVault;
   clock: FixedClock;
+  crypto: CryptoPort;
 }
 
 async function makeDevice(
@@ -52,7 +53,7 @@ async function makeDevice(
     storagePrefix: "",
     safeSync: { bulkChangeMaxFraction: 1 },
   });
-  return { engine, vault, clock };
+  return { engine, vault, clock, crypto };
 }
 
 const SECRET = "TOP-SECRET plaintext: the meeting is at dawn";
@@ -115,6 +116,11 @@ describe("encrypted two-device sync (M2)", () => {
 
     // STORAGE SEES ONLY CIPHERTEXT (invariant #3).
     const decoder = new TextDecoder();
+    const plaintextHashes = await Promise.all(
+      [SECRET, "another private note"].map(async (text) =>
+        (await a.crypto.hash(new TextEncoder().encode(text))).replace(/^b3:/, ""),
+      ),
+    );
     for (const key of storage.keys()) {
       const bytes = await storage.get(key);
       const text = decoder.decode(bytes);
@@ -129,8 +135,14 @@ describe("encrypted two-device sync (M2)", () => {
       expect(text, key).not.toContain("private note");
       expect(text, key).not.toContain("secret-plan");
       expect(text, key).not.toContain("Projects");
-      // Object keys must not embed the plaintext content hash either.
-      expect(key).not.toMatch(/objects\/.*(af1349|9f2c)/);
+      // Object keys must not embed the plaintext content hash either
+      // (RFC-0005: the key is an HMAC of it, under the vault's name key).
+      //
+      // Compared against the WHOLE hash on purpose. This used to look for a
+      // four-hex-character prefix of it anywhere in the key, which collides
+      // with random hex about once every 450 runs — and did, on the release
+      // build for 1.0.0-beta.9, in a key that embedded nothing at all.
+      for (const hash of plaintextHashes) expect(key, key).not.toContain(hash);
     }
   });
 
