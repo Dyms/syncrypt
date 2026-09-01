@@ -11,7 +11,7 @@ import { FixedClock } from "@syncrypt/core/testing";
 
 import { DEFAULT_PROFILE } from "../src/profile.js";
 import { AdapterStateStore } from "../src/state-store.js";
-import { ObsidianVault, SYNC_TRASH_DIR } from "../src/vault-adapter.js";
+import { ObsidianVault, DEFAULT_SYNC_TRASH_DIR } from "../src/vault-adapter.js";
 import { MockDataAdapter } from "./mock-adapter.js";
 
 const PASSPHRASE = "plugin integration passphrase";
@@ -58,11 +58,11 @@ describe("plugin wiring end-to-end (mock Obsidian adapter)", () => {
     await a.engine.sync();
     await b.engine.sync();
     expect(b.adapter.getText("dir/deep.md")).toBeNull();
-    expect(b.adapter.getText(`${SYNC_TRASH_DIR}/dir/deep.md`)).toBe("nested");
+    expect(b.adapter.getText(`${DEFAULT_SYNC_TRASH_DIR}/dir/deep.md`)).toBe("nested");
 
     // The trash itself never syncs back to a.
     await a.engine.sync();
-    expect(a.adapter.getText(`${SYNC_TRASH_DIR}/dir/deep.md`)).toBeNull();
+    expect(a.adapter.getText(`${DEFAULT_SYNC_TRASH_DIR}/dir/deep.md`)).toBeNull();
 
     // "Restart" device b: same adapter (state file persisted), fresh engine.
     const b2 = await makeDevice(storage, "dev-b", b.adapter);

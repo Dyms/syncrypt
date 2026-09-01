@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_CONFIG_SYNC, type ConfigSyncSettings } from "../src/config-sync.js";
 import { DEFAULT_PROFILE, ProfileMatcher } from "../src/profile.js";
-import { ObsidianVault, SYNC_TRASH_DIR } from "../src/vault-adapter.js";
+import { ObsidianVault, DEFAULT_SYNC_TRASH_DIR } from "../src/vault-adapter.js";
 import { AdapterStateStore } from "../src/state-store.js";
 import { MockDataAdapter } from "./mock-adapter.js";
 
@@ -20,7 +20,7 @@ describe("ObsidianVault (VaultPort over DataAdapter)", () => {
     adapter.setFile("note.md", "a");
     adapter.setFile("dir/deep/nested.md", "b");
     adapter.setFile(".obsidian/config.json", "hidden");
-    adapter.setFile(`${SYNC_TRASH_DIR}/old.md`, "trashed");
+    adapter.setFile(`${DEFAULT_SYNC_TRASH_DIR}/old.md`, "trashed");
     adapter.setFile(".hidden/secret.md", "hidden");
     adapter.setFile("dir/.DS_Store", "junk");
     const vault = new ObsidianVault(adapter, DEFAULT_PROFILE);
@@ -39,7 +39,7 @@ describe("ObsidianVault (VaultPort over DataAdapter)", () => {
     adapter.setFile(".obsidian/plugins/dataview/main.js", "code");
     adapter.setFile(".obsidian/plugins/templater/data.json", "{}");
     adapter.setFile(".obsidian/plugins/syncrypt/data.json", "SECRET KEYS");
-    adapter.setFile(`${SYNC_TRASH_DIR}/old.md`, "trashed");
+    adapter.setFile(`${DEFAULT_SYNC_TRASH_DIR}/old.md`, "trashed");
 
     // Off by default: the vault looks exactly as it did before the feature.
     const plain = new ObsidianVault(adapter, DEFAULT_PROFILE);
@@ -91,13 +91,13 @@ describe("ObsidianVault (VaultPort over DataAdapter)", () => {
 
     await vault.trash("dir/gone.md");
     expect(adapter.getText("dir/gone.md")).toBeNull();
-    expect(adapter.getText(`${SYNC_TRASH_DIR}/dir/gone.md`)).toBe("v1");
+    expect(adapter.getText(`${DEFAULT_SYNC_TRASH_DIR}/dir/gone.md`)).toBe("v1");
 
     // Same path trashed again later must NOT overwrite the first copy.
     adapter.setFile("dir/gone.md", "v2");
     await vault.trash("dir/gone.md");
-    expect(adapter.getText(`${SYNC_TRASH_DIR}/dir/gone.md`)).toBe("v1");
-    expect(adapter.getText(`${SYNC_TRASH_DIR}/dir/gone.md.1`)).toBe("v2");
+    expect(adapter.getText(`${DEFAULT_SYNC_TRASH_DIR}/dir/gone.md`)).toBe("v1");
+    expect(adapter.getText(`${DEFAULT_SYNC_TRASH_DIR}/dir/gone.md.1`)).toBe("v2");
 
     await vault.trash("dir/gone.md"); // already gone — idempotent
   });

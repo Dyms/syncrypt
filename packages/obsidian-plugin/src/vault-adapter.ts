@@ -20,15 +20,19 @@ import {
 
 import type { DataAdapterLike } from "./adapter-types.js";
 import {
-  configFolderWorthWalking,
-  configPathAllowed,
+  configPaths,
+  DEFAULT_CONFIG_DIR,
   DEFAULT_CONFIG_SYNC,
-  OBSIDIAN_DIR,
+  type ConfigPaths,
   type ConfigSyncSettings,
 } from "./config-sync.js";
 import { ProfileMatcher, type SyncProfile } from "./profile.js";
 
-export const SYNC_TRASH_DIR = ".obsidian/sync-trash";
+/**
+ * The trash under a DEFAULT config folder. Only for callers that have no vault
+ * instance to ask; anything holding a vault uses `ConfigPaths.syncTrash`.
+ */
+export const DEFAULT_SYNC_TRASH_DIR = `${DEFAULT_CONFIG_DIR}/sync-trash`;
 
 export class ObsidianVault implements VaultPort {
   private readonly matcher: ProfileMatcher;
@@ -37,6 +41,8 @@ export class ObsidianVault implements VaultPort {
     private readonly adapter: DataAdapterLike,
     profile: SyncProfile,
     private readonly configSync: ConfigSyncSettings = DEFAULT_CONFIG_SYNC,
+    /** The vault's config folder (`Vault.configDir`), not an assumption. */
+    private readonly paths: ConfigPaths = configPaths(DEFAULT_CONFIG_DIR),
   ) {
     this.matcher = new ProfileMatcher(profile);
   }
@@ -47,9 +53,9 @@ export class ObsidianVault implements VaultPort {
       const { files, folders } = await this.adapter.list(folder);
       for (const file of files) {
         const canonical = this.fromNative(file);
-        if (canonical.startsWith(`${OBSIDIAN_DIR}/`)) {
+        if (this.paths.inside(canonical)) {
           // Config files answer to config-sync settings only (RFC-0008).
-          if (configPathAllowed(canonical, this.configSync)) found.push(canonical);
+          if (this.paths.allowed(canonical, this.configSync)) found.push(canonical);
           continue;
         }
         if (basename(canonical).startsWith(".")) continue;
@@ -59,9 +65,9 @@ export class ObsidianVault implements VaultPort {
         const canonical = this.fromNative(sub);
         // Hard invariants first: sync-trash is never walked, and dot-folders
         // are skipped except `.obsidian` under an explicit config-sync opt-in.
-        if (canonical === SYNC_TRASH_DIR) continue;
-        if (canonical === OBSIDIAN_DIR || canonical.startsWith(`${OBSIDIAN_DIR}/`)) {
-          if (configFolderWorthWalking(canonical, this.configSync)) await walk(sub);
+        if (canonical === this.paths.syncTrash) continue;
+        if (this.paths.inside(canonical)) {
+          if (this.paths.worthWalking(canonical, this.configSync)) await walk(sub);
           continue;
         }
         if (basename(canonical).startsWith(".")) continue;
@@ -79,8 +85,9 @@ export class ObsidianVault implements VaultPort {
    * downloaded here either.
    */
   syncable(path: VaultPath): boolean {
-    if (path === SYNC_TRASH_DIR || path.startsWith(`${SYNC_TRASH_DIR}/`)) return false;
-    if (path.startsWith(`${OBSIDIAN_DIR}/`)) return configPathAllowed(path, this.configSync);
+    const trash = this.paths.syncTrash;
+    if (path === trash || path.startsWith(`${trash}/`)) return false;
+    if (this.paths.inside(path)) return this.paths.allowed(path, this.configSync);
     if (basename(path).startsWith(".")) return false;
     if (path.split("/").some((segment) => segment.startsWith("."))) return false;
     return this.matcher.matches(path);
@@ -120,7 +127,7 @@ export class ObsidianVault implements VaultPort {
     const native = this.toNative(path);
     try {
       if (!(await this.adapter.exists(native))) return; // idempotent
-      const base = `${SYNC_TRASH_DIR}/${path}`;
+      const base = `${this.paths.syncTrash}/${path}`;
       let target = base;
       for (let attempt = 1; await this.adapter.exists(this.toNative(target)); attempt++) {
         target = `${base}.${attempt}`; // keep earlier trashed versions

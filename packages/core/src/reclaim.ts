@@ -23,6 +23,19 @@ export const OBJECTS_PREFIX = "objects/";
 export const GC_MARK_KEY: ObjectKey = "meta/gc-mark.json";
 
 /**
+ * How many keys the mark may carry.
+ *
+ * The mark is the only thing in this design with no natural ceiling: a vault
+ * that has churned for years can have tens of thousands of unreachable
+ * objects, and each one costs a key and a timestamp in an object that is
+ * re-uploaded on every run. Past the cap the OLDEST-marked keys are kept —
+ * they are the ones closest to being collectable — and the rest simply wait
+ * for a later run. Nothing is lost by forgetting a mark entry: the object is
+ * still unreachable next time and gets marked again, one grace window later.
+ */
+export const MAX_MARKED_KEYS = 20_000;
+
+/**
  * Object keys seen unreachable, and when they were FIRST seen that way.
  * Persisted so that running the command twice in a minute does not restart
  * everybody's clock.
@@ -175,9 +188,21 @@ export function planReclaim(input: ReclaimInput): ReclaimPlan {
     waitingBytes,
     ripeAt,
     prunedManifests,
-    nextMark: { version: 1, updatedAt: now, unreachableSince },
+    nextMark: { version: 1, updatedAt: now, unreachableSince: capMark(unreachableSince) },
     generation: manifests.reduce((max, m) => Math.max(max, m.generation), 0),
   };
+}
+
+/**
+ * Keep the oldest-marked keys and drop the rest (see MAX_MARKED_KEYS). Ties
+ * break on the key so the result is deterministic — two devices computing the
+ * same mark must agree, or they would fight over its contents every run.
+ */
+function capMark(since: Record<ObjectKey, number>): Record<ObjectKey, number> {
+  const entries = Object.entries(since);
+  if (entries.length <= MAX_MARKED_KEYS) return since;
+  entries.sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return Object.fromEntries(entries.slice(0, MAX_MARKED_KEYS));
 }
 
 /** The mark to persist once `plan.sweep` has actually been deleted. */

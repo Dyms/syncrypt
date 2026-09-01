@@ -1,6 +1,12 @@
 // Settings UI: language, S3 provider config, device enrollment, sync profile,
 // Safe Sync knobs, unlock flow. Every visible string comes from i18n
 // (ADR-0021); the ADR-0016 credential note sits next to the credential fields.
+//
+// Everything below the status block lives in a collapsible section. Nine
+// headings of knobs on one scroll is a page nobody reads to the bottom of —
+// and the things a person actually opens settings for (is it synced? is it
+// unlocked?) were at the top of a very long document. Which sections are open
+// is remembered per device; the rule itself is in settings-sections.ts.
 
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 
@@ -8,6 +14,13 @@ import { SECRET_BEARING_PLUGINS } from "./config-sync.js";
 import { endpointIsPlaintext } from "./endpoint-warning.js";
 import type { Strings } from "./i18n.js";
 import type SyncryptPlugin from "./main.js";
+import {
+  browserSectionMemory,
+  sectionOpen,
+  type SectionId,
+  type SectionMemory,
+} from "./settings-sections.js";
+import { settingsComplete } from "./settings.js";
 
 export class SyncryptSettingTab extends PluginSettingTab {
   constructor(
@@ -27,6 +40,22 @@ export class SyncryptSettingTab extends PluginSettingTab {
     const t: Strings = this.plugin.t();
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see note on display()
     const rerender = (): void => { this.display(); };
+    const configured = settingsComplete(s);
+    const memory: SectionMemory = browserSectionMemory(
+      typeof localStorage === "undefined" ? undefined : localStorage,
+    );
+    /** One collapsible heading; returns the body to put the settings into. */
+    const section = (id: SectionId, title: string): HTMLElement => {
+      const details = containerEl.createEl("details");
+      details.open = sectionOpen(id, memory.read(id), configured);
+      const summary = details.createEl("summary", { text: title });
+      summary.style.cursor = "pointer";
+      summary.style.fontWeight = "var(--font-semibold)";
+      summary.style.padding = "0.7em 0";
+      summary.style.borderTop = "1px solid var(--background-modifier-border)";
+      details.addEventListener("toggle", () => { memory.write(id, details.open); });
+      return details.createEl("div");
+    };
 
     // --- Which build is this? --------------------------------------------
     // Installed through BRAT, the first question is always "did the update
@@ -70,8 +99,8 @@ export class SyncryptSettingTab extends PluginSettingTab {
       );
 
     // --- Interface (ADR-0021) ---------------------------------------------
-    new Setting(containerEl).setName(t.settings.interfaceHeading).setHeading();
-    new Setting(containerEl)
+    const interfaceEl = section("interface", t.settings.interfaceHeading);
+    new Setting(interfaceEl)
       .setName(t.settings.language)
       .setDesc(
         `${t.settings.languageDesc} ${t.settings.languageDetected(this.plugin.languageDiagnostics())}`,
@@ -92,11 +121,11 @@ export class SyncryptSettingTab extends PluginSettingTab {
       );
 
     // --- S3 provider -------------------------------------------------------
-    new Setting(containerEl).setName(t.settings.storageHeading).setHeading();
+    const storageEl = section("storage", t.settings.storageHeading);
     // ADR-0016, stated once and calmly: a note, not an alarm. Shown only once
     // keys are actually stored — before that there is nothing to warn about.
     if (s.s3.accessKeyId !== "" || s.s3.secretAccessKey !== "") {
-      containerEl.createEl("div", {
+      storageEl.createEl("div", {
         text: `⚠ ${t.settings.credentialWarning}`,
         cls: "setting-item-description",
       });
@@ -108,7 +137,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       set: (v: string) => void,
       opts: { placeholder?: string; secret?: boolean } = {},
     ): void => {
-      new Setting(containerEl).setName(name).addText((text) => {
+      new Setting(storageEl).setName(name).addText((text) => {
         if (opts.secret === true) text.inputEl.type = "password";
         text
           .setPlaceholder(opts.placeholder ?? "")
@@ -126,7 +155,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       // The vault's contents are encrypted before they leave, but the storage
       // credentials are not: over plain HTTP they travel in the clear, and for
       // WebDAV Basic auth that is the password itself.
-      const warn = containerEl.createEl("div", {
+      const warn = storageEl.createEl("div", {
         text: `⚠ ${t.settings.plaintextEndpointWarning}`,
         cls: "setting-item-description",
       });
@@ -144,7 +173,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       (v) => (s.s3.secretAccessKey = v),
       { secret: true },
     );
-    new Setting(containerEl)
+    new Setting(storageEl)
       .setName(t.settings.pathStyle)
       .setDesc(t.settings.pathStyleDesc)
       .addToggle((tg) =>
@@ -155,8 +184,8 @@ export class SyncryptSettingTab extends PluginSettingTab {
       );
 
     // --- Devices (ADR-0020) -------------------------------------------------
-    new Setting(containerEl).setName(t.settings.devicesHeading).setHeading();
-    new Setting(containerEl)
+    const devicesEl = section("devices", t.settings.devicesHeading);
+    new Setting(devicesEl)
       .setName(t.settings.shareConnection)
       .setDesc(t.settings.shareConnectionDesc)
       .addButton((btn) =>
@@ -164,7 +193,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
           this.plugin.openShareConnection();
         }),
       );
-    new Setting(containerEl)
+    new Setting(devicesEl)
       .setName(t.settings.addDevice)
       .setDesc(t.settings.addDeviceDesc)
       .addButton((btn) =>
@@ -174,8 +203,8 @@ export class SyncryptSettingTab extends PluginSettingTab {
       );
 
     // --- Sync profile ------------------------------------------------------
-    new Setting(containerEl).setName(t.settings.profileHeading).setHeading();
-    containerEl.createEl("div", {
+    const profileEl = section("profile", t.settings.profileHeading);
+    profileEl.createEl("div", {
       text: t.settings.profileIntro,
       cls: "setting-item-description",
     });
@@ -185,7 +214,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       get: () => string[],
       set: (v: string[]) => void,
     ): void => {
-      new Setting(containerEl)
+      new Setting(profileEl)
         .setName(name)
         .setDesc(desc)
         .addTextArea((area) => {
@@ -207,7 +236,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       () => s.profile.exclude,
       (v) => (s.profile.exclude = v),
     );
-    new Setting(containerEl)
+    new Setting(profileEl)
       .setName(t.settings.profileCheck)
       .setDesc(t.settings.profileCheckDesc)
       .addButton((btn) =>
@@ -221,12 +250,12 @@ export class SyncryptSettingTab extends PluginSettingTab {
       );
 
     // --- Obsidian settings sync (RFC-0008) ----------------------------------
-    new Setting(containerEl).setName(t.settings.configSyncHeading).setHeading();
-    containerEl.createEl("div", {
+    const configEl = section("configSync", t.settings.configSyncHeading);
+    configEl.createEl("div", {
       text: t.settings.configSyncIntro,
       cls: "setting-item-description",
     });
-    new Setting(containerEl)
+    new Setting(configEl)
       .setName(t.settings.configSyncEnabled)
       .setDesc(t.settings.configSyncEnabledDesc)
       .addToggle((tg) =>
@@ -247,7 +276,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
         get: () => boolean,
         set: (v: boolean) => void,
       ): void => {
-        new Setting(containerEl)
+        new Setting(configEl)
           .setName(name)
           .setDesc(desc)
           .addToggle((tg) =>
@@ -275,12 +304,12 @@ export class SyncryptSettingTab extends PluginSettingTab {
 
       // Per-plugin opt-in. The list is read asynchronously; the section fills
       // in when the manifests come back.
-      new Setting(containerEl).setName(t.settings.configPluginsHeading).setHeading();
-      containerEl.createEl("div", {
+      new Setting(configEl).setName(t.settings.configPluginsHeading).setHeading();
+      configEl.createEl("div", {
         text: t.settings.configPluginsIntro,
         cls: "setting-item-description",
       });
-      const pluginsEl = containerEl.createEl("div");
+      const pluginsEl = configEl.createEl("div");
       pluginsEl.createEl("div", {
         text: t.settings.configPluginsLoading,
         cls: "setting-item-description",
@@ -315,14 +344,15 @@ export class SyncryptSettingTab extends PluginSettingTab {
     }
 
     // --- Safe Sync ----------------------------------------------------------
-    new Setting(containerEl).setName(t.settings.safeSyncHeading).setHeading();
+    const safeEl = section("safeSync", t.settings.safeSyncHeading);
     const num = (
+      into: HTMLElement,
       name: string,
       desc: string,
       get: () => number,
       set: (v: number) => void,
     ): void => {
-      new Setting(containerEl)
+      new Setting(into)
         .setName(name)
         .setDesc(desc)
         .addText((text) =>
@@ -336,30 +366,35 @@ export class SyncryptSettingTab extends PluginSettingTab {
         );
     };
     num(
+      safeEl,
       t.settings.confirmationFloor,
       t.settings.confirmationFloorDesc,
       () => s.safeSync.bulkChangeFloor,
       (v) => (s.safeSync.bulkChangeFloor = Math.floor(v)),
     );
     num(
+      safeEl,
       t.settings.alwaysConfirmAt,
       t.settings.alwaysConfirmAtDesc,
       () => s.safeSync.bulkChangeMaxFiles,
       (v) => (s.safeSync.bulkChangeMaxFiles = Math.floor(v)),
     );
     num(
+      safeEl,
       t.settings.vaultFraction,
       t.settings.vaultFractionDesc,
       () => s.safeSync.bulkChangeMaxFraction,
       (v) => (s.safeSync.bulkChangeMaxFraction = v),
     );
     num(
+      safeEl,
       t.settings.deletionBurstWindow,
       t.settings.deletionBurstWindowDesc,
       () => s.safeSync.deletionBurstWindow,
       (v) => (s.safeSync.deletionBurstWindow = Math.floor(v)),
     );
     num(
+      safeEl,
       t.settings.versionsToKeep,
       t.settings.versionsToKeepDesc,
       () => s.safeSync.versionsToKeep,
@@ -368,18 +403,21 @@ export class SyncryptSettingTab extends PluginSettingTab {
     // Days and hours in the UI, seconds in the engine: nobody reasons about a
     // deletion-memory window in seconds.
     num(
+      safeEl,
       t.settings.tombstoneGrace,
       t.settings.tombstoneGraceDesc,
       () => Math.round(s.safeSync.tombstoneGraceSeconds / 86_400),
       (v) => (s.safeSync.tombstoneGraceSeconds = Math.floor(v) * 86_400),
     );
     num(
+      safeEl,
       t.settings.reclaimGrace,
       t.settings.reclaimGraceDesc,
       () => Math.round(s.safeSync.reclaimGraceSeconds / 3600),
       (v) => (s.safeSync.reclaimGraceSeconds = Math.max(1, Math.floor(v)) * 3600),
     );
     num(
+      safeEl,
       t.settings.generationsToKeep,
       t.settings.generationsToKeepDesc,
       () => s.safeSync.generationsToKeep,
@@ -387,7 +425,8 @@ export class SyncryptSettingTab extends PluginSettingTab {
     );
 
     // --- Vault creation profile (ADR-0018) -----------------------------------
-    new Setting(containerEl)
+    const kdfEl = section("vaultCreation", t.settings.vaultCreationHeading);
+    new Setting(kdfEl)
       .setName(t.settings.kdfProfile)
       .setDesc(t.settings.kdfProfileDesc)
       .addDropdown((d) =>
@@ -402,8 +441,8 @@ export class SyncryptSettingTab extends PluginSettingTab {
       );
 
     // --- Auto-sync -----------------------------------------------------------
-    new Setting(containerEl).setName(t.settings.autoSyncHeading).setHeading();
-    new Setting(containerEl)
+    const autoEl = section("autoSync", t.settings.autoSyncHeading);
+    new Setting(autoEl)
       .setName(t.settings.syncWhileEditing)
       .setDesc(t.settings.syncWhileEditingDesc)
       .addToggle((tg) =>
@@ -413,7 +452,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
           this.plugin.reconfigureScheduler();
         }),
       );
-    new Setting(containerEl)
+    new Setting(autoEl)
       .setName(t.settings.wifiOnly)
       .setDesc(t.settings.wifiOnlyDesc)
       .addToggle((tg) =>
@@ -423,19 +462,21 @@ export class SyncryptSettingTab extends PluginSettingTab {
         }),
       );
     num(
+      autoEl,
       t.settings.debounce,
       t.settings.debounceDesc,
       () => s.autoSync.debounceSec,
       (v) => (s.autoSync.debounceSec = v),
     );
     num(
+      autoEl,
       t.settings.minInterval,
       t.settings.minIntervalDesc,
       () => s.autoSync.minIntervalSec,
       (v) => (s.autoSync.minIntervalSec = v),
     );
 
-    new Setting(containerEl)
+    new Setting(devicesEl)
       .setName(t.settings.deviceId)
       .setDesc(t.settings.deviceIdDesc(s.deviceId))
       .addButton((btn) =>

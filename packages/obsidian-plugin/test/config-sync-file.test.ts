@@ -11,7 +11,8 @@ import { openSyncEngine } from "@syncrypt/sdk";
 import { FixedClock, MemoryStorage } from "@syncrypt/core/testing";
 
 import {
-  configPathAllowed,
+  configPaths,
+  DEFAULT_CONFIG_DIR,
   DEFAULT_CONFIG_SYNC,
   type ConfigSyncSettings,
 } from "../src/config-sync.js";
@@ -21,7 +22,7 @@ import {
   serializeSharedConfig,
   sharedConfigMatches,
   sharedFrom,
-  SHARED_CONFIG_SYNC_PATH,
+  DEFAULT_SHARED_CONFIG_SYNC_PATH,
   type SharedConfigSync,
 } from "../src/config-sync-file.js";
 import { DEFAULT_PROFILE } from "../src/profile.js";
@@ -42,6 +43,8 @@ function parsed(text: string): SharedConfigSync {
   return shared;
 }
 
+const P = configPaths(DEFAULT_CONFIG_DIR);
+
 describe("what travels and what does not", () => {
   it("the shared file syncs on the master switch alone, with no category on", () => {
     const bare = on({
@@ -57,16 +60,16 @@ describe("what travels and what does not", () => {
     // Otherwise a fresh device could never receive the profile it is supposed
     // to obey — it would have to be configured by hand first, which is the
     // whole problem.
-    expect(configPathAllowed(SHARED_CONFIG_SYNC_PATH, bare)).toBe(true);
-    expect(configPathAllowed(".obsidian/appearance.json", bare)).toBe(false);
+    expect(P.allowed(DEFAULT_SHARED_CONFIG_SYNC_PATH, bare)).toBe(true);
+    expect(P.allowed(".obsidian/appearance.json", bare)).toBe(false);
   });
 
   it("a device that has not opted in receives nothing, this file included", () => {
-    expect(configPathAllowed(SHARED_CONFIG_SYNC_PATH, DEFAULT_CONFIG_SYNC)).toBe(false);
+    expect(P.allowed(DEFAULT_SHARED_CONFIG_SYNC_PATH, DEFAULT_CONFIG_SYNC)).toBe(false);
   });
 
   it("the storage keys still never travel (ADR-0016)", () => {
-    expect(configPathAllowed(".obsidian/plugins/syncrypt/data.json", on())).toBe(false);
+    expect(P.allowed(".obsidian/plugins/syncrypt/data.json", on())).toBe(false);
   });
 
   it("the master switch is not in the file: opting in stays each device's own call", () => {
@@ -161,8 +164,8 @@ describe("a hostile or corrupt shared file", () => {
     adoptSharedConfig(cs, parsed(hostile(["syncrypt"])));
     expect(cs.plugins).toContain("syncrypt"); // it is in the list…
     // …and the list does not matter: the hard exclusion is checked first.
-    expect(configPathAllowed(".obsidian/plugins/syncrypt/data.json", cs)).toBe(false);
-    expect(configPathAllowed(".obsidian/plugins/syncrypt/sync-state.json", cs)).toBe(false);
+    expect(P.allowed(".obsidian/plugins/syncrypt/data.json", cs)).toBe(false);
+    expect(P.allowed(".obsidian/plugins/syncrypt/sync-state.json", cs)).toBe(false);
   });
 
   it("cannot escape the plugins folder with a crafted id", () => {
@@ -179,7 +182,7 @@ describe("a hostile or corrupt shared file", () => {
       ".obsidian/plugins/anything/main.js",
       ".obsidian/plugins/anything/data.json",
     ]) {
-      expect(configPathAllowed(path, cs), path).toBe(false);
+      expect(P.allowed(path, cs), path).toBe(false);
     }
   });
 
@@ -191,7 +194,7 @@ describe("a hostile or corrupt shared file", () => {
       ".obsidian/workspace-mobile.json",
       ".obsidian/sync-trash/note.md",
     ]) {
-      expect(configPathAllowed(path, cs), path).toBe(false);
+      expect(P.allowed(path, cs), path).toBe(false);
     }
   });
 
@@ -200,8 +203,8 @@ describe("a hostile or corrupt shared file", () => {
     adoptSharedConfig(off, parsed(hostile(["dataview"])));
     expect(off.enabled).toBe(false);
     // Nothing is syncable while the master switch is off, the file included.
-    expect(configPathAllowed(".obsidian/plugins/dataview/data.json", off)).toBe(false);
-    expect(configPathAllowed(SHARED_CONFIG_SYNC_PATH, off)).toBe(false);
+    expect(P.allowed(".obsidian/plugins/dataview/data.json", off)).toBe(false);
+    expect(P.allowed(DEFAULT_SHARED_CONFIG_SYNC_PATH, off)).toBe(false);
   });
 
   it("an extra field it does not understand is ignored, not obeyed", () => {
@@ -259,10 +262,10 @@ async function makeDevice(
 
 /** What the plugin does after each sync, without the Obsidian runtime. */
 function reconcile(device: { adapter: MockDataAdapter; configSync: ConfigSyncSettings }): void {
-  const text = device.adapter.getText(SHARED_CONFIG_SYNC_PATH);
+  const text = device.adapter.getText(DEFAULT_SHARED_CONFIG_SYNC_PATH);
   if (text === null) {
     device.adapter.setFile(
-      SHARED_CONFIG_SYNC_PATH,
+      DEFAULT_SHARED_CONFIG_SYNC_PATH,
       serializeSharedConfig(sharedFrom(device.configSync)),
     );
     return;
@@ -292,7 +295,7 @@ describe("two devices converge", () => {
     expect(phone.adapter.getText(".obsidian/plugins/dataview/data.json")).toBeNull();
     // …but it did receive the profile, because that file rides on the master
     // switch alone.
-    expect(phone.adapter.getText(SHARED_CONFIG_SYNC_PATH)).not.toBeNull();
+    expect(phone.adapter.getText(DEFAULT_SHARED_CONFIG_SYNC_PATH)).not.toBeNull();
 
     reconcile(phone);
     expect(phone.configSync.plugins).toEqual(["dataview"]);
@@ -345,7 +348,7 @@ describe("two devices converge", () => {
     await phone.engine.sync();
 
     expect(phone.adapter.getText("note.md")).toBe("hello"); // notes still sync
-    expect(phone.adapter.getText(SHARED_CONFIG_SYNC_PATH)).toBeNull();
+    expect(phone.adapter.getText(DEFAULT_SHARED_CONFIG_SYNC_PATH)).toBeNull();
     expect(phone.configSync.plugins).toEqual([]);
   });
 

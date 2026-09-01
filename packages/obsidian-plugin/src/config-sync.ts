@@ -12,7 +12,16 @@
 // hand, which is acceptable because settings rarely change on two devices at
 // the same moment.
 
-export const OBSIDIAN_DIR = ".obsidian";
+/**
+ * What Obsidian calls the config folder when nobody has renamed it. Obsidian
+ * lets a vault use any name (`Vault.configDir`), and until beta.10 this
+ * constant was the only answer the plugin had — so on a renamed vault Config
+ * Sync silently synced nothing at all.
+ *
+ * It survives as a DEFAULT and as a belt-and-braces value in `hardExcluded`,
+ * never as "the" config folder.
+ */
+export const DEFAULT_CONFIG_DIR = ".obsidian";
 
 export interface ConfigSyncSettings {
   /** Master switch; everything below is inert while this is false. */
@@ -51,28 +60,111 @@ export const DEFAULT_CONFIG_SYNC: ConfigSyncSettings = {
 export const SYNCRYPT_PLUGIN_ID = "syncrypt";
 
 /**
- * Syncrypt's own SHARED settings file (ADR-0024) — the categories and plugin
- * list below, as a synced vault file. Note the deliberate asymmetry with the
- * line above: `plugins/syncrypt/data.json` never travels because it holds the
- * storage keys; this file travels because WHICH config files sync is a fact
- * about the vault, not about one machine.
+ * Every path rule that depends on the config folder's NAME, built once from
+ * that name.
+ *
+ * A factory rather than four functions taking a `configDir` argument, and
+ * deliberately so: `hardExcluded` is the invariant that keeps the storage
+ * credentials from ever being uploaded (ADR-0016), and a caller that forgot to
+ * pass the folder name would still compile and would quietly protect the wrong
+ * directory. Here there is nothing to forget — the rules do not exist apart
+ * from the folder they are about.
  */
-export const SHARED_CONFIG_SYNC_FILE = `${OBSIDIAN_DIR}/syncrypt-config-sync.json`;
+export interface ConfigPaths {
+  /** The vault's config folder, normalized, never empty. */
+  readonly dir: string;
+  /** The shared Config Sync profile inside it (ADR-0024). */
+  readonly sharedProfile: string;
+  /** Syncrypt's own recycle bin (ADR-0010 §1). Never synced, never walked. */
+  readonly syncTrash: string;
+  /** Is this path the config folder itself, or something inside it? */
+  inside(path: string): boolean;
+  /**
+   * Never synced, whatever the settings say:
+   * - Syncrypt's own data.json — it holds the storage credentials (ADR-0016).
+   * - workspace state — pane layout is per-device by definition.
+   * - the sync-trash — Syncrypt's own recycle bin (ADR-0010).
+   */
+  hardExcluded(path: string): boolean;
+  /** Is this config path one the current settings ask us to sync? */
+  allowed(path: string, cs: ConfigSyncSettings): boolean;
+  /** May this config subfolder contain synced files? Prunes the walk. */
+  worthWalking(path: string, cs: ConfigSyncSettings): boolean;
+}
 
-/**
- * Never synced, whatever the settings say:
- * - Syncrypt's own data.json — it holds the storage credentials (ADR-0016).
- * - workspace state — pane layout is per-device by definition.
- * - the sync-trash — Syncrypt's own recycle bin (ADR-0010).
- */
-export function hardExcluded(path: string): boolean {
-  return (
-    path === `${OBSIDIAN_DIR}/workspace.json` ||
-    path === `${OBSIDIAN_DIR}/workspace-mobile.json` ||
-    path === `${OBSIDIAN_DIR}/workspace.json.bak` ||
-    path.startsWith(`${OBSIDIAN_DIR}/plugins/${SYNCRYPT_PLUGIN_ID}/`) ||
-    path.startsWith(`${OBSIDIAN_DIR}/sync-trash/`)
-  );
+export function configPaths(dir: string): ConfigPaths {
+  // A vault whose configDir is missing, blank, or slash-suffixed must not turn
+  // into rules about "" — which would make every path in the vault "inside the
+  // config folder" and hand the whole thing to the config-sync allow-list.
+  const trimmed = dir.trim().replace(/\/+$/, "");
+  const base = trimmed === "" ? DEFAULT_CONFIG_DIR : trimmed;
+
+  const sharedProfile = `${base}/syncrypt-config-sync.json`;
+  const syncTrash = `${base}/sync-trash`;
+
+  const inside = (path: string): boolean =>
+    path === base || path.startsWith(`${base}/`);
+
+  const hardExcluded = (path: string): boolean => {
+    // Checked under the CONFIGURED folder and under the default one. If the
+    // configured name is ever wrong — a stale setting, an Obsidian API that
+    // answers differently than expected — the classic location stays
+    // protected. Belt and braces on the one rule whose failure uploads keys.
+    for (const root of new Set([base, DEFAULT_CONFIG_DIR])) {
+      if (
+        path === `${root}/workspace.json` ||
+        path === `${root}/workspace-mobile.json` ||
+        path === `${root}/workspace.json.bak` ||
+        path.startsWith(`${root}/plugins/${SYNCRYPT_PLUGIN_ID}/`) ||
+        path.startsWith(`${root}/sync-trash/`)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const allowed = (path: string, cs: ConfigSyncSettings): boolean => {
+    if (!cs.enabled) return false;
+    if (!path.startsWith(`${base}/`)) return false;
+    if (hardExcluded(path)) return false;
+
+    const rest = path.slice(base.length + 1);
+    // Our own shared profile rides along with the master switch and nothing
+    // else: a device that takes part in config sync must be able to receive it
+    // before it has any categories to obey (ADR-0024).
+    if (path === sharedProfile) return true;
+    if (rest === "appearance.json") return cs.appearance;
+    if (rest === "app.json") return cs.app;
+    if (rest === "hotkeys.json") return cs.hotkeys;
+    if (rest === "core-plugins.json") return cs.corePlugins;
+    if (rest === "community-plugins.json") return cs.communityPluginsList;
+    if (rest.startsWith("themes/")) return cs.themes;
+    if (rest.startsWith("snippets/")) return cs.snippets;
+
+    // Third-party plugins: ONLY data.json, and only for opted-in ids.
+    const plugin = /^plugins\/([^/]+)\/data\.json$/.exec(rest);
+    if (plugin !== null) return cs.plugins.includes(plugin[1] ?? "");
+
+    return false;
+  };
+
+  const worthWalking = (path: string, cs: ConfigSyncSettings): boolean => {
+    if (!cs.enabled) return false;
+    if (path === base) return true;
+    if (!path.startsWith(`${base}/`)) return false;
+    if (hardExcluded(`${path}/`)) return false;
+
+    const rest = path.slice(base.length + 1);
+    if (rest === "themes" || rest.startsWith("themes/")) return cs.themes;
+    if (rest === "snippets" || rest.startsWith("snippets/")) return cs.snippets;
+    if (rest === "plugins") return cs.plugins.length > 0;
+    const plugin = /^plugins\/([^/]+)$/.exec(rest);
+    if (plugin !== null) return cs.plugins.includes(plugin[1] ?? "");
+    return false;
+  };
+
+  return { dir: base, sharedProfile, syncTrash, inside, hardExcluded, allowed, worthWalking };
 }
 
 /**
@@ -93,48 +185,3 @@ export const SECRET_BEARING_PLUGINS: ReadonlySet<string> = new Set([
   "obsidian-zotero-desktop-connector",
   "khoj",
 ]);
-
-/** Is this `.obsidian` path one the current settings ask us to sync? */
-export function configPathAllowed(path: string, cs: ConfigSyncSettings): boolean {
-  if (!cs.enabled) return false;
-  if (!path.startsWith(`${OBSIDIAN_DIR}/`)) return false;
-  if (hardExcluded(path)) return false;
-
-  const rest = path.slice(OBSIDIAN_DIR.length + 1);
-  // Our own shared profile rides along with the master switch and nothing
-  // else: a device that takes part in config sync must be able to receive it
-  // before it has any categories to obey (ADR-0024).
-  if (path === SHARED_CONFIG_SYNC_FILE) return true;
-  if (rest === "appearance.json") return cs.appearance;
-  if (rest === "app.json") return cs.app;
-  if (rest === "hotkeys.json") return cs.hotkeys;
-  if (rest === "core-plugins.json") return cs.corePlugins;
-  if (rest === "community-plugins.json") return cs.communityPluginsList;
-  if (rest.startsWith("themes/")) return cs.themes;
-  if (rest.startsWith("snippets/")) return cs.snippets;
-
-  // Third-party plugins: ONLY data.json, and only for opted-in ids.
-  const plugin = /^plugins\/([^/]+)\/data\.json$/.exec(rest);
-  if (plugin !== null) return cs.plugins.includes(plugin[1] ?? "");
-
-  return false;
-}
-
-/**
- * May this `.obsidian` subfolder contain synced files? Used to prune the walk
- * so we never enumerate node_modules-sized plugin folders for nothing.
- */
-export function configFolderWorthWalking(path: string, cs: ConfigSyncSettings): boolean {
-  if (!cs.enabled) return false;
-  if (path === OBSIDIAN_DIR) return true;
-  if (!path.startsWith(`${OBSIDIAN_DIR}/`)) return false;
-  if (hardExcluded(`${path}/`)) return false;
-
-  const rest = path.slice(OBSIDIAN_DIR.length + 1);
-  if (rest === "themes" || rest.startsWith("themes/")) return cs.themes;
-  if (rest === "snippets" || rest.startsWith("snippets/")) return cs.snippets;
-  if (rest === "plugins") return cs.plugins.length > 0;
-  const plugin = /^plugins\/([^/]+)$/.exec(rest);
-  if (plugin !== null) return cs.plugins.includes(plugin[1] ?? "");
-  return false;
-}

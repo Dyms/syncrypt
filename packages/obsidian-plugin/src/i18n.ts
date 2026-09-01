@@ -364,6 +364,7 @@ const EN = {
     versionsToKeep: "Versions to keep",
     versionsToKeepDesc: "Prior encrypted versions retained per changed file.",
 
+    vaultCreationHeading: "Vault creation",
     kdfProfile: "Vault KDF profile",
     kdfProfileDesc:
       "Used only when THIS device creates the vault. Cross-device (default) is joinable from phones; desktop-only is stronger but mobile devices will refuse to join it.",
@@ -743,6 +744,7 @@ const RU: Strings = {
     versionsToKeep: "Хранить версий",
     versionsToKeepDesc: "Сколько прошлых зашифрованных версий держать для изменённого файла.",
 
+    vaultCreationHeading: "Создание хранилища",
     kdfProfile: "Профиль KDF хранилища",
     kdfProfileDesc:
       "Применяется только когда ЭТО устройство создаёт хранилище. Кросс-платформенный (по умолчанию) открывается с телефона; настольный надёжнее, но мобильные устройства к такому хранилищу не подключатся.",

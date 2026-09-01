@@ -7,6 +7,33 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Fixed
+- **Config Sync did nothing at all on a vault with a renamed config folder**
+  (ADR-0032). Obsidian lets a vault call that folder anything it likes; every
+  path rule here was written against the constant `".obsidian"`, so on those
+  vaults the toggle was on, the categories were ticked, and not one file ever
+  travelled. Silent, which is the worst way for a feature to fail. The rules
+  are now built from `Vault.configDir`, and the exclusion that keeps the
+  storage credentials from ever being uploaded is checked under *both* that
+  folder and the default one — so this change widens that protection rather
+  than moving it. A wrong or blank answer from the vault makes the rules match
+  nothing rather than everything.
+
+### Changed
+- **Settings are collapsible.** Nine headings of knobs on one scroll is a page
+  nobody reads to the bottom of, and it was about to get another two sections.
+  Everything below the status and lock blocks is now a section, closed by
+  default and remembered per device. Status and lock stay in the open — they
+  are what a person opens settings for. A vault with no storage configured
+  opens that one section, because a page of closed headings would hide the only
+  thing that has to be filled in.
+- The reclaim mark (`meta/gc-mark.json`) is capped at 20 000 keys, keeping the
+  oldest-marked ones. It was the only thing in ADR-0030 with no ceiling;
+  forgetting an entry costs nothing, since the object is still unreachable on
+  the next run.
+
 ## [1.0.0-beta.9] — 2026-09-01
 
 ### Fixed

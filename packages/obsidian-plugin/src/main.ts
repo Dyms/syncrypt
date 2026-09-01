@@ -22,13 +22,12 @@ import { conflictCopyFor, shortlist } from "./conflict-report.js";
 import { ForgetPathsModal } from "./forget-modal.js";
 import { formatBytes } from "./format-bytes.js";
 import { ReclaimStorageModal } from "./reclaim-modal.js";
-import { OBSIDIAN_DIR, SYNCRYPT_PLUGIN_ID } from "./config-sync.js";
+import { configPaths, DEFAULT_CONFIG_DIR, SYNCRYPT_PLUGIN_ID, type ConfigPaths } from "./config-sync.js";
 import {
   adoptSharedConfig,
   parseSharedConfig,
   serializeSharedConfig,
   sharedFrom,
-  SHARED_CONFIG_SYNC_PATH,
 } from "./config-sync-file.js";
 import {
   describeDetection,
@@ -55,7 +54,7 @@ import {
   type SyncStateView,
 } from "./sync-state.js";
 import { PassphraseModal } from "./unlock.js";
-import { ObsidianVault, SYNC_TRASH_DIR } from "./vault-adapter.js";
+import { ObsidianVault } from "./vault-adapter.js";
 
 /** How many conflicting paths the summary log line names before it counts. */
 const CONFLICTS_IN_LOG = 20;
@@ -75,11 +74,25 @@ export default class SyncryptPlugin extends Plugin {
   private lastSyncAt: number | null = null;
   private lastError: "network" | "other" | null = null;
   private conflictPaths: string[] = [];
+  /**
+   * Every rule that depends on the config folder's NAME, built from the vault's
+   * own `configDir` rather than from an assumption that it is ".obsidian"
+   * (ADR-0032). Set in onload, before anything reads a config path.
+   */
+  private paths: ConfigPaths = configPaths(DEFAULT_CONFIG_DIR);
   private counts: SyncCounts | null = null;
   private engineStatus: { baseGeneration: number | null; dirtyFiles: number } | null = null;
   private syncStartLogLength = 0;
 
   override async onload(): Promise<void> {
+    // FIRST, before any code can read a config path: ask the vault what its
+    // config folder is actually called. Obsidian allows renaming it, and
+    // assuming ".obsidian" made Config Sync a silent no-op for those vaults
+    // (ADR-0032). `configDir` is documented but absent from some stubs and
+    // older builds, so the default stands in rather than an empty rule set.
+    const configDir: unknown = (this.app.vault as { configDir?: unknown }).configDir;
+    this.paths = configPaths(typeof configDir === "string" ? configDir : DEFAULT_CONFIG_DIR);
+
     this.settings = withDefaults(await this.loadData(), { mobile: Platform.isMobile });
     this.applyLanguage();
     await this.saveSettings(); // persist a generated deviceId on first run
@@ -267,7 +280,7 @@ export default class SyncryptPlugin extends Plugin {
    */
   async listInstalledPlugins(): Promise<{ id: string; name: string }[]> {
     const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
-    const root = `${OBSIDIAN_DIR}/plugins`;
+    const root = `${this.paths.dir}/plugins`;
     if (!(await adapter.exists(root))) return [];
     const { folders } = await adapter.list(root);
     const out: { id: string; name: string }[] = [];
@@ -297,7 +310,7 @@ export default class SyncryptPlugin extends Plugin {
    */
   async previewProfile(): Promise<{ files: number; notes: number; attachments: number }> {
     const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
-    const vault = new ObsidianVault(adapter, this.settings.profile, this.settings.configSync);
+    const vault = new ObsidianVault(adapter, this.settings.profile, this.settings.configSync, this.paths);
     const paths: string[] = [];
     for await (const p of vault.list()) paths.push(p);
     const counts = classifyCounts(paths);
@@ -367,7 +380,7 @@ export default class SyncryptPlugin extends Plugin {
         transport: obsidianTransport,
       });
       const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
-      this.vaultPort = new ObsidianVault(adapter, s.profile, s.configSync);
+      this.vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
       this.engine = await openSyncEngine({
         storage,
         vault: this.vaultPort,
@@ -450,7 +463,7 @@ export default class SyncryptPlugin extends Plugin {
   private registerVaultEvents(): void {
     const note = (path: string): void => {
       // Our own trash moves and dot-file writes must not retrigger sync.
-      if (path.startsWith(SYNC_TRASH_DIR) || path.startsWith(".")) return;
+      if (path.startsWith(this.paths.syncTrash) || path.startsWith(".")) return;
       this.scheduler?.noteChange();
       this.renderStatus(); // dirty state may have changed → "pending"
     };
@@ -533,8 +546,8 @@ export default class SyncryptPlugin extends Plugin {
     const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
     let text: string | null = null;
     try {
-      if (await adapter.exists(SHARED_CONFIG_SYNC_PATH)) {
-        text = new TextDecoder().decode(await adapter.readBinary(SHARED_CONFIG_SYNC_PATH));
+      if (await adapter.exists(this.paths.sharedProfile)) {
+        text = new TextDecoder().decode(await adapter.readBinary(this.paths.sharedProfile));
       }
     } catch {
       return; // unreadable right now; the next sync tries again
@@ -585,16 +598,16 @@ export default class SyncryptPlugin extends Plugin {
     const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
     const text = serializeSharedConfig(sharedFrom(this.settings.configSync));
     try {
-      if (await adapter.exists(SHARED_CONFIG_SYNC_PATH)) {
+      if (await adapter.exists(this.paths.sharedProfile)) {
         const current = new TextDecoder().decode(
-          await adapter.readBinary(SHARED_CONFIG_SYNC_PATH),
+          await adapter.readBinary(this.paths.sharedProfile),
         );
         if (current === text) return;
       }
       const bytes = new TextEncoder().encode(text);
       const buffer = new ArrayBuffer(bytes.byteLength);
       new Uint8Array(buffer).set(bytes);
-      await adapter.writeBinary(SHARED_CONFIG_SYNC_PATH, buffer);
+      await adapter.writeBinary(this.paths.sharedProfile, buffer);
       this.log.info(this.strings.log.configSyncPublished);
     } catch {
       // Not being able to write it is not worth failing anything over: the
@@ -632,15 +645,15 @@ export default class SyncryptPlugin extends Plugin {
       const { shown, more } = shortlist(report.conflicts, CONFLICTS_IN_LOG);
       this.log.warn(this.strings.log.conflictsFound(shown, more));
     }
-    if (report.conflicts.includes(SHARED_CONFIG_SYNC_PATH)) {
+    if (report.conflicts.includes(this.paths.sharedProfile)) {
       // A conflicted copy of the shared profile is not itself syncable, so it
       // would otherwise sit in `.obsidian` unmentioned (ADR-0024) — and
       // `.obsidian` is not in Obsidian's own file list, so an unnamed copy is
       // effectively invisible. Name both paths and say what to do with them.
       this.log.warn(
         this.strings.log.configSyncConflicted(
-          SHARED_CONFIG_SYNC_PATH,
-          conflictCopyFor(report, SHARED_CONFIG_SYNC_PATH),
+          this.paths.sharedProfile,
+          conflictCopyFor(report, this.paths.sharedProfile),
         ),
       );
     }

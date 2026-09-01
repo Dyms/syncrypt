@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   GC_MARK_KEY,
   markAfterSweep,
+  MAX_MARKED_KEYS,
   OBJECTS_PREFIX,
   parseGcMark,
   planReclaim,
@@ -29,12 +30,14 @@ const entry = (key: string) => ({
   objectKey: key,
 });
 
-function manifestAt(opts: {
+interface ManifestSpec {
   generation: number;
   device?: string;
   files?: string[];
   history?: Record<string, string[]>;
-}): ManifestInStorage {
+}
+
+function bareManifest(opts: ManifestSpec): Manifest {
   const device = opts.device ?? "dev-1";
   const files: Manifest["files"] = {};
   for (const key of opts.files ?? []) files[`${key.replace(/\W/g, "")}.md`] = entry(key);
@@ -51,10 +54,14 @@ function manifestAt(opts: {
       Object.entries(opts.history).map(([path, keys]) => [path, keys.map(entry)]),
     );
   }
+  return manifest;
+}
+
+function manifestAt(opts: ManifestSpec): ManifestInStorage {
   return {
-    key: `manifests/${String(opts.generation).padStart(9, "0")}-${device}.json`,
+    key: `manifests/${String(opts.generation).padStart(9, "0")}-${opts.device ?? "dev-1"}.json`,
     generation: opts.generation,
-    manifest,
+    manifest: bareManifest(opts),
   };
 }
 
@@ -73,12 +80,12 @@ const run = (over: Partial<Parameters<typeof planReclaim>[0]> = {}) =>
 
 describe("reachability", () => {
   it("counts live entries AND retained prior versions", () => {
-    const m = manifestAt({
+    const m = bareManifest({
       generation: 1,
       files: [`${OBJECTS_PREFIX}live`],
       history: { "note.md": [`${OBJECTS_PREFIX}old1`, `${OBJECTS_PREFIX}old2`] },
     });
-    expect([...reachableObjectKeys([m.manifest as Manifest])].sort()).toEqual([
+    expect([...reachableObjectKeys([m])].sort()).toEqual([
       `${OBJECTS_PREFIX}live`,
       `${OBJECTS_PREFIX}old1`,
       `${OBJECTS_PREFIX}old2`,
@@ -314,5 +321,46 @@ describe("the mark survives a round trip", () => {
     expect(Object.keys(markAfterSweep(plan).unreachableSince)).toEqual([
       `${OBJECTS_PREFIX}new`,
     ]);
+  });
+});
+
+describe("the mark cannot grow without bound", () => {
+  it("keeps the OLDEST-marked keys and lets the rest wait for a later run", () => {
+    // The mark is re-uploaded on every run; a vault that has churned for years
+    // would otherwise carry tens of thousands of keys in it for ever. Dropping
+    // one costs nothing: the object is still unreachable next time.
+    const extra = 50;
+    const objects = Array.from({ length: MAX_MARKED_KEYS + extra }, (_, i) =>
+      obj(`${OBJECTS_PREFIX}${String(i).padStart(6, "0")}`),
+    );
+    // The first hundred were seen long ago; everything else is new.
+    const unreachableSince: Record<string, number> = {};
+    for (let i = 0; i < 100; i++) {
+      unreachableSince[`${OBJECTS_PREFIX}${String(i).padStart(6, "0")}`] = NOW - 10 * GRACE;
+    }
+    const plan = run({
+      manifests: [manifestAt({ generation: 1 })],
+      objects,
+      mark: { version: 1, updatedAt: 0, unreachableSince },
+    });
+
+    const kept = Object.keys(plan.nextMark.unreachableSince);
+    expect(kept).toHaveLength(MAX_MARKED_KEYS);
+    // The ripe ones are exactly the ones we must not forget.
+    for (let i = 0; i < 100; i++) {
+      expect(kept, String(i)).toContain(`${OBJECTS_PREFIX}${String(i).padStart(6, "0")}`);
+    }
+    expect(plan.sweep).toHaveLength(100);
+  });
+
+  it("is deterministic, so two devices never fight over the mark's contents", () => {
+    const objects = Array.from({ length: MAX_MARKED_KEYS + 10 }, (_, i) =>
+      obj(`${OBJECTS_PREFIX}${String(i).padStart(6, "0")}`),
+    );
+    const a = run({ manifests: [manifestAt({ generation: 1 })], objects });
+    const b = run({ manifests: [manifestAt({ generation: 1 })], objects: [...objects].reverse() });
+    expect(Object.keys(a.nextMark.unreachableSince).sort()).toEqual(
+      Object.keys(b.nextMark.unreachableSince).sort(),
+    );
   });
 });

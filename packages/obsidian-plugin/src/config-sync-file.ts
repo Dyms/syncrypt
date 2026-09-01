@@ -12,13 +12,18 @@
 // sync at all, and only then does it obey the shared list.
 
 import {
+  configPaths,
+  DEFAULT_CONFIG_DIR,
   SECRET_BEARING_PLUGINS,
-  SHARED_CONFIG_SYNC_FILE,
   type ConfigSyncSettings,
 } from "./config-sync.js";
 
-/** The shared file. An ordinary synced file — encrypted, hashed, versioned. */
-export const SHARED_CONFIG_SYNC_PATH = SHARED_CONFIG_SYNC_FILE;
+/**
+ * The shared file under a DEFAULT config folder. An ordinary synced file —
+ * encrypted, hashed, versioned. Anything that has a vault asks it instead:
+ * `ConfigPaths.sharedProfile` (ADR-0032).
+ */
+export const DEFAULT_SHARED_CONFIG_SYNC_PATH = configPaths(DEFAULT_CONFIG_DIR).sharedProfile;
 
 /** The categories that travel. `enabled` is NOT one of them, by design. */
 export interface SharedConfigSync {
