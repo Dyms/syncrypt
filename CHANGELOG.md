@@ -7,6 +7,84 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.11] — 2026-09-02
+
+A second audit pass, over the parts of the codebase the first one never opened:
+the WebDAV provider, the push side of the engine, and the plugin's
+infrastructure layer. Eight defects reproduced and fixed. **Update before using
+WebDAV, and before running "Reclaim storage" on any provider.**
+
+### Fixed
+- **WebDAV: a storage folder whose name contains a space or a non-Latin
+  character never synced** (ADR-0039). `list()` compared an encoded base path
+  against decoded hrefs, matched nothing, and returned an empty listing — while
+  upload, download and stat all kept working. Since `list()` is the whole
+  concurrency mechanism (ADR-0006), a vault full of data read as generation 0:
+  no device saw another's work, nothing converged, and a device that had synced
+  before refused for ever. Nextcloud's own web UI hands you a URL with your
+  folder name in it, so "Мои заметки" or "My Vault" was enough.
+
+- **"Reclaim storage" could delete an entire vault's ciphertext when the
+  manifest listing came back empty** (ADR-0041). The safety rule covered a
+  manifest that was listed but would not load; it could not cover a listing
+  that returned nothing, and then every object in the vault looked unreferenced.
+  "No manifests but plenty of objects" is not a state this protocol produces —
+  it is what a broken listing looks like — so it now refuses to plan at all.
+  Combined with the WebDAV defect above this was not theoretical: a Nextcloud
+  user with a space in their folder name, running the command twice a day apart,
+  would have lost everything and kept the manifests pointing at it.
+
+- **The fork repair added in beta.10 expired after one generation** (ADR-0040).
+  ADR-0035 asked whether the manifest at the *top* generation was ours; the
+  question that matters is whether the manifest at *our base's* generation still
+  is. The winner publishing one more unrelated file was enough to put the silent
+  overwrite back — applied, no conflict, no notice, nothing in the trash. The
+  fix passed its own tests because the tests stopped where the defect stopped.
+  It now holds however many generations later the loser comes back.
+
+- **A shared settings profile from another device could make this one upload its
+  own storage credentials** (ADR-0042). The rule that keeps `data.json` out of
+  the vault knew the live plugin folder and the literal name `syncrypt`. A
+  second Syncrypt folder beside it — an old manual install, a backup copy — was
+  not covered, and neither was a client that does not report where it is
+  installed. A peer's plugin list naming one uploaded those keys with no warning
+  and no way to untick it afterwards. The predicate that answers "is this folder
+  ours", which the settings UI has used since beta.10, is now the one the sync
+  path asks. Fourth defect of this exact shape: one rule, two implementations.
+
+- **A WebDAV server could steer a delete at your other files** (ADR-0039). Keys
+  came from server-supplied `<href>` values, and anything outside the vault
+  collection — or containing `..` — was accepted and could reach `DELETE`.
+  Foreign and traversing hrefs are now refused rather than repaired.
+
+- **A PROPFIND row the server marked "404 Not Found" was read as a live
+  object** (ADR-0039). That is the probe the deduplicator uses to decide a file
+  is already uploaded, so the manifest could reference bytes that were never
+  written — found later, on another device. `stat()` also never checked the row
+  was about the key it asked for. Both fixed.
+
+- **A WebDAV collection could be listed as an object, and then deleted**
+  (ADR-0039). Collection detection depended on one element surviving the
+  response; the trailing slash servers put on collection hrefs was discarded. A
+  collection is referenced by no manifest, so it looked unreachable, so it was
+  swept — and DELETE on a collection removes the whole subtree, live objects
+  included.
+
+- **Reclaim, "forget manifest entries" and the uncarried list ignored the
+  rollback refusal** (ADR-0041). ADR-0038 taught pull, push and confirmed plans
+  to refuse a storage that went backwards; three other commands still read and
+  wrote it. Reclaiming made the rollback permanent by sweeping exactly what a
+  restore would need. "Forget entries" republished a generation number that
+  already held different content, dropped this device's base to match, and
+  cleared the refusal with nobody confirming anything. All three refuse now, and
+  "Accept the storage as it is" remains the single way out.
+
+### Changed
+- A WebDAV listing keeps a visited set and a collection cap, so a server whose
+  collections reference each other fails instead of hanging the sync
+  (ADR-0039). Malformed sizes and dates from a server are clamped to 0 rather
+  than reaching the reclaim confirmation as "NaN MB".
+
 ## [1.0.0-beta.10] — 2026-09-02
 
 ### Added

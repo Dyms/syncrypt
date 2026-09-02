@@ -234,6 +234,32 @@ describe("a retained manifest that was not loaded is fatal, never 'unreachable'"
   });
 });
 
+describe("an empty manifest listing is a broken listing, not an empty vault", () => {
+  it("refuses when storage holds objects and no manifest at all", () => {
+    // ADR-0041. Not a state the protocol produces: a bucket holding
+    // ciphertext holds the manifest that references it. It is what an
+    // under-reporting LIST looks like — and taken at face value it makes
+    // every object in the vault a sweep candidate.
+    expect(() =>
+      run({ manifests: [], objects: [obj(`${OBJECTS_PREFIX}live`), obj(`${OBJECTS_PREFIX}also-live`)] }),
+    ).toThrow(/no manifest at all/);
+  });
+
+  it("a genuinely empty bucket is still fine — nothing to plan, nothing to fear", () => {
+    const plan = run({ manifests: [], objects: [] });
+    expect(plan.sweep).toEqual([]);
+    expect(plan.prunedManifests).toEqual([]);
+  });
+
+  it("one manifest and many objects plans normally", () => {
+    const plan = run({
+      manifests: [manifestAt({ generation: 1, files: [`${OBJECTS_PREFIX}live`] })],
+      objects: [obj(`${OBJECTS_PREFIX}live`)],
+    });
+    expect(plan.sweep).toEqual([]);
+  });
+});
+
 describe("what is structurally out of reach", () => {
   it("NOTHING outside objects/ is ever a candidate — the keyfile above all", () => {
     // meta/keyfile-params.json holds the Argon2id salt. Delete it and every

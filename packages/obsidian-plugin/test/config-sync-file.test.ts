@@ -161,11 +161,15 @@ describe("a hostile or corrupt shared file", () => {
 
   it("cannot make Syncrypt's own data.json travel — the keys stay put (ADR-0016)", () => {
     const cs = on();
-    adoptSharedConfig(cs, parsed(hostile(["syncrypt"])));
-    expect(cs.plugins).toContain("syncrypt"); // it is in the list…
-    // …and the list does not matter: the hard exclusion is checked first.
+    adoptSharedConfig(cs, parsed(hostile(["syncrypt", "syncrypt-old", "syncrypt-1.0.0-beta.9"])));
+    // Not even accepted into the list any more: the settings UI never renders
+    // a Syncrypt folder, so an id that got in there could not be unticked by
+    // the person it was done to (ADR-0042).
+    expect(cs.plugins).toEqual([]);
+    // And the list was never what protected them: the hard exclusion is first.
     expect(P.allowed(".obsidian/plugins/syncrypt/data.json", cs)).toBe(false);
     expect(P.allowed(".obsidian/plugins/syncrypt/sync-state.json", cs)).toBe(false);
+    expect(P.allowed(".obsidian/plugins/syncrypt-old/data.json", cs)).toBe(false);
   });
 
   it("cannot escape the plugins folder with a crafted id", () => {

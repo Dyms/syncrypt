@@ -14,6 +14,7 @@
 import {
   configPaths,
   DEFAULT_CONFIG_DIR,
+  pluginFolderIsOurs,
   SECRET_BEARING_PLUGINS,
   type ConfigSyncSettings,
 } from "./config-sync.js";
@@ -148,7 +149,12 @@ export function adoptSharedConfig(
     (shared.categories[key] ? enabledCategories : disabledCategories).push(key);
   }
   const before = new Set(cs.plugins);
-  const after = new Set(shared.plugins);
+  // A peer's list is remote input. It must not be able to name one of OUR
+  // folders — that would sync a data.json holding the storage credentials.
+  // `hardExcluded` is the rule that actually stops the upload; this keeps the
+  // id out of the settings as well, because the settings UI never renders a
+  // Syncrypt folder and so the user would have no way to untick it (ADR-0042).
+  const after = new Set([...shared.plugins].filter((id) => !pluginFolderIsOurs(id, "")));
   const addedPlugins = [...after].filter((id) => !before.has(id)).sort();
   const removedPlugins = [...before].filter((id) => !after.has(id)).sort();
 

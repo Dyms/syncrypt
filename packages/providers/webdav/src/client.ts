@@ -5,6 +5,7 @@
 import { SyncError, type HttpTransport, type SyncErrorCode } from "@syncrypt/core";
 
 import type { WebDavConfig } from "./config.js";
+import { decodePath } from "./xml.js";
 
 /** Local default transport (same shape as provider-s3's; providers stay independent). */
 export const fetchTransport: HttpTransport = async (req) => {
@@ -84,7 +85,10 @@ export class WebDavClient {
   constructor(config: WebDavConfig) {
     this.transport = config.transport ?? fetchTransport;
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
-    this.basePath = new URL(this.baseUrl).pathname.replace(/\/+$/, "");
+    // DECODED, because that is how hrefs come back from the parser. Comparing
+    // an encoded base ("/dav/My%20Vault") against a decoded href matched
+    // nothing, and every key was dropped in silence (ADR-0039).
+    this.basePath = decodePath(new URL(this.baseUrl).pathname.replace(/\/+$/, ""));
     this.authHeader =
       config.bearerToken !== undefined
         ? `Bearer ${config.bearerToken}`
@@ -95,6 +99,11 @@ export class WebDavClient {
 
   urlFor(key: string): string {
     if (key === "") return this.baseUrl;
+    // No caller in the engine produces a traversing key; one arriving here
+    // means it came from the server (ADR-0039) and must not become a URL.
+    if (!safeKey(key)) {
+      throw new SyncError("StorageTransient", `WebDAV: refusing unsafe key "${key}"`);
+    }
     const encoded = key
       .split("/")
       .map((s) => encodeURIComponent(s))
@@ -102,13 +111,23 @@ export class WebDavClient {
     return `${this.baseUrl}/${encoded}`;
   }
 
-  /** Storage-relative key for an absolute DAV path from a multistatus href. */
-  keyFor(davPath: string): string {
+  /**
+   * Storage-relative key for an absolute DAV path from a multistatus href, or
+   * NULL when the href is not ours to touch.
+   *
+   * The server chooses this string. It used to be accepted whatever it said:
+   * an href outside the base collection had its leading slashes stripped and
+   * became a key, and `..` segments were passed through untouched — so a
+   * hostile response could steer a DELETE at the user's other files. Anything
+   * that is not plainly inside our collection is now foreign, and foreign
+   * objects are left alone.
+   */
+  keyFor(davPath: string): string | null {
     const path = davPath.replace(/\/+$/, "");
     if (path === this.basePath) return "";
-    return path.startsWith(`${this.basePath}/`)
-      ? path.slice(this.basePath.length + 1)
-      : path.replace(/^\/+/, "");
+    if (!path.startsWith(`${this.basePath}/`)) return null;
+    const key = path.slice(this.basePath.length + 1);
+    return safeKey(key) ? key : null;
   }
 
   async send(req: DavRequest): Promise<DavResponse> {
@@ -141,4 +160,10 @@ export class WebDavClient {
     if (res.ok) return res;
     throw normalizeDavError(res.status, req.key, req.operation);
   }
+}
+
+/** No empty, "." or ".." segments — the shapes that escape the base collection. */
+function safeKey(key: string): boolean {
+  if (key === "") return false;
+  return key.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
 }

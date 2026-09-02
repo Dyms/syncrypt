@@ -188,6 +188,49 @@ describe("the refusal does not fire when it should not", () => {
   }, 30_000);
 });
 
+describe("the other doors into the same bucket refuse too (ADR-0041)", () => {
+  it("reclaimStorage will not sweep a storage that went backwards", async () => {
+    // The objects only the deleted generations referenced are exactly the ones
+    // a restore from bucket versioning would need. Sweeping them makes the
+    // rollback permanent.
+    const { storage, d } = await rolledBackVault();
+    const before = storage.keys().filter((k) => k.startsWith("objects/"));
+    expect((await d.engine.pull()).outcome).toBe("rolled-back");
+
+    await expect(d.engine.reclaimStorage()).rejects.toThrow(/refusing to reclaim/);
+    await expect(d.engine.previewReclaim()).rejects.toThrow(/refusing to reclaim/);
+
+    expect(storage.keys().filter((k) => k.startsWith("objects/"))).toEqual(before);
+    expect(d.log.notices.some((n) => n.code === "storage-rolled-back")).toBe(true);
+  }, 30_000);
+
+  it("forgetPaths will not publish onto it, and does not clear the refusal", async () => {
+    const { storage, d } = await rolledBackVault();
+    const before = storage.keys();
+    const baseBefore = (await d.engine.status()).baseGeneration;
+
+    const res = await d.engine.forgetPaths(["note.md"]);
+
+    expect(res).toEqual({ forgotten: [], generation: null });
+    expect(storage.keys()).toEqual(before);
+    // The refusal survives: dropping our own base to the rolled-back
+    // generation would have silently ended it, with nobody confirming.
+    expect((await d.engine.status()).baseGeneration).toBe(baseBefore);
+    expect((await d.engine.pull()).outcome).toBe("rolled-back");
+  }, 30_000);
+
+  it("listUncarried does not offer candidates from a refused manifest", async () => {
+    const { d } = await rolledBackVault();
+    expect(await d.engine.listUncarried()).toEqual([]);
+  }, 30_000);
+
+  it("…and all three work again once the storage is accepted", async () => {
+    const { d } = await rolledBackVault();
+    await d.engine.forgetBase();
+    await expect(d.engine.previewReclaim()).resolves.toBeDefined();
+  }, 30_000);
+});
+
 describe("forgetBase is the way out", () => {
   it("unblocks a deliberately restored storage WITHOUT losing the newer file", async () => {
     const { d } = await rolledBackVault();

@@ -104,8 +104,15 @@ export class WebDavStorage implements StoragePort {
         headers: { depth: "0", "content-type": "application/xml" },
         body: PROPFIND_BODY,
       });
-      const entry = parseMultistatus(res.text())[0];
-      if (entry === undefined || entry.isCollection) {
+      // The FIRST row that is actually about the key we asked for. A server
+      // may answer with rows for other resources, and a row it marked 404 is
+      // dropped by the parser — either way "some row came back" is not proof
+      // the object exists, and this probe is what the deduplicator trusts when
+      // it decides not to upload a file (ADR-0039).
+      const entry = parseMultistatus(res.text()).find(
+        (e) => this.client.keyFor(e.path) === key,
+      );
+      if (entry === undefined || entry.isCollection || !entry.described) {
         // A collection is not an object; report NotFound like S3 would.
         throw new SyncError("StorageNotFound", `WebDAV stat "${key}": not a file`);
       }
@@ -120,8 +127,21 @@ export class WebDavStorage implements StoragePort {
       ? prefix.slice(0, prefix.lastIndexOf("/"))
       : "";
     const found: ObjectStat[] = [];
+    // The tree comes from the server, so it is not necessarily a tree: two
+    // collections can name each other as children, and a generated one can go
+    // down for ever. Neither is a legal answer, but "hangs the sync" is not an
+    // acceptable way to find that out (ADR-0039).
+    const visited = new Set<string>();
 
     const walk = async (collection: string): Promise<void> => {
+      if (visited.has(collection)) return;
+      visited.add(collection);
+      if (visited.size > MAX_COLLECTIONS) {
+        throw new SyncError(
+          "StorageTransient",
+          `WebDAV list "${prefix}": more than ${String(MAX_COLLECTIONS)} collections — refusing to keep walking`,
+        );
+      }
       const res = await withRetry(
         () =>
           this.client.send({
@@ -138,11 +158,14 @@ export class WebDavStorage implements StoragePort {
       const entries: DavEntry[] = parseMultistatus(res.text());
       for (const entry of entries) {
         const key = this.client.keyFor(entry.path);
+        // Not inside our collection, or a traversing path: the server's
+        // problem, not our object (ADR-0039).
+        if (key === null) continue;
         if (key === collection) continue; // Depth:1 includes the collection itself
         if (entry.isCollection) {
           // Recurse only where the subtree can still match the prefix.
           if (key.startsWith(prefix) || prefix.startsWith(`${key}/`)) await walk(key);
-        } else if (key.startsWith(prefix)) {
+        } else if (entry.described && key.startsWith(prefix)) {
           found.push({
             key,
             size: entry.size,
@@ -174,6 +197,14 @@ export class WebDavStorage implements StoragePort {
     };
   }
 }
+
+/**
+ * How many collections one list() will walk. Large enough for any real vault
+ * (objects/ is two hex levels — 65 536 at the very most, and only ever the
+ * ones that exist), small enough that a server generating an endless tree
+ * fails instead of hanging.
+ */
+const MAX_COLLECTIONS = 100_000;
 
 function parentOf(key: ObjectKey): string {
   const slash = key.lastIndexOf("/");

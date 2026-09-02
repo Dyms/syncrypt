@@ -127,6 +127,20 @@ export interface ReclaimInput {
 export function planReclaim(input: ReclaimInput): ReclaimPlan {
   const { now, graceSeconds, manifests, objects, mark } = input;
 
+  // Fail CLOSED before anything else. "No manifests, but objects" is not a
+  // vault state the protocol can produce: a bucket holding ciphertext holds
+  // the manifest that references it. It is what an under-reporting LIST looks
+  // like — an eventually-consistent listing, a dropped pagination cursor, a
+  // provider blind on one prefix (the WebDAV base-path defect was exactly
+  // this, ADR-0039) — and taken at face value it makes EVERY object
+  // unreachable, which is the whole vault (ADR-0041).
+  if (manifests.length === 0 && objects.length > 0) {
+    throw new SyncError(
+      "ManifestCorrupt",
+      `refusing to reclaim: storage lists ${String(objects.length)} objects and no manifest at all`,
+    );
+  }
+
   const retained = retainedGenerations(
     manifests.map((m) => m.generation),
     input.generationsToKeep,

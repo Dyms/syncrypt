@@ -414,8 +414,11 @@ class Engine implements SyncEngine {
 
   listUncarried(signal?: AbortSignal): Promise<UncarriedEntry[]> {
     return this.exclusive(async () => {
+      await this.loadStateOnce();
       const remote = await readRemote(this.ctx);
-      if (remote.manifest === null) return [];
+      // Candidates computed from a manifest we have already refused would
+      // invite the user to act on it (ADR-0038, ADR-0041).
+      if (remote.manifest === null || this.rolledBack(remote)) return [];
       if (signal?.aborted) return [];
       const carried = this.ctx.planOptions.syncable ?? ((): boolean => true);
       const out: UncarriedEntry[] = [];
@@ -430,9 +433,14 @@ class Engine implements SyncEngine {
 
   forgetPaths(paths: VaultPath[], signal?: AbortSignal): Promise<ForgetResult> {
     return this.exclusive(async () => {
+      await this.loadStateOnce();
       const wanted = new Set(paths);
       const remote = await readRemote(this.ctx);
-      if (remote.manifest === null || wanted.size === 0) {
+      // Publishing here would write generation N+1 on top of a storage that
+      // has gone backwards — reusing a generation number that already held
+      // different content — and, by lowering our own base, silently clear the
+      // ADR-0038 refusal without anyone confirming anything (ADR-0041).
+      if (remote.manifest === null || wanted.size === 0 || this.rolledBack(remote)) {
         return { forgotten: [], generation: null };
       }
       const forgotten = Object.keys(remote.manifest.files).filter((p) => wanted.has(p));
@@ -548,10 +556,17 @@ class Engine implements SyncEngine {
     return true;
   }
 
-  private baseFor(remote: Manifest | null): Manifest | null {
+  private baseFor(remote: RemoteState): Manifest | null {
     const base = this.base;
-    if (base === null || remote === null) return base;
-    if (remote.generation !== base.generation || remote.device === base.device) return base;
+    if (base === null || remote.manifest === null) return base;
+    // The winner AT OUR GENERATION, which is the question. Asking it only of
+    // the top generation (what shipped in beta.10) made the repair expire the
+    // moment the winner published anything else — one more push and the
+    // silent overwrite was back (ADR-0040).
+    const winner = remote.winnerAt(base.generation);
+    // Not in storage any more: pruned by reclamation, or a base this device
+    // never published. Nothing to compare against, so nothing to claim.
+    if (winner === null || winner === base.device) return base;
     this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
     return null;
   }
@@ -559,7 +574,33 @@ class Engine implements SyncEngine {
   // -- storage reclamation (ADR-0030) -----------------------------------------
 
   previewReclaim(signal?: AbortSignal): Promise<ReclaimPlan> {
-    return this.exclusive(() => computeReclaimPlan(this.ctx, signal));
+    return this.exclusive(async () => {
+      await this.loadStateOnce();
+      const plan = await computeReclaimPlan(this.ctx, signal);
+      this.refuseReclaimOnRollback(plan);
+      return plan;
+    });
+  }
+
+  /**
+   * Reclaiming a storage that has gone backwards makes the rollback permanent
+   * (ADR-0041). The objects that only the deleted generations referenced are
+   * exactly the ones a restore from bucket versioning — the threat model's
+   * first recommendation — would need. `pull` and `push` already refuse; this
+   * is the third door into the same bucket and it was left open.
+   */
+  private refuseReclaimOnRollback(plan: ReclaimPlan): void {
+    const base = this.base;
+    if (base === null || plan.generation >= base.generation) return;
+    this.ctx.log.notice({
+      code: "storage-rolled-back",
+      remote: plan.generation,
+      base: base.generation,
+    });
+    throw new SyncError(
+      "ManifestCorrupt",
+      `refusing to reclaim: storage is at generation ${String(plan.generation)}, this device synced against ${String(base.generation)}`,
+    );
   }
 
   reclaimStorage(signal?: AbortSignal): Promise<ReclaimResult> {
@@ -568,7 +609,9 @@ class Engine implements SyncEngine {
       // preview and a click another device can publish a generation that
       // adopts one of these objects (the dedup probe in applyPushOps). The
       // re-check IS the safety property — never sweep a stale plan.
+      await this.loadStateOnce();
       const plan = await computeReclaimPlan(this.ctx, signal);
+      this.refuseReclaimOnRollback(plan);
       const deleted: ObjectKey[] = [];
       let bytesFreed = 0;
       const sizes = new Map(
@@ -657,7 +700,7 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     this.noteVersionSkew(remote.manifest);
-    const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
+    const p = plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
 
     if (p.requiresConfirmation) {
       // Invariant §8.7: never auto-apply; the caller must confirmAndApply.
@@ -718,7 +761,7 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     this.noteVersionSkew(remote.manifest);
-    const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
+    const p = plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
 
     if (p.pullFirst) {
       // ADR-0002 / RFC-0002 FR-8: someone published since our last pull.
@@ -815,7 +858,7 @@ class Engine implements SyncEngine {
       await this.loadStateOnce();
       const remote = await readRemote(this.ctx);
       const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache, signal);
-      return plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
+      return plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
     });
   }
 
@@ -844,7 +887,7 @@ class Engine implements SyncEngine {
     if (this.rolledBack(remote)) {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
-    const fresh = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
+    const fresh = plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
     const confirmedDestructive = new Set(
       confirmed.operations.map(destructiveKey).filter((k) => k !== null),
     );

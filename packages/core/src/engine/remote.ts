@@ -17,6 +17,17 @@ export interface RemoteState {
   manifest: Manifest | null;
   /** Highest generation present in storage; 0 when no manifest exists. */
   generation: number;
+  /**
+   * Who published the authoritative manifest at an ARBITRARY generation —
+   * the smallest deviceId there (ADR-0006 §4) — or null when that generation
+   * is not in storage at all (never written, or pruned by reclamation).
+   *
+   * The listing that finds the top generation already sees every other one, so
+   * this costs nothing. It is what lets a device ask "is the manifest at my
+   * base's generation still mine?" long after the top has moved past it
+   * (ADR-0040).
+   */
+  winnerAt: (generation: number) => DeviceId | null;
 }
 
 interface ManifestRef {
@@ -24,20 +35,23 @@ interface ManifestRef {
   device: DeviceId;
 }
 
-/** List manifests/ and return refs at the highest generation, winner first
- *  (smallest deviceId — the deterministic fork rule, ADR-0006 §4). */
-async function listTop(ctx: EngineContext): Promise<ManifestRef[]> {
+/**
+ * List manifests/ once and keep the winner at EVERY generation — smallest
+ * deviceId, the deterministic fork rule (ADR-0006 §4).
+ *
+ * One entry per generation, not per object: a vault that has synced for a year
+ * has thousands of generations and this is a device id each.
+ */
+async function listWinners(ctx: EngineContext): Promise<Map<number, DeviceId>> {
   const prefixLen = ctx.key("").length;
-  let top: ManifestRef[] = [];
+  const winners = new Map<number, DeviceId>();
   for await (const stat of ctx.storage.list(ctx.key(MANIFESTS_PREFIX))) {
     const ref = parseManifestKey(stat.key.slice(prefixLen));
     if (ref === null) continue; // foreign object under manifests/ — ignore
-    const best = top[0];
-    if (best === undefined || ref.generation > best.generation) top = [ref];
-    else if (ref.generation === best.generation) top.push(ref);
+    const current = winners.get(ref.generation);
+    if (current === undefined || ref.device < current) winners.set(ref.generation, ref.device);
   }
-  top.sort((a, b) => (a.device < b.device ? -1 : a.device > b.device ? 1 : 0));
-  return top;
+  return winners;
 }
 
 /** Fetch + decrypt + strictly parse one manifest. Fail-closed on corruption. */
@@ -56,10 +70,18 @@ async function fetchManifest(ctx: EngineContext, ref: ManifestRef): Promise<Mani
 
 /** Authoritative remote state = LIST → highest generation → fork winner. */
 export async function readRemote(ctx: EngineContext): Promise<RemoteState> {
-  const top = await listTop(ctx);
-  const winner = top[0];
-  if (winner === undefined) return { manifest: null, generation: 0 };
-  return { manifest: await fetchManifest(ctx, winner), generation: winner.generation };
+  const winners = await listWinners(ctx);
+  const winnerAt = (generation: number): DeviceId | null =>
+    winners.get(generation) ?? null;
+  let generation = 0;
+  for (const g of winners.keys()) if (g > generation) generation = g;
+  const device = winners.get(generation);
+  if (device === undefined) return { manifest: null, generation: 0, winnerAt };
+  return {
+    manifest: await fetchManifest(ctx, { generation, device }),
+    generation,
+    winnerAt,
+  };
 }
 
 export type PublishResult =
@@ -94,12 +116,12 @@ export async function publishManifest(
   }
 
   // Re-LIST: another device may have published the same generation concurrently.
-  const top = await listTop(ctx);
-  const winner = top[0];
+  const winners = await listWinners(ctx);
+  let top = 0;
+  for (const g of winners.keys()) if (g > top) top = g;
   if (
-    winner !== undefined &&
-    (winner.generation > manifest.generation ||
-      (winner.generation === manifest.generation && winner.device !== ctx.deviceId))
+    top > manifest.generation ||
+    (top === manifest.generation && winners.get(top) !== ctx.deviceId)
   ) {
     return { ok: false, reason: "lost-fork" };
   }

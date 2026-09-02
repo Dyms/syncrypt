@@ -202,18 +202,43 @@ describe("the plugin's OWN folder, whatever it is called", () => {
     expect(P2.worthWalking(MANUAL, on())).toBe(false);
   });
 
-  it("this is EXACTLY what used to leak", () => {
-    // The old rules knew only the conventional folder name.
-    expect(P.hardExcluded(`${MANUAL}/data.json`)).toBe(false);
-    expect(P.allowed(`${MANUAL}/data.json`, on())).toBe(true);
+  it("is protected even by a client that cannot say where it is", () => {
+    // ADR-0042. `ownDir` only ever covers the LIVE install. It did not cover a
+    // client whose manifest reports no `dir`, and it did not cover a second
+    // Syncrypt folder left beside the live one — an old copy, a manual install
+    // kept aside — each of which has a data.json with the storage keys in it.
+    // The folder NAME now carries the rule too, exactly as the settings UI
+    // already read it.
+    expect(P.hardExcluded(`${MANUAL}/data.json`)).toBe(true);
+    expect(P.allowed(`${MANUAL}/data.json`, on())).toBe(false);
+    expect(P.hardExcluded(".obsidian/plugins/syncrypt-old/data.json")).toBe(true);
+    expect(P2.hardExcluded(".obsidian/plugins/syncrypt-old/data.json")).toBe(true);
   });
 
   it("still protects the conventional folder, and does not over-reach", () => {
     expect(P2.hardExcluded(".obsidian/plugins/syncrypt/data.json")).toBe(true);
     expect(P2.hardExcluded(".obsidian/plugins/dataview/data.json")).toBe(false);
-    // A sibling folder sharing the prefix is somebody else's plugin.
-    expect(P2.hardExcluded(".obsidian/plugins/syncrypt-1.0.0-beta.9-fork/data.json")).toBe(false);
+    // A folder whose NAME starts with ours is treated as ours, even though it
+    // might be a third-party fork. That costs a fork's settings not syncing;
+    // the other way round costs storage credentials. The settings UI has
+    // always read the name this way (`pluginFolderIsOurs`) — the point of
+    // ADR-0042 is that the sync path now asks the same predicate rather than
+    // a similar-looking one.
+    expect(P2.hardExcluded(".obsidian/plugins/syncrypt-1.0.0-beta.9-fork/data.json")).toBe(true);
+    expect(P2.hardExcluded(".obsidian/plugins/dataview-syncrypt/data.json")).toBe(false);
     expect(P2.ownPluginDir).toBe(MANUAL);
+  });
+
+  it("a leftover copy beside the live install is not uploadable", () => {
+    // ADR-0042, the case with no preconditions at all: `ownDir` is correct and
+    // the live folder is safe, and the vault still holds a second Syncrypt
+    // folder — a manual install kept aside, a BRAT-then-manual migration. A
+    // peer's plugin list naming it used to upload that data.json.
+    const live = configPaths(DEFAULT_CONFIG_DIR, ".obsidian/plugins/syncrypt");
+    const cs = { ...DEFAULT_CONFIG_SYNC, enabled: true, plugins: ["syncrypt-old"] };
+    expect(live.hardExcluded(".obsidian/plugins/syncrypt-old/data.json")).toBe(true);
+    expect(live.allowed(".obsidian/plugins/syncrypt-old/data.json", cs)).toBe(false);
+    expect(live.worthWalking(".obsidian/plugins/syncrypt-old", cs)).toBe(false);
   });
 
   it("works together with a renamed config folder", () => {

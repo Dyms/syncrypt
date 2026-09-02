@@ -107,6 +107,40 @@ describe("the loser of a fork it never saw", () => {
     expect(loser.vault.trashed).toEqual([]);
   }, 30_000);
 
+  it("KEEPS BOTH VERSIONS even after the winner has published again", async () => {
+    // ADR-0040. The repair used to ask "is the top generation mine?", which is
+    // only the right question while the top generation IS our base's. One more
+    // push from the winner and the loser's base looked ordinary again — and
+    // the silent overwrite was back, one generation later than before.
+    const storage = new InterleavingStorage();
+    const { winner, loser } = await forkOnePath(storage);
+
+    winner.vault.setFile("unrelated.md", "something else entirely");
+    await winner.engine.sync();
+
+    const report = await loser.engine.pull();
+
+    expect(loser.vault.getText("note.md")).toBe("the loser's edit");
+    const copies = loser.vault.paths().filter((p) => p.includes("conflicted copy"));
+    expect(copies).toHaveLength(1);
+    expect(loser.vault.getText(copies[0] ?? "")).toBe("the winner's much longer edit");
+    expect(report.conflicts).toEqual(["note.md"]);
+    expect(loser.vault.trashed).toEqual([]);
+    expect(loser.log.notices.filter((n) => n.code === "fork-lost")).toHaveLength(1);
+  }, 30_000);
+
+  it("still fires after MANY later generations, not just one", async () => {
+    const storage = new InterleavingStorage();
+    const { winner, loser } = await forkOnePath(storage);
+    for (let i = 0; i < 5; i++) {
+      winner.vault.setFile(`later-${String(i)}.md`, `filler number ${String(i)}`);
+      await winner.engine.sync();
+    }
+    await loser.engine.pull();
+    expect(loser.vault.getText("note.md")).toBe("the loser's edit");
+    expect(loser.log.notices.some((n) => n.code === "fork-lost")).toBe(true);
+  }, 30_000);
+
   it("says so, once, rather than repairing in silence", async () => {
     const storage = new InterleavingStorage();
     const { loser } = await forkOnePath(storage);

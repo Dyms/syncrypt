@@ -130,10 +130,21 @@ export function configPaths(dir: string, ownPluginDir?: string): ConfigPaths {
         path === `${root}/workspace.json` ||
         path === `${root}/workspace-mobile.json` ||
         path === `${root}/workspace.json.bak` ||
-        path.startsWith(`${root}/plugins/${SYNCRYPT_PLUGIN_ID}/`) ||
         path.startsWith(`${root}/sync-trash/`)
       ) {
         return true;
+      }
+      // ANY folder whose name says Syncrypt, not only the exact one and not
+      // only the live install: an old copy, a hand-unzipped
+      // "syncrypt-1.0.0-beta.9", a "syncrypt-old" kept aside — each holds a
+      // data.json with storage credentials in it, and each was uploadable
+      // because the only two rules were `ownDir` and the exact string
+      // (ADR-0042). This is the same predicate the settings UI already used to
+      // decide the same question; it just was not asked here.
+      const prefix = `${root}/plugins/`;
+      if (path.startsWith(prefix)) {
+        const folder = path.slice(prefix.length).split("/")[0] ?? "";
+        if (folder !== path.slice(prefix.length) && pluginFolderIsOurs(folder, "")) return true;
       }
     }
     return false;
