@@ -18,9 +18,10 @@ timeline with you.
 
 ## Scope
 
-In scope: the sync engine, encryption model, key handling, the S3 provider, and
-the Obsidian plugin. Out of scope: the security of the object storage you
-provide and operate, and your device/OS security.
+In scope: the sync engine, encryption model, key handling, the storage
+providers (S3 and WebDAV), the connection-ticket format, and the Obsidian
+plugin. Out of scope: the security of the object storage you provide and
+operate, and your device/OS security.
 
 ## Security model in brief
 
