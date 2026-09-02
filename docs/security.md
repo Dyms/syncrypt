@@ -46,8 +46,8 @@ any folder name, or which note changed.
 | If… | then… |
 |---|---|
 | someone reads your bucket | they see ciphertext and opaque names — nothing else |
-| someone tampers with your bucket | modified ciphertext fails to decrypt, loudly, and nothing bad is applied — but **deleting** the newest manifest is not tampering, and today it rolls your notes back to older versions without a warning ([known limitation](../README.md#known-limitations)) |
-| someone steals your bucket credentials | they cannot read your notes. They can delete or corrupt ciphertext (availability) and, today, roll your notes back to an earlier version (integrity) — enable bucket versioning and keep a backup |
+| someone tampers with your bucket | modified ciphertext fails to decrypt, loudly, and nothing bad is applied. **Deleting** the newest manifest is not tampering, but a device that has already synced notices the storage went backwards and refuses, naming the two generations, instead of restoring older versions |
+| someone steals your bucket credentials | they cannot read your notes. They can delete or corrupt ciphertext, which costs you availability — your devices refuse a storage that went backwards rather than rolling your notes back with it, but nothing puts deleted objects back. Enable bucket versioning and keep a backup |
 | your device dies mid-sync | the design commits changes only after uploads finish; the next sync simply completes or safely re-plans |
 | you delete files by accident and sync | deletions land in a local trash folder on other devices; previous file versions are retained; bulk deletions require your explicit confirmation first |
 

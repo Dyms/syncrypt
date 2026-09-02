@@ -48,7 +48,9 @@ export type SyncOutcome =
   | "needs-confirmation"
   | "conflicts"
   | "no-op"
-  | "aborted";
+  | "aborted"
+  /** Storage holds an OLDER generation than this device already had (ADR-0038). */
+  | "rolled-back";
 
 export interface SyncReport {
   startedAt: number;

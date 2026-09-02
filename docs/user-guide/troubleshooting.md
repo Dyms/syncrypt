@@ -4,6 +4,19 @@
 Another device published a newer manifest since your last pull. Run a **pull**
 (or Sync now), then push. This is the safety mechanism, not an error.
 
+**"Sync refused — the storage holds an older state than this device."**
+Something removed manifests from your storage: a restore from an older backup,
+a cleanup, a lifecycle rule, or somebody with write access to the bucket.
+Applying it would quietly put older copies of your files back, so Syncrypt
+stops instead and names the two generations that disagree. Nothing was changed.
+
+If you restored the storage on purpose, run the command **"Accept the storage
+as it is"** and sync again — the next sync compares both sides from scratch and
+keeps both versions of anything that differs as a conflicted copy, deleting
+nothing. If you did *not*, do not accept it: check who can write to that bucket
+first. A device that has never synced this vault cannot detect this at all,
+which is one more reason to keep bucket versioning on.
+
 **A "conflicted copy" file appeared.**
 You (or another device) edited the same note on both sides. Syncrypt kept both
 versions instead of guessing. Open both, merge what you want into the canonical

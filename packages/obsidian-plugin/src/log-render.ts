@@ -48,6 +48,8 @@ export function renderLine(line: LogLine, t: Strings): string {
         return t.engine.vaultWrittenByOlder(n.writer, n.self);
       case "fork-lost":
         return t.engine.forkLost(n.generation);
+      case "storage-rolled-back":
+        return t.engine.storageRolledBack(n.remote, n.base);
       case "tombstones-expired":
         return t.engine.tombstonesExpired(n.count, Math.round(n.graceSeconds / 86_400));
       case "storage-reclaimed":

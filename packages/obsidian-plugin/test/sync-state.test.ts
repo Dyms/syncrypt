@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { EN_STRINGS } from "../src/i18n.js";
 import {
   classifyCounts,
   deriveSyncState,
@@ -45,6 +46,16 @@ describe("deriveSyncState", () => {
     expect(deriveSyncState({ ...base, onLine: false, conflicts: ["a.md", "b.md"] }).kind).toBe("offline");
     expect(deriveSyncState({ ...base, lastError: "network" }).kind).toBe("offline");
     expect(deriveSyncState({ ...base, lastError: "other", conflicts: ["a.md", "b.md"] }).kind).toBe("error");
+    // A rolled-back storage is not "pending": nothing was applied and nothing
+    // will be until a person decides what happened (ADR-0038).
+    expect(deriveSyncState({ ...base, lastOutcome: "rolled-back" }).kind).toBe("error");
+    expect(deriveSyncState({ ...base, lastOutcome: "rolled-back" }).label).toBe(
+      EN_STRINGS.status.rolledBackLabel,
+    );
+    // …and it outranks the conflicts of whatever sync came before it.
+    expect(
+      deriveSyncState({ ...base, lastOutcome: "rolled-back", conflicts: ["a.md"] }).label,
+    ).toBe(EN_STRINGS.status.rolledBackLabel);
     expect(deriveSyncState({ ...base, conflicts: ["a.md", "b.md"] }).kind).toBe("conflict");
   });
 

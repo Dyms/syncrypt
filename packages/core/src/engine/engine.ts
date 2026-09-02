@@ -126,6 +126,23 @@ export interface SyncEngine {
   forgetHashCache(): Promise<void>;
 
   /**
+   * Forget the base manifest — this device's record of what it last synced
+   * against (ADR-0038).
+   *
+   * The escape hatch for a storage that went backwards on purpose: a bucket
+   * restored from a backup, or manifests removed by hand. A lower generation
+   * is indistinguishable from an attack, so every sync refuses until someone
+   * says which of the two it was; this is how they say it.
+   *
+   * Dropping the base costs safety, not data. With no base, `plan()` cannot
+   * tell "the other side deleted it" from "I never had it", so it deletes
+   * nothing and every file that differs on both sides comes back as a conflict
+   * with both versions kept (RFC-0004). The hash cache is untouched, so the
+   * next scan is no slower than usual.
+   */
+  forgetBase(): Promise<void>;
+
+  /**
    * Manifest entries this device does NOT carry (ADR-0027).
    *
    * Candidates for review, never a verdict: a device cannot see other devices'
@@ -385,6 +402,16 @@ class Engine implements SyncEngine {
     });
   }
 
+  forgetBase(): Promise<void> {
+    // Queued for the same reason as the cache: a sync holding the old base in
+    // a local would publish it back a moment later.
+    return this.exclusive(async () => {
+      await this.loadStateOnce();
+      this.base = null;
+      await this.saveState();
+    });
+  }
+
   listUncarried(signal?: AbortSignal): Promise<UncarriedEntry[]> {
     return this.exclusive(async () => {
       const remote = await readRemote(this.ctx);
@@ -495,6 +522,32 @@ class Engine implements SyncEngine {
     );
   }
 
+  /**
+   * Has the storage gone BACKWARDS since we last read it (ADR-0038)?
+   *
+   * Generations only ever increase (ADR-0006), so a highest-generation lower
+   * than the one we already have means manifests were removed. Deleting the
+   * newest one is enough: the previous generation becomes authoritative, every
+   * file it describes classifies as "remote is newer", and the vault is
+   * quietly restored to an earlier state. Everything decrypts perfectly — it
+   * is not tampering, so nothing fails closed on its own.
+   *
+   * Refused per sync rather than latched: a backend whose LIST briefly misses
+   * the newest object recovers by itself on the next attempt, while a storage
+   * that really did lose generations keeps refusing until a person decides
+   * what to do about it.
+   */
+  private rolledBack(remote: RemoteState): boolean {
+    const base = this.base;
+    if (base === null || remote.generation >= base.generation) return false;
+    this.ctx.log.notice({
+      code: "storage-rolled-back",
+      remote: remote.generation,
+      base: base.generation,
+    });
+    return true;
+  }
+
   private baseFor(remote: Manifest | null): Manifest | null {
     const base = this.base;
     if (base === null || remote === null) return base;
@@ -600,6 +653,9 @@ class Engine implements SyncEngine {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
     }
+    if (this.rolledBack(remote)) {
+      return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
+    }
     this.noteVersionSkew(remote.manifest);
     const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
 
@@ -657,6 +713,9 @@ class Engine implements SyncEngine {
     if (signal?.aborted) {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
+    }
+    if (this.rolledBack(remote)) {
+      return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     this.noteVersionSkew(remote.manifest);
     const p = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
@@ -747,6 +806,10 @@ class Engine implements SyncEngine {
     return merged;
   }
 
+  // Read-only, and deliberately NOT guarded against a rolled-back storage
+  // (ADR-0038): a plan applies nothing by itself, and the confirmAndApply it
+  // feeds refuses. Showing what the rolled-back storage would do is, if
+  // anything, the clearest evidence of what happened to it.
   dryRun(signal?: AbortSignal): Promise<SyncPlan> {
     return this.exclusive(async () => {
       await this.loadStateOnce();
@@ -775,6 +838,11 @@ class Engine implements SyncEngine {
     const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache, signal);
     if (signal?.aborted) {
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
+    }
+    // A confirmation is consent to the plan the user SAW. It is not consent to
+    // a storage that lost generations in the meantime (ADR-0038).
+    if (this.rolledBack(remote)) {
+      return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     const fresh = plan(local, this.baseFor(remote.manifest), remote.manifest, this.ctx.planOptions);
     const confirmedDestructive = new Set(

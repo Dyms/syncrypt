@@ -78,6 +78,9 @@ const EN = {
       "Storage is unreachable; your edits are safe locally and will sync when the connection returns.",
     errorLabel: "Syncrypt: error",
     errorTooltip: "The last sync failed — see the sync log.",
+    rolledBackLabel: "Syncrypt: storage rolled back",
+    rolledBackTooltip:
+      "Sync is refusing: the storage holds an older state than this device already had. Nothing was changed — see the sync log.",
     conflictLabel: (n: number) => `Syncrypt: conflict (${String(n)})`,
     conflictTooltip: (n: number) =>
       `${String(n)} conflict(s) — both versions were kept; merge them and sync again.`,
@@ -167,6 +170,20 @@ const EN = {
       `Syncrypt: nothing is deletable yet — the objects are noted and can go after ${when}.`,
   },
 
+  acceptStorageModal: {
+    title: "Accept the storage as it is",
+    what: (remote: number, base: number) =>
+      `The storage is at generation ${String(remote)}. This device last synced against generation ${String(base)}, so something removed manifests from the storage. Until you decide which happened, syncing refuses.`,
+    restored:
+      "If you restored the bucket from a backup, or cleaned it out yourself, this is expected: accept it and syncing continues from the restored state.",
+    notRestored:
+      "If you did not, do NOT accept it. Someone with write access to the bucket can roll every device back this way. Check who has that access first — nothing has been changed here.",
+    effect:
+      "Accepting forgets only what this device remembers about the last sync. No file is deleted and nothing is uploaded yet: the next sync compares both sides from scratch, keeps both versions of anything that differs as a conflict copy, and deletes nothing.",
+    cancel: "Cancel",
+    confirm: "Accept the storage",
+  },
+
   forgetModal: {
     title: "Files in the manifest that this device does not carry",
     intro: (n: number) =>
@@ -190,6 +207,7 @@ const EN = {
       conflicts: "Sync finished with conflicts — both versions kept.",
       "no-op": "Sync finished: nothing to do.",
       aborted: "Sync interrupted — nothing was left half-applied.",
+      "rolled-back": "Sync refused — the storage holds an older state than this device.",
     } as Record<SyncOutcome, string>,
     pullFirst: "Sync stopped. Pull first — someone else published a newer version.",
     confirmationRequired: (destructive: number, total: number) =>
@@ -213,6 +231,8 @@ const EN = {
       `${String(count)} deletion record${count === 1 ? "" : "s"} older than ${String(days)} days dropped from the manifest (ADR-0031). The files stay deleted; only the record of the deletion is gone. A device that has been offline longer than that will bring its copies back — delete them again if it does.`,
     storageReclaimed: (deleted: number, freed: string, manifests: number, waiting: number) =>
       `Storage reclaimed: ${String(deleted)} object${deleted === 1 ? "" : "s"} deleted (${freed}), ${String(manifests)} old manifest generation${manifests === 1 ? "" : "s"} pruned, ${String(waiting)} object${waiting === 1 ? "" : "s"} still waiting out the safety window.`,
+    storageRolledBack: (remote: number, base: number) =>
+      `Sync refused: the storage is at generation ${String(remote)}, and this device already synced against generation ${String(base)} (ADR-0038). Generations only ever go up, so manifests were removed — by a restore from an older backup, by a cleanup, or by someone with write access to the bucket. Applying it would quietly put an older copy of every file back. Nothing was changed. If you restored the storage on purpose, run "Accept the storage as it is" and sync again; if you did not, check who can write to that bucket before syncing anything.`,
     deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
       `${String(paced)} deletions came in from another device, spread over ${spanEn(spanSeconds)} — the pace of someone working, not of something going wrong, so the confirmation for ${String(destructive)} destructive changes was not asked for (ADR-0029). The deleted files are in the sync trash.`,
   },
@@ -245,6 +265,9 @@ const EN = {
     configSyncSecretPlugins: (names: string) =>
       `Syncrypt: another device turned on settings sync for ${names} — plugins that can keep API keys in data.json. Turn it off here if you would rather not.`,
     hashCacheCleared: "Syncrypt: re-hashing the vault — this sync will take longer than usual.",
+    storageAccepted:
+      "Syncrypt: storage accepted. The next sync compares both sides from scratch — anything that differs is kept as a conflict copy.",
+    notRolledBack: "Syncrypt: the storage is not behind this device — nothing to accept.",
   },
 
   commands: {
@@ -257,6 +280,7 @@ const EN = {
     rehashVault: "Re-hash the vault (forget cached file hashes)",
     reviewManifest: "Review manifest entries this device does not carry",
     reclaimStorage: "Reclaim storage (delete unreferenced objects)",
+    acceptStorage: "Accept the storage as it is (after restoring a backup)",
   },
 
   settings: {
@@ -478,6 +502,9 @@ const RU: Strings = {
       "Хранилище недоступно. Правки сохранены локально и уйдут, как только связь вернётся.",
     errorLabel: "Syncrypt: ошибка",
     errorTooltip: "Последняя синхронизация не удалась — откройте журнал.",
+    rolledBackLabel: "Syncrypt: хранилище откатилось",
+    rolledBackTooltip:
+      "Синхронизация отклоняется: в хранилище состояние старее того, что уже было на этом устройстве. Ничего не изменено — откройте журнал.",
     conflictLabel: (n: number) => `Syncrypt: конфликтов ${String(n)}`,
     conflictTooltip: (n: number) =>
       `Конфликтов: ${String(n)}. Обе версии сохранены — сведите их и синхронизируйте снова.`,
@@ -563,6 +590,20 @@ const RU: Strings = {
       `Syncrypt: удалять пока нечего — объекты помечены, их можно будет убрать после ${when}.`,
   },
 
+  acceptStorageModal: {
+    title: "Принять хранилище как есть",
+    what: (remote: number, base: number) =>
+      `В хранилище поколение ${String(remote)}. Это устройство последний раз синхронизировалось с поколением ${String(base)}, значит из хранилища пропали манифесты. Пока вы не решите, что именно произошло, синхронизация отклоняется.`,
+    restored:
+      "Если вы сами восстанавливали хранилище из бэкапа или чистили его — так и должно быть: примите, и синхронизация продолжится с восстановленного состояния.",
+    notRestored:
+      "Если нет — НЕ принимайте. Любой, у кого есть доступ на запись, может так откатить все ваши устройства. Сначала разберитесь, у кого этот доступ есть; здесь пока ничего не изменено.",
+    effect:
+      "Принятие стирает только то, что это устройство помнит о прошлой синхронизации. Ни один файл не удаляется и ничего не загружается: следующая синхронизация сверит обе стороны с нуля, сохранит обе версии всего расходящегося как конфликт и не удалит ничего.",
+    cancel: "Отмена",
+    confirm: "Принять хранилище",
+  },
+
   forgetModal: {
     title: "Файлы в манифесте, которых нет на этом устройстве",
     intro: (n: number) =>
@@ -586,6 +627,7 @@ const RU: Strings = {
       conflicts: "Синхронизация завершена с конфликтами — обе версии сохранены.",
       "no-op": "Синхронизация завершена: делать было нечего.",
       aborted: "Синхронизация прервана — ничего не осталось применённым наполовину.",
+      "rolled-back": "Синхронизация отклонена — в хранилище состояние старее, чем на этом устройстве.",
     },
     pullFirst:
       "Синхронизация остановлена. Сначала скачайте изменения — другое устройство опубликовало более новую версию.",
@@ -610,6 +652,8 @@ const RU: Strings = {
       `Из манифеста убрано записей об удалении старше ${String(days)} дн.: ${String(count)} (ADR-0031). Сами файлы остаются удалёнными — исчезла только запись о том, что их удалили. Устройство, простоявшее офлайн дольше этого срока, вернёт свои копии; если так случится, удалите их ещё раз.`,
     storageReclaimed: (deleted: number, freed: string, manifests: number, waiting: number) =>
       `Хранилище очищено: удалено объектов — ${String(deleted)} (${freed}), убрано старых поколений манифеста — ${String(manifests)}, ждут окончания защитного окна — ${String(waiting)}.`,
+    storageRolledBack: (remote: number, base: number) =>
+      `Синхронизация отклонена: в хранилище поколение ${String(remote)}, а это устройство уже синхронизировалось с поколением ${String(base)} (ADR-0038). Поколения только растут, значит манифесты пропали — восстановление из старого бэкапа, чистка или кто-то с правом записи в хранилище. Применить это означало бы тихо вернуть на место старые копии всех файлов. Ничего не изменено. Если вы восстанавливали хранилище сами — выполните команду «Принять хранилище как есть» и синхронизируйтесь заново; если нет — сначала разберитесь, у кого есть доступ на запись.`,
     deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
       `С другого устройства пришло удалений: ${String(paced)}, растянутых на ${spanRu(spanSeconds)} — это темп работы человека, а не сбоя, поэтому подтверждение на ${String(destructive)} разрушающих изменений не запрашивалось (ADR-0029). Удалённые файлы лежат в корзине синхронизации.`,
   },
@@ -644,6 +688,9 @@ const RU: Strings = {
     configSyncSecretPlugins: (names: string) =>
       `Syncrypt: другое устройство включило синхронизацию настроек для ${names} — эти плагины могут хранить ключи API в data.json. Если не нужно — выключите здесь.`,
     hashCacheCleared: "Syncrypt: пересчитываю хеши хранилища — эта синхронизация будет дольше обычной.",
+    storageAccepted:
+      "Syncrypt: хранилище принято. Следующая синхронизация сверит обе стороны с нуля — всё расходящееся сохранится как конфликт.",
+    notRolledBack: "Syncrypt: хранилище не отстаёт от этого устройства — принимать нечего.",
   },
 
   commands: {
@@ -656,6 +703,7 @@ const RU: Strings = {
     rehashVault: "Пересчитать хеши хранилища (забыть кэш)",
     reviewManifest: "Разобрать записи манифеста, которых нет на этом устройстве",
     reclaimStorage: "Освободить место в хранилище (удалить ненужные объекты)",
+    acceptStorage: "Принять хранилище как есть (после восстановления из бэкапа)",
   },
 
   settings: {

@@ -93,11 +93,12 @@ Security:
   uploaded.**~~ Fixed after 1.0.0-beta.9; if you are on beta.9 or earlier and
   installed by hand, install with BRAT, rename the folder to `syncrypt`, or
   leave Obsidian-settings sync off until you update.
-- **Anyone who can delete objects in your bucket can roll your notes back.**
-  Deleting the newest manifest makes clients accept the previous one and
-  restore older versions of files, with no warning. This needs write access to
-  your storage — it is not a remote attack — but it is more than the threat
-  model claims.
+- ~~**Anyone who can delete objects in your bucket can roll your notes
+  back.**~~ Fixed after 1.0.0-beta.9: a device that has already synced refuses
+  a storage holding an older state and says so, and "Accept the storage as it
+  is" releases it after a deliberate restore. On beta.9 and earlier the
+  rollback is applied without a word. A device that has *never* synced the
+  vault still has nothing to compare against — keep bucket versioning on.
 - **A connection ticket never expires**, and is derived with fixed parameters
   rather than your vault's. Treat one like a password: send it, use it, delete
   it.

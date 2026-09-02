@@ -96,6 +96,15 @@ export function deriveSyncState(
       tooltip: s.errorTooltip + facts,
     };
   }
+  // Before conflicts: a rolled-back storage is not a state the user resolves
+  // file by file, and nothing was applied, so there is nothing else to report.
+  if (i.lastOutcome === "rolled-back") {
+    return {
+      kind: "error",
+      label: s.rolledBackLabel,
+      tooltip: s.rolledBackTooltip + facts,
+    };
+  }
   if (i.conflicts.length > 0) {
     const { shown, more } = shortlist(i.conflicts, CONFLICTS_IN_TOOLTIP);
     return {

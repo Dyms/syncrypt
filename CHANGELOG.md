@@ -7,8 +7,6 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
-## [Unreleased]
-
 ### Added
 - **A vault shared by devices on different versions now says so** (ADR-0036).
   Devices do not update together, and this project's own history is two
@@ -40,6 +38,35 @@ All notable changes to this project are documented here. Format based on
   by side, and a string comparison puts them in the wrong order.)
 
 ### Fixed
+- **A storage holding an older state than your device is now refused, not
+  applied** (ADR-0038). Deleting the newest manifest made the previous
+  generation authoritative: every file it described read as "remote is newer",
+  the vault was restored to an earlier state, and the device that pulled it
+  republished from there — one deleted object rolled back every device. The old
+  manifest is genuine, so nothing failed closed; restoring a few files is not a
+  bulk change, so nothing asked.
+
+  Each device already remembered the generation it last synced against. A
+  remote generation below it now stops the sync — on pull, on push, and on a
+  plan you already confirmed — and says which two generations disagree. Nothing
+  is downloaded, trashed or published. A bucket someone emptied reads as
+  generation 0 and is the same refusal, rather than a fresh-vault push over the
+  top of an empty history.
+
+  It refuses per sync instead of latching, so a listing that briefly missed the
+  newest object heals by itself on the next attempt. If you restored the bucket
+  from a backup on purpose, the new command **"Accept the storage as it is"**
+  releases it: it re-checks both generations, tells you the two things that
+  could have happened, and on confirmation forgets what this device remembered
+  about the last sync. The next sync then compares both sides from scratch —
+  keeping both versions of anything that differs as a conflict copy, and
+  deleting nothing.
+
+  A device that has *never* synced the vault has nothing to compare against and
+  still adopts whatever is published. Bucket versioning and an independent
+  backup remain the answer to someone holding your write credentials; the
+  threat model now says which part is mechanism and which part is advice.
+
 - **A folder excluded by a bare name was deleted on every other device**
   (ADR-0037). `exclude: ["Archive"]` made the walk skip the folder while
   `syncable()` still claimed those files were this device's business — so the

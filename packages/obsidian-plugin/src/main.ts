@@ -20,6 +20,7 @@ import { WebDavStorage } from "@syncrypt/provider-webdav";
 import type { DataAdapterLike } from "./adapter-types.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
 import { conflictCopyFor, shortlist } from "./conflict-report.js";
+import { AcceptStorageModal } from "./accept-storage-modal.js";
 import { ForgetPathsModal } from "./forget-modal.js";
 import { formatBytes } from "./format-bytes.js";
 import { ReclaimStorageModal } from "./reclaim-modal.js";
@@ -174,6 +175,11 @@ export default class SyncryptPlugin extends Plugin {
       id: "reclaim-storage",
       name: this.strings.commands.reclaimStorage,
       callback: () => void this.reclaimStorage(),
+    });
+    this.addCommand({
+      id: "accept-storage",
+      name: this.strings.commands.acceptStorage,
+      callback: () => void this.acceptStorage(),
     });
 
     // Pull on start (RFC-0004 §Triggers) — once the user unlocks.
@@ -747,6 +753,42 @@ export default class SyncryptPlugin extends Plugin {
     new Notice(this.strings.forgetModal.done(result.forgotten.length), 8000);
     await this.refreshFacts().catch(() => undefined);
     this.renderStatus();
+  }
+
+  /**
+   * Accept a storage that went backwards (ADR-0038) — the escape hatch for a
+   * bucket restored from a backup.
+   *
+   * The rollback is re-checked HERE rather than remembered from the sync that
+   * refused: a stale flag would let the command run against a storage that has
+   * since caught up, and the check costs one manifest read.
+   */
+  async acceptStorage(): Promise<void> {
+    if (this.engine === null) {
+      this.promptUnlock();
+      return;
+    }
+    const engine = this.engine;
+    const { baseGeneration } = await engine.status();
+    // No manifest at all is generation 0 — a wiped bucket is a rollback too.
+    const remoteGeneration = (await engine.verifyAccess())?.generation ?? 0;
+    if (baseGeneration === null || remoteGeneration >= baseGeneration) {
+      new Notice(this.strings.notices.notRolledBack, 6000);
+      return;
+    }
+    const approved = await new Promise<boolean>((resolve) => {
+      new AcceptStorageModal(
+        this.app,
+        remoteGeneration,
+        baseGeneration,
+        resolve,
+        this.strings,
+      ).open();
+    });
+    if (!approved) return;
+    await engine.forgetBase();
+    new Notice(this.strings.notices.storageAccepted, 8000);
+    await this.syncNow("manual");
   }
 
   /**

@@ -25,6 +25,10 @@ export async function startLocalDav(): Promise<LiveDav> {
   privileges.setRights(user, "/", ["all"]);
   const server = new webdav.WebDAVServer({
     port: 0,
+    // Explicitly IPv4-loopback. The library's default binds "::", which is
+    // both wider than a test server should listen on and unavailable on hosts
+    // without IPv6 — and the URL below has always said 127.0.0.1 anyway.
+    hostname: "127.0.0.1",
     httpAuthentication: new webdav.HTTPBasicAuthentication(userManager, "syncrypt-test"),
     privilegeManager: privileges,
     requireAuthentification: true,

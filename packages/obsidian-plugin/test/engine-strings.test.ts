@@ -38,6 +38,7 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     discount: { destructive: 37, effective: 8, paced: 31, spanSeconds: 25_200 },
   },
   "fork-lost": { code: "fork-lost", generation: 42 },
+  "storage-rolled-back": { code: "storage-rolled-back", remote: 17, base: 23 },
   "vault-written-by-newer": {
     code: "vault-written-by-newer",
     writer: "1.0.0-beta.10",
@@ -75,6 +76,7 @@ const OUTCOMES: Record<SyncOutcome, true> = {
   conflicts: true,
   "no-op": true,
   aborted: true,
+  "rolled-back": true,
 };
 
 const en = stringsFor("en");
