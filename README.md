@@ -83,11 +83,9 @@ Data loss, in order of how likely you are to meet it:
   and Windows. Publish both from a case-sensitive device and the second
   silently overwrites the first on a case-insensitive one.
   *Until it is fixed:* avoid names that differ only in case.
-- **A folder excluded by a bare name can be deleted on your other devices.** A
-  sync-profile exclude that matches a *folder* but not the files inside it
-  (`Archive`, `**/temp`) makes this device treat those files as deleted and
-  tombstone them everywhere. *Until it is fixed:* write `Archive/**` alongside
-  `Archive`.
+- ~~**A folder excluded by a bare name can be deleted on your other
+  devices.**~~ Fixed after 1.0.0-beta.9. On beta.9 and earlier, write
+  `Archive/**` alongside `Archive`.
 
 Security:
 

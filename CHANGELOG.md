@@ -40,6 +40,26 @@ All notable changes to this project are documented here. Format based on
   by side, and a string comparison puts them in the wrong order.)
 
 ### Fixed
+- **A folder excluded by a bare name was deleted on every other device**
+  (ADR-0037). `exclude: ["Archive"]` made the walk skip the folder while
+  `syncable()` still claimed those files were this device's business — so the
+  engine saw files it could not list, read them as deleted, and published
+  tombstones for everybody. Two files is below the Safe-Sync floor, so nothing
+  paused to ask.
+
+  This is the third defect of exactly this shape after ADR-0022 and ADR-0025,
+  and the cause underneath all three was never addressed: one rule with two
+  implementations, free to drift. So the fix is not another patch to the second
+  one — both the walk and `syncable()` now answer from a single predicate, in
+  which an exclude pattern matching an ancestor folder excludes the path. Which
+  is also what a person writing `Archive` means, the way a .gitignore would
+  read it.
+
+  One behaviour change on existing profiles: a folder whose NAME matches a
+  file-shaped pattern now takes its contents with it — `exclude: ["*.tmp"]`
+  stops syncing `scratch.tmp/note.md`. Devices carry less after this, never
+  more, which is the direction ADR-0022 and ADR-0025 already made safe.
+
 - **The loser of a fork it never saw lost its edit, silently** (ADR-0035).
   `publishManifest` re-LISTs after its own write, which catches a fork that
   already exists at that instant — not one created a moment later. Publish
