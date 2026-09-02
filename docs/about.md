@@ -43,8 +43,8 @@ only honest proof that "you own your data" isn't a slogan.
 
 - Keep one Obsidian vault identical across macOS, Windows, and Android.
 - Client-side end-to-end encryption; storage sees only ciphertext.
-- Work with storage you already own: any S3-compatible service today; WebDAV is
-  implemented in the engine and waiting on the UI.
+- Work with storage you already own: any S3-compatible service or any WebDAV
+  server.
 - Make every action visible and explainable (sync log, dry-run).
 - Be safe by default: local trash for deletions, version retention,
   confirmation before bulk changes.

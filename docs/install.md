@@ -24,8 +24,8 @@ newest beta.
 
 ## 3. Prepare storage (once, any device)
 
-You need an **S3-compatible bucket**. (WebDAV exists in the engine and is
-tested, but the Obsidian plugin does not expose it yet.)
+You need either an **S3-compatible bucket** or a **WebDAV** server. Both are
+first-class; pick whichever you already own.
 
 **S3 (AWS, MinIO, Cloudflare R2, hosting-provider S3, …):**
 
@@ -35,17 +35,34 @@ tested, but the Obsidian plugin does not expose it yet.)
 - Strongly recommended: enable **bucket versioning** — it's your safety net
   against anyone (or anything) with write access damaging the ciphertext.
 
+**WebDAV (Nextcloud, ownCloud, Apache mod_dav, …):**
+
+- Create a folder dedicated to this vault and point the URL at it, e.g.
+  `https://cloud.example.com/remote.php/dav/files/<user>/syncrypt-vault`.
+- Use an **app password** where the server offers one (Nextcloud and ownCloud
+  do). It can be revoked without changing your account password, and Basic auth
+  sends it on every request.
+- WebDAV has no conditional writes, so two devices publishing in the same
+  instant are resolved by the LIST rule *after* the fact rather than prevented.
+  Nothing is lost; the plugin says so under the settings.
+
 Use an `https://` endpoint. Over plain `http://` your notes stay encrypted,
 but the storage credentials travel in the clear — the plugin warns about this
-in Settings for anything other than a server on your own machine.
+in Settings for anything other than a server on your own machine. For WebDAV
+that credential *is* your password, sent with every single request.
 
 ## 4. Configure Syncrypt
 
 **Settings → Syncrypt:**
 
+- **Storage provider**: S3 or WebDAV. Switching keeps the other provider's
+  settings, so you can compare two backends without retyping either; nothing
+  connects until you unlock.
 - **S3**: endpoint URL, region, bucket, optional prefix (a subfolder within
   the bucket), access key ID + secret. Leave *path-style addressing* on for
   MinIO/R2/self-hosted; some AWS setups need it off.
+- **WebDAV**: the folder URL, username, password (or app password), optional
+  prefix.
 - Heads-up: credentials are stored in the plugin's settings file on this
   device (your notes are protected by the passphrase, which is *not* stored).
   That's why least-privilege credentials matter.

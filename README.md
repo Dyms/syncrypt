@@ -9,13 +9,10 @@ thousand of my notes, and I promised myself that would never happen again.
 
 Syncrypt keeps an [Obsidian](https://obsidian.md) vault identical across
 macOS, Windows and Android using storage **you already own** — any
-S3-compatible bucket (AWS, MinIO, R2, a hosting provider's S3). Everything is
-**encrypted on your device before upload**; the storage never sees a single
-readable byte of your notes.
-
-> **WebDAV** is implemented in the engine and passes the same conformance suite
-> against a real server, but the plugin does not offer it in the UI yet — the
-> Obsidian client speaks S3 only for now.
+S3-compatible bucket (AWS, MinIO, R2, a hosting provider's S3) or any **WebDAV**
+server (Nextcloud, ownCloud, Apache mod_dav). Everything is **encrypted on your
+device before upload**; the storage never sees a single readable byte of your
+notes.
 
 It is deliberately *not* a real-time collaboration tool. It does one thing
 well: move your files between your devices and your storage, safely, in a way

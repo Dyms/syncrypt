@@ -7,7 +7,34 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.10] — 2026-09-02
+
 ### Added
+- **WebDAV is a storage provider you can actually pick** (ADR-0033). It has
+  been a real provider since the storage abstraction was written: the whole
+  `StoragePort`, the same conformance suite, an end-to-end encrypted sync
+  against a live server in CI. It is the *reason* that abstraction is
+  trustworthy — a second protocol with genuinely different capabilities
+  (`conditionalWrites: false`) is what proves the manifest concurrency rule
+  does not secretly depend on S3. And it was unreachable: the plugin hard-wired
+  S3, the settings held one credential group, and the ticket's payload said
+  `provider: "s3"` as a literal type. beta.8 removed the promise from the docs
+  rather than ship the UI.
+
+  Settings now start with a provider dropdown; WebDAV asks for a folder URL,
+  username, password and optional prefix. Switching providers keeps the other
+  one's settings, so two backends can be compared without retyping either, and
+  locks the vault so the next unlock connects to the one you chose. The
+  connection ticket carries the provider, and a build that does not know the
+  provider in a ticket refuses it rather than guessing.
+
+  Two things the UI says out loud, because they are true and not obvious: over
+  plain `http://` a WebDAV password travels in the clear on **every** request
+  (Basic auth), and WebDAV has no conditional writes, so two devices publishing
+  the same generation are resolved by the LIST rule after the fact instead of
+  being prevented. Nothing is lost either way — but it is a different mechanism
+  and you should know which one you are relying on.
+
 - **A vault shared by devices on different versions now says so** (ADR-0036).
   Devices do not update together, and this project's own history is two
   data-loss defects (ADR-0022, ADR-0025) where an older client meeting a newer
@@ -177,6 +204,15 @@ All notable changes to this project are documented here. Format based on
   are what a person opens settings for. A vault with no storage configured
   opens that one section, because a page of closed headings would hide the only
   thing that has to be filled in.
+- **Reclaim storage no longer downloads every manifest ever published.**
+  Reachability is computed over the retained generations, so those are the only
+  manifests whose contents matter; the rest are identified by their key, which
+  is all that pruning them needs. As shipped in beta.9 it fetched all of them —
+  a vault that has synced for a month holds thousands of generations, and one
+  manifest for a three-thousand-file vault is most of a megabyte, so the command
+  would have moved gigabytes over a mobile connection to delete a few objects.
+  A retained manifest that will not decrypt is still fatal rather than skipped:
+  nothing here is ever deleted on a guess.
 - The reclaim mark (`meta/gc-mark.json`) is capped at 20 000 keys, keeping the
   oldest-marked ones. It was the only thing in ADR-0030 with no ceiling;
   forgetting an entry costs nothing, since the object is still unreachable on
