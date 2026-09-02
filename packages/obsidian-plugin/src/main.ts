@@ -5,9 +5,9 @@
 // Triggers (RFC-0004): pull on layout-ready; debounced while-active sync;
 // best-effort push on quit; manual "Sync now".
 
-import { moment, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
+import { moment, Notice, Platform, Plugin, type EventRef, type WorkspaceLeaf } from "obsidian";
 
-import type { SyncEngine, SyncOutcome, SyncReport } from "@syncrypt/sdk";
+import type { StoragePort, SyncEngine, SyncOutcome, SyncReport } from "@syncrypt/sdk";
 import {
   CROSS_DEVICE_KDF_PRESET,
   DESKTOP_KDF_PRESET,
@@ -70,6 +70,13 @@ import { PassphraseModal } from "./unlock.js";
 import { ObsidianVault } from "./vault-adapter.js";
 
 /** How many conflicting paths the summary log line names before it counts. */
+/**
+ * How long to wait after the client declines an auto trigger (ADR-0047).
+ * Short enough that joining Wi-Fi syncs within a minute; long enough that a
+ * long sync is not re-asked constantly.
+ */
+const RETRY_DECLINED_MS = 60_000;
+
 const CONFLICTS_IN_LOG = 20;
 
 export default class SyncryptPlugin extends Plugin {
@@ -84,6 +91,9 @@ export default class SyncryptPlugin extends Plugin {
 
   // Facts feeding the honest status view (see sync-state.ts).
   private lastOutcome: SyncOutcome | null = null;
+  /** Bumped by every lock/unload; a sync from an older one reports nothing. */
+  private session = 0;
+  private vaultEvents: EventRef[] = [];
   private lastSyncAt: number | null = null;
   private lastError: "network" | "other" | null = null;
   private conflictPaths: string[] = [];
@@ -112,9 +122,14 @@ export default class SyncryptPlugin extends Plugin {
       typeof ownDir === "string" ? ownDir : undefined,
     );
 
-    this.settings = withDefaults(await this.loadData(), { mobile: Platform.isMobile });
+    const loaded: unknown = await this.loadData();
+    this.settings = withDefaults(loaded, { mobile: Platform.isMobile });
     this.applyLanguage();
-    await this.saveSettings(); // persist a generated deviceId on first run
+    // Written only when normalization CHANGED something — a generated device
+    // id on first run, a field this version added. It used to be written on
+    // every launch, which put the file holding the storage credentials through
+    // a rewrite each time Obsidian opened, for nothing (ADR-0047).
+    if (JSON.stringify(loaded) !== JSON.stringify(this.settings)) await this.saveSettings();
 
     this.addSettingTab(new SyncryptSettingTab(this.app, this));
     this.registerView(
@@ -384,6 +399,69 @@ export default class SyncryptPlugin extends Plugin {
     ).open();
   }
 
+  /** The configured backend, built the same way wherever it is needed. */
+  private openStorage(): Promise<StoragePort> {
+    const s = this.settings;
+    // Both providers go through requestUrl(): it issues a NATIVE request and
+    // bypasses webview CORS, which is what made Android work at all
+    // (RFC-0006 §Injectable transport). A WebDAV server is no likelier to send
+    // permissive CORS headers than an S3 one.
+    return s.provider === "webdav"
+      ? WebDavStorage.create({
+          baseUrl: s.webdav.url,
+          username: s.webdav.username,
+          password: s.webdav.password,
+          transport: obsidianTransport,
+        })
+      : S3Storage.create({
+          endpoint: s.s3.endpoint,
+          region: s.s3.region,
+          bucket: s.s3.bucket,
+          accessKeyId: s.s3.accessKeyId,
+          secretAccessKey: s.s3.secretAccessKey,
+          forcePathStyle: s.s3.forcePathStyle,
+          transport: obsidianTransport,
+        });
+  }
+
+  /**
+   * Does this passphrase NOT open the vault? (ADR-0048)
+   *
+   * For "Share connection": a ticket is encrypted with whatever was typed, so
+   * a typo produced a ticket that opens into settings nobody can unlock —
+   * discovered on the other device, by someone who cannot fix it. Costs one
+   * Argon2id derivation on a button the user presses deliberately.
+   *
+   * `false` on anything that is not a definite "wrong": an unreachable bucket
+   * says nothing about the passphrase, and must not block sharing.
+   */
+  async passphraseIsWrong(passphrase: string): Promise<boolean> {
+    try {
+      const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+      const engine = await openSyncEngine({
+        storage: await this.openStorage(),
+        vault: new ObsidianVault(adapter, this.settings.profile, this.settings.configSync, this.paths),
+        passphrase,
+        deviceId: this.settings.deviceId,
+        storagePrefix: storagePrefixOf(this.settings),
+        log: this.log,
+        ...(Platform.isMobile ? { affordability: { maxMemoryKiB: 131072 } } : {}),
+      });
+      await engine.verifyAccess();
+      return false;
+    } catch (e) {
+      return isSyncError(e, "CryptoAuthError");
+    }
+  }
+
+  /** Say how old an accepted ticket is — ADR-0020 promised this and never did. */
+  logTicketAge(createdAt: number): void {
+    const days = Math.floor((Date.now() / 1000 - createdAt) / 86_400);
+    const when = new Date(createdAt * 1000).toLocaleString();
+    this.log.info(this.strings.log.ticketAge(when, days));
+    if (days >= 7) new Notice(this.strings.notices.ticketOld(days), 10000);
+  }
+
   /** Used by the Add-device flow: connect with a passphrase already in hand. */
   async connectWithPassphrase(passphrase: string): Promise<void> {
     if (this.isUnlocked()) this.lock(); // settings just changed — rebuild
@@ -407,23 +485,7 @@ export default class SyncryptPlugin extends Plugin {
       // bypasses webview CORS, which is what made Android work at all
       // (RFC-0006 §Injectable transport). A WebDAV server is no likelier to
       // send permissive CORS headers than an S3 one.
-      const storage =
-        s.provider === "webdav"
-          ? await WebDavStorage.create({
-              baseUrl: s.webdav.url,
-              username: s.webdav.username,
-              password: s.webdav.password,
-              transport: obsidianTransport,
-            })
-          : await S3Storage.create({
-              endpoint: s.s3.endpoint,
-              region: s.s3.region,
-              bucket: s.s3.bucket,
-              accessKeyId: s.s3.accessKeyId,
-              secretAccessKey: s.s3.secretAccessKey,
-              forcePathStyle: s.s3.forcePathStyle,
-              transport: obsidianTransport,
-            });
+      const storage = await this.openStorage();
       const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
       this.vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
       this.engine = await openSyncEngine({
@@ -434,7 +496,7 @@ export default class SyncryptPlugin extends Plugin {
         // ADR-0036: recorded in what we publish, compared against what we read.
         clientVersion: this.manifest.version,
         storagePrefix: storagePrefixOf(s),
-        state: new AdapterStateStore(adapter),
+        state: new AdapterStateStore(adapter, this.paths.stateFile),
         log: this.log,
         safeSync: s.safeSync,
         // ADR-0018: creation profile is an explicit setting; mobile devices
@@ -469,7 +531,13 @@ export default class SyncryptPlugin extends Plugin {
 
       // Migration preflight (M6): warn about competing sync systems — never
       // auto-fix (docs/user-guide/migration-from-livesync.md).
-      const warnings = await migrationPreflight(adapter, this.strings);
+      // Warnings only, and it must never cost an unlock the vault already
+      // proved open: `verifyAccess` succeeded above, so an adapter hiccup in a
+      // check ABOUT OTHER PLUGINS is not a reason to tear the engine down
+      // (ADR-0046).
+      const warnings = await migrationPreflight(adapter, this.strings, this.paths).catch(
+        () => [],
+      );
       for (const w of warnings) this.log.warn(w.message);
       if (warnings.length > 0) {
         new Notice(this.strings.notices.migrationWarnings(warnings.length), 10000);
@@ -501,6 +569,14 @@ export default class SyncryptPlugin extends Plugin {
     this.engine = null; // keys become unreachable; GC clears them
     this.vaultPort = null;
     this.engineStatus = null;
+    for (const ref of this.vaultEvents) this.app.vault.offref(ref);
+    this.vaultEvents = [];
+    // A sync may still be running against the engine we just dropped. It can
+    // finish — nothing it does is unsafe — but it belongs to a session that no
+    // longer exists, so its report must not become this session's status and
+    // must not unblock the next unlock's startup pull (ADR-0048).
+    this.session++;
+    this.syncing = false;
     this.renderStatus();
     this.log.info(this.strings.log.locked);
   }
@@ -508,21 +584,23 @@ export default class SyncryptPlugin extends Plugin {
   // -- triggers ---------------------------------------------------------------
 
   private registerVaultEvents(): void {
+    if (this.vaultEvents.length > 0) return; // already listening (ADR-0048)
     const note = (path: string): void => {
       // Our own trash moves and dot-file writes must not retrigger sync.
       if (path.startsWith(this.paths.syncTrash) || path.startsWith(".")) return;
       this.scheduler?.noteChange();
       this.renderStatus(); // dirty state may have changed → "pending"
     };
-    this.registerEvent(this.app.vault.on("modify", (f) => { note(f.path); }));
-    this.registerEvent(this.app.vault.on("create", (f) => { note(f.path); }));
-    this.registerEvent(this.app.vault.on("delete", (f) => { note(f.path); }));
-    this.registerEvent(
-      this.app.vault.on("rename", (f, oldPath) => {
-        note(f.path);
-        note(oldPath);
-      }),
-    );
+    // Kept so `lock()` can detach them. `registerEvent` alone only detaches on
+    // UNLOAD, so every lock→unlock cycle used to add another set and every
+    // keystroke batch ran `note()` once more (ADR-0048).
+    this.vaultEvents = [
+      this.app.vault.on("modify", (f) => { note(f.path); }),
+      this.app.vault.on("create", (f) => { note(f.path); }),
+      this.app.vault.on("delete", (f) => { note(f.path); }),
+      this.app.vault.on("rename", (f, oldPath) => { note(f.path); note(oldPath); }),
+    ];
+    for (const ref of this.vaultEvents) this.registerEvent(ref);
   }
 
   reconfigureScheduler(): void {
@@ -532,7 +610,10 @@ export default class SyncryptPlugin extends Plugin {
     this.scheduler = new AutoSyncScheduler(() => void this.syncNow("auto"), {
       debounceMs: this.settings.autoSync.debounceSec * 1000,
       minIntervalMs: this.settings.autoSync.minIntervalSec * 1000,
+      retryMs: RETRY_DECLINED_MS,
+      periodicMs: this.settings.autoSync.periodicSec * 1000,
     });
+    this.scheduler.armPeriodic();
   }
 
   // -- sync -----------------------------------------------------------------
@@ -542,16 +623,25 @@ export default class SyncryptPlugin extends Plugin {
       if (origin === "manual") this.promptUnlock();
       return;
     }
-    if (this.syncing) return; // engine also serializes; skip queue pile-up
+    if (this.syncing) {
+      // Engine also serializes; skip the queue pile-up — but come back, or
+      // this edit waits for an unrelated one to happen (ADR-0047).
+      if (origin === "auto") this.scheduler?.retryLater();
+      return;
+    }
     if (
       origin === "auto" &&
       !autoSyncAllowed(this.settings.autoSync.wifiOnly, currentConnection())
     ) {
-      // RFC-0004 network policy: skip the AUTO sync; the change stays dirty
-      // and the next trigger (or a manual sync) picks it up.
+      // RFC-0004 network policy: skip the AUTO sync — and ask again later.
+      // "The next trigger picks it up" was only true if the user happened to
+      // edit something else; a phone that went quiet on cellular never synced
+      // those edits at all, however long it later sat on Wi-Fi.
       this.statusEl?.setText(this.strings.status.waitingForWifi);
+      this.scheduler?.retryLater();
       return;
     }
+    const session = this.session;
     this.syncing = true;
     this.syncStartLogLength = this.log.all().filter((l) => l.level === "entry").length;
     this.scheduler?.noteSyncStarted();
@@ -562,21 +652,25 @@ export default class SyncryptPlugin extends Plugin {
         report = await this.handleConfirmation(report);
       }
       this.lastError = null;
-      this.finishReport(report, origin);
+      if (session === this.session) this.finishReport(report, origin);
     } catch (e) {
       this.lastError =
-        isSyncError(e, "StorageTransient") || isSyncError(e, "StorageRateLimited")
-          ? "network"
-          : "other";
-      this.lastSyncAt = Date.now();
+        session === this.session
+          ? isSyncError(e, "StorageTransient") || isSyncError(e, "StorageRateLimited")
+            ? "network"
+            : "other"
+          : this.lastError;
+      if (session === this.session) this.lastSyncAt = Date.now();
       this.log.warn(this.strings.log.syncFailed(String(e)));
       if (origin !== "auto") new Notice(this.strings.notices.syncFailed(String(e)), 8000);
     } finally {
       // Still inside the `syncing` guard: adopting a shared profile changes
       // what this device syncs, so it must not race the next sync (ADR-0024).
-      await this.reconcileSharedConfig().catch(() => undefined);
-      this.syncing = false;
-      await this.refreshFacts().catch(() => undefined);
+      if (session === this.session) {
+        await this.reconcileSharedConfig().catch(() => undefined);
+        this.syncing = false;
+        await this.refreshFacts().catch(() => undefined);
+      }
       this.renderStatus();
     }
   }

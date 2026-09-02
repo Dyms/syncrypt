@@ -210,3 +210,89 @@ describe("numbers a hostile server sends", () => {
     expect(entry?.lastModified).toBe(0);
   });
 });
+
+describe("a 404 in the middle of a walk", () => {
+  it("is an error, not an empty subtree", async () => {
+    // The server listed `objects/ab` as a child collection and then said it
+    // does not exist. Reading that as "nothing in there" hands the caller a
+    // SHORTER list — and a shorter list is what the reclaim sweep acts on
+    // (ADR-0043).
+    let call = 0;
+    const transport: HttpTransport = () => {
+      call++;
+      if (call === 1) {
+        return Promise.resolve({
+          status: 207,
+          headers: {},
+          body: new TextEncoder().encode(
+            multistatus(
+              row("/dav/vault/objects/", "<D:resourcetype><D:collection/></D:resourcetype>") +
+                row("/dav/vault/objects/ab/", "<D:resourcetype><D:collection/></D:resourcetype>"),
+            ),
+          ),
+        });
+      }
+      return Promise.resolve({ status: 404, headers: {}, body: new Uint8Array() });
+    };
+    const s = new WebDavStorage({
+      baseUrl: "http://h/dav/vault",
+      transport,
+      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 2 },
+    });
+    await expect(async () => {
+      for await (const _ of s.list("objects/")) void _;
+    }).rejects.toThrow(/HTTP 404/);
+  });
+
+  it("is still 'empty' for the collection we started at", async () => {
+    const s = new WebDavStorage({
+      baseUrl: "http://h/dav/vault",
+      transport: () => Promise.resolve({ status: 404, headers: {}, body: new Uint8Array() }),
+      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 2 },
+    });
+    const keys: string[] = [];
+    for await (const stat of s.list("objects/")) keys.push(stat.key);
+    expect(keys).toEqual([]);
+  });
+});
+
+describe("DELETE answered with 207", () => {
+  const deleteWith = (body: string): WebDavStorage =>
+    new WebDavStorage({
+      baseUrl: "http://h/dav/vault",
+      transport: () =>
+        Promise.resolve({ status: 207, headers: {}, body: new TextEncoder().encode(body) }),
+      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 2 },
+    });
+
+  it("is a failure when any row inside it failed", async () => {
+    // Otherwise the caller is told it reclaimed storage that is still there.
+    await expect(
+      deleteWith(
+        multistatus(
+          `<D:response><D:href>/dav/vault/objects/x</D:href>` +
+            `<D:status>HTTP/1.1 423 Locked</D:status></D:response>`,
+        ),
+      ).delete("objects/x"),
+    ).rejects.toThrow(/HTTP 207/);
+  });
+
+  it("is a success when every row succeeded", async () => {
+    await expect(
+      deleteWith(
+        multistatus(
+          `<D:response><D:href>/dav/vault/objects/x</D:href>` +
+            `<D:status>HTTP/1.1 200 OK</D:status></D:response>`,
+        ),
+      ).delete("objects/x"),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("credentials in the URL", () => {
+  it("are refused rather than sent on every request line", () => {
+    expect(() => new WebDavClient({ baseUrl: "https://user:pass@h/dav" })).toThrow(/not in the URL/);
+    expect(() => new WebDavClient({ baseUrl: "https://user@h/dav" })).toThrow(/not in the URL/);
+    expect(() => new WebDavClient({ baseUrl: "https://h/dav" })).not.toThrow();
+  });
+});

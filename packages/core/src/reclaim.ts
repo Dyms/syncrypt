@@ -220,8 +220,11 @@ function capMark(since: Record<ObjectKey, number>): Record<ObjectKey, number> {
 }
 
 /** The mark to persist once `plan.sweep` has actually been deleted. */
-export function markAfterSweep(plan: ReclaimPlan): GcMark {
+export function markAfterSweep(plan: ReclaimPlan, deleted: readonly ObjectKey[] = plan.sweep): GcMark {
   const unreachableSince = { ...plan.nextMark.unreachableSince };
-  for (const key of plan.sweep) delete unreachableSince[key];
+  // Only what was ACTUALLY deleted leaves the mark. An interrupted sweep used
+  // to drop every planned key, so the objects it never reached started their
+  // grace window again from zero (ADR-0045).
+  for (const key of deleted) delete unreachableSince[key];
   return { ...plan.nextMark, unreachableSince };
 }

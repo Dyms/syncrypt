@@ -85,6 +85,16 @@ export class WebDavClient {
   constructor(config: WebDavConfig) {
     this.transport = config.transport ?? fetchTransport;
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
+    // Credentials belong in the Authorization header and nowhere else. A URL
+    // like https://user:pass@host/dav would put them into every request line
+    // — and into anything that ever logs or displays a URL (ADR-0043).
+    const parsed = new URL(this.baseUrl);
+    if (parsed.username !== "" || parsed.password !== "") {
+      throw new SyncError(
+        "StorageUnauthorized",
+        "WebDAV: put the username and password in their own fields, not in the URL",
+      );
+    }
     // DECODED, because that is how hrefs come back from the parser. Comparing
     // an encoded base ("/dav/My%20Vault") against a decoded href matched
     // nothing, and every key was dropped in silence (ADR-0039).

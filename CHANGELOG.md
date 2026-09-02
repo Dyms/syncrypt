@@ -7,6 +7,117 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.12] — 2026-09-02
+
+The rest of the second audit pass: the twenty-five findings beta.11 did not
+have time for. Seventeen are fixed. Nothing here is as severe as beta.11's, but
+two of them lose data quietly and one made auto-sync stop for good on a phone.
+
+### Fixed
+- **A device set to keep fewer file versions discarded the ones another device
+  was keeping** (ADR-0045). `versionsToKeep` is a per-device setting applied to
+  a shared structure: a phone configured for one version cut a note's history
+  to one on its next edit of it, and those entries were the only thing keeping
+  the older ciphertext reachable — so the next "Reclaim storage" deleted it. A
+  push may now rotate the retained list; it may not make it shorter than it
+  found it. **The other side of that:** lowering the setting no longer shrinks
+  history that already exists, it only stops it growing.
+
+- **Auto-sync gave up permanently when it was declined once** (ADR-0047). The
+  scheduler is re-armed by a vault edit and nothing else, and two paths in
+  `syncNow` returned before telling it anything: a sync already running, and
+  the Wi-Fi-only policy on cellular. So on a phone — where Wi-Fi-only is the
+  default — you could edit notes on mobile data, stop editing, join Wi-Fi an
+  hour later, and those edits never synced at all. There is now a retry a
+  minute later, which does not reset the minimum-interval guard because no sync
+  actually started.
+
+- **A manifest key or body could carry a path where a device id belongs**
+  (ADR-0044). The key parser accepted "anything up to .json" and the body
+  parser accepted "a non-empty string". A pruned manifest is deleted with no
+  grace window at all, and the body's `device` is interpolated into the
+  filename of a conflicted copy and written to the vault. Both now hold device
+  ids to one shared rule, deliberately wider than what this project generates
+  so older vaults still parse.
+
+- **The migration preflight was blind on a renamed config folder** (ADR-0046).
+  Obsidian lets a vault call that folder anything; this check — the only thing
+  standing between you and two sync engines writing the same vault — was
+  written against the constant `.obsidian` and therefore warned about nothing,
+  silently, for every such vault. It also could no longer fail an unlock: an
+  adapter error in a check about OTHER plugins used to discard a vault that had
+  already been proved open.
+
+- **The sync-state cache was written to a hardcoded path** (ADR-0046). On a
+  renamed config folder the plugin grew a phantom `.obsidian/plugins/syncrypt/`
+  tree beside the real one; on a hand-unzipped install it lived outside the
+  plugin's own folder, where a reinstall would adopt a stranger's base
+  manifest. Upgrading such a vault starts from an empty cache once: one slower
+  sync, nothing at risk.
+
+- **Locking left the sync it was running able to report as the live session**
+  (ADR-0048). `lock()` did not clear the "syncing" flag, so the pull that
+  should follow the next unlock was skipped; and when the orphaned sync
+  finished it wrote the status bar, the settings file and the shared profile of
+  a session the user had ended. Vault event handlers also accumulated with
+  every lock→unlock cycle.
+
+- **A WebDAV 404 in the middle of a listing was read as an empty subtree**
+  (ADR-0043), and a DELETE answered `207 Multi-Status` was reported as success
+  even when the body said the resource was locked. A base URL carrying
+  credentials (`https://user:pass@host/dav`) is now refused, with a message
+  naming the fields to put them in.
+
+- **An interrupted "Reclaim storage" reset every object's safety window**
+  (ADR-0045), because it wrote a mark computed from a listing that stopped
+  early — making the deliberate two-visit flow never finish for anyone who
+  cancels. Cancelling now also stops being mistaken for a rolled-back storage,
+  which the beta.11 guard did report.
+
+- **A connection ticket could be made with the wrong passphrase** (ADR-0048).
+  Nothing checked it, so a typo produced a ticket that opens into settings
+  nobody can unlock — discovered on the other device, by someone who cannot fix
+  it. Sharing now verifies the passphrase against the vault first, and an
+  unreachable bucket does not block sharing because it says nothing about the
+  passphrase.
+
+- **Importing a ticket applied it before saving it** (ADR-0048). If the write
+  failed, this device was pointed at the ticket's storage in memory while the
+  notice said the ticket was rejected. The same message also covered a failure
+  to CONNECT, which is a different thing. And an accepted ticket now says how
+  old it is — ADR-0020 justified tickets never expiring on the grounds that the
+  UI would show exactly this, and it never did.
+
+- **A corrupt sync profile in `data.json` made unlock throw with no way back**
+  (ADR-0047). `profile.include` and `profile.exclude` were the only settings
+  with no type check.
+
+### Added
+- **A periodic pull** (ADR-0047). RFC-0004 promised one for while-active sync
+  and there was none, so an open but idle Obsidian never saw another device's
+  changes until it was restarted or synced by hand. Every 15 minutes on
+  desktop, 30 on mobile, settable, 0 turns it off. It is pushed back by any
+  sync, so a vault that is syncing anyway never does extra work.
+
+### Changed
+- Changing the debounce or the minimum interval now reaches the running
+  scheduler instead of waiting for a restart (ADR-0047).
+- `data.json` — the file holding the storage credentials — is written on
+  startup only when normalization actually changed something, instead of on
+  every single launch (ADR-0047).
+
+### Known, verified, and NOT fixed here
+- **Two devices that share a device id can lose one side's work.** Copying a
+  vault folder to another machine copies `data.json`, which carries the id;
+  both installs then write the same manifest key and ADR-0006's fork rule
+  cannot tell them apart. Reproduced. A read-back after publishing does not
+  close it — the last writer always sees its own bytes — and the fix that does
+  changes the manifest key format, which needs its own design pass rather than
+  a corner of this release.
+- Permanent WebDAV failures (400/405/501/507) are retried before surfacing, and
+  a server that omits `getetag` yields an empty etag. Both need a contract
+  decision rather than a patch; see ADR-0043.
+
 ## [1.0.0-beta.11] — 2026-09-02
 
 A second audit pass, over the parts of the codebase the first one never opened:

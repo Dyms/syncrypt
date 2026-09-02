@@ -38,7 +38,9 @@ class FakeTimers implements TimerHost {
   }
 }
 
-const OPTS = { debounceMs: 15_000, minIntervalMs: 30_000 };
+// periodicMs: 0 keeps the existing cases about the DEBOUNCE path only; the
+// idle-pull timer has its own block at the bottom.
+const OPTS = { debounceMs: 15_000, minIntervalMs: 30_000, retryMs: 60_000, periodicMs: 0 };
 
 describe("AutoSyncScheduler", () => {
   it("fires once after the debounce window, coalescing bursts", () => {
@@ -83,6 +85,96 @@ describe("AutoSyncScheduler", () => {
     expect(fired).toBe(0);
     s.noteChange(); // after dispose: inert
     timers.advance(120_000);
+    expect(fired).toBe(0);
+  });
+});
+
+// ADR-0047. A trigger the client declines is a trigger deferred, and an open
+// window eventually pulls even when nothing was edited here.
+describe("a declined trigger comes back", () => {
+  it("re-arms without touching the minimum-interval guard", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, OPTS, timers);
+
+    s.noteChange();
+    timers.advance(15_000);
+    expect(fired).toBe(1); // fired… and the client declined it (offline)
+    s.retryLater();
+
+    timers.advance(59_999);
+    expect(fired).toBe(1);
+    timers.advance(1);
+    expect(fired).toBe(2); // asked again, with no new edit
+  });
+
+  it("keeps asking until the client stops declining", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, OPTS, timers);
+    s.noteChange();
+    timers.advance(15_000);
+    for (let i = 0; i < 5; i++) {
+      s.retryLater();
+      timers.advance(60_000);
+    }
+    expect(fired).toBe(6);
+  });
+
+  it("stops on dispose", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, OPTS, timers);
+    s.retryLater();
+    s.dispose();
+    timers.advance(600_000);
+    expect(fired).toBe(0);
+  });
+});
+
+describe("the idle pull", () => {
+  const PERIODIC = { ...OPTS, periodicMs: 900_000 };
+
+  it("fires with no local edit at all", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, PERIODIC, timers);
+    s.armPeriodic();
+    timers.advance(899_999);
+    expect(fired).toBe(0);
+    timers.advance(1);
+    expect(fired).toBe(1);
+  });
+
+  it("is pushed back by every sync, so a busy vault does not double-sync", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, PERIODIC, timers);
+    s.armPeriodic();
+    timers.advance(800_000);
+    s.noteSyncStarted(); // something else synced — the idle clock restarts
+    timers.advance(800_000);
+    expect(fired).toBe(0);
+    timers.advance(100_000);
+    expect(fired).toBe(1);
+  });
+
+  it("can be turned off", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, { ...OPTS, periodicMs: 0 }, timers);
+    s.armPeriodic();
+    timers.advance(24 * 60 * 60 * 1000);
+    expect(fired).toBe(0);
+  });
+
+  it("stops on dispose", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, PERIODIC, timers);
+    s.armPeriodic();
+    s.dispose();
+    timers.advance(24 * 60 * 60 * 1000);
     expect(fired).toBe(0);
   });
 });

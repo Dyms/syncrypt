@@ -300,7 +300,15 @@ export function buildNextManifest(
 
   const retain = (path: VaultPath, prior: ManifestEntry | undefined): void => {
     if (prior === undefined || ctx.versionsToKeep <= 0) return;
-    history[path] = [prior, ...(history[path] ?? [])].slice(0, ctx.versionsToKeep);
+    const existing = history[path] ?? [];
+    // `versionsToKeep` is a per-DEVICE setting applied to a SHARED structure.
+    // A phone set to keep one version used to cut a path's history to one on
+    // its next edit of it — discarding versions the desktop was retaining, and
+    // handing their ciphertext to the next reclaim (ADR-0045). A push may add
+    // its own version and rotate the list; it may not make the list shorter
+    // than it found it.
+    const depth = Math.max(ctx.versionsToKeep, existing.length);
+    history[path] = [prior, ...existing].slice(0, depth);
   };
 
   for (const [path, entry] of Object.entries(uploaded)) {

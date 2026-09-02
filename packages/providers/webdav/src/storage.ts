@@ -153,7 +153,16 @@ export class WebDavStorage implements StoragePort {
           }),
         this.retryOpts,
       );
-      if (res.status === 404) return; // nothing under this prefix
+      // A 404 means "this collection is not there", which is a real answer
+      // for the collection we STARTED at — an empty vault, a prefix nothing
+      // has been written under yet. It is not an answer for a collection the
+      // server itself just told us exists: that is the server contradicting
+      // itself, and treating it as "empty" is how an error becomes a shorter
+      // list (ADR-0043). Every other provider raises here.
+      if (res.status === 404) {
+        if (collection === startCollection) return;
+        throw normalizeDavError(res.status, collection, "list");
+      }
       if (!res.ok) throw normalizeDavError(res.status, collection, "list");
       const entries: DavEntry[] = parseMultistatus(res.text());
       for (const entry of entries) {
@@ -183,9 +192,14 @@ export class WebDavStorage implements StoragePort {
   async delete(key: ObjectKey): Promise<void> {
     await withRetry(async () => {
       const res = await this.client.send({ method: "DELETE", key, operation: "delete" });
-      if (!res.ok && res.status !== 404) {
-        throw normalizeDavError(res.status, key, "delete"); // 404 = idempotent success
+      if (res.status === 404) return; // idempotent success
+      // 207 is "here is what happened to each resource", and some of it may be
+      // a failure. Reporting the object gone when the server said otherwise
+      // leaves the caller believing storage was reclaimed that was not.
+      if (res.status === 207 && failedInMultistatus(res.text())) {
+        throw normalizeDavError(207, key, "delete");
       }
+      if (!res.ok) throw normalizeDavError(res.status, key, "delete");
     }, this.retryOpts);
   }
 
@@ -205,6 +219,15 @@ export class WebDavStorage implements StoragePort {
  * fails instead of hanging.
  */
 const MAX_COLLECTIONS = 100_000;
+
+/** Any non-2xx row in a multistatus body — the server saying part of it failed. */
+function failedInMultistatus(xml: string): boolean {
+  for (const m of xml.matchAll(/<(?:[A-Za-z0-9_-]+:)?status[^>]*>([^<]*)</gi)) {
+    const code = /\s(\d{3})\s/.exec(` ${(m[1] ?? "").trim()} `)?.[1];
+    if (code !== undefined && !(Number(code) >= 200 && Number(code) < 300)) return true;
+  }
+  return false;
+}
 
 function parentOf(key: ObjectKey): string {
   const slash = key.lastIndexOf("/");

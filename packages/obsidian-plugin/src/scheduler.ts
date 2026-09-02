@@ -7,6 +7,20 @@
 export interface SchedulerOptions {
   debounceMs: number; // default desktop: 15 000
   minIntervalMs: number; // default desktop: 30 000
+  /**
+   * How long to wait before trying again when the trigger was DECLINED —
+   * offline, on cellular under a Wi-Fi-only policy, or a sync already running.
+   * Without this the change was simply dropped: the scheduler is re-armed only
+   * by a vault edit, so a phone that went quiet on cellular never synced those
+   * edits at all, however long it later sat on Wi-Fi (ADR-0047).
+   */
+  retryMs: number; // default: 60 000
+  /**
+   * Pull even when nothing changed here, so an open window eventually sees
+   * another device's work (RFC-0004 §Triggers promised this and it was never
+   * implemented). 0 disables it.
+   */
+  periodicMs: number; // default desktop: 900 000 (15 min)
 }
 
 type TimerId = ReturnType<typeof setTimeout>;
@@ -27,6 +41,7 @@ const defaultHost: TimerHost = {
 
 export class AutoSyncScheduler {
   private timer: TimerId | null = null;
+  private periodic: TimerId | null = null;
   private lastSyncAt = -Infinity;
   private disposed = false;
 
@@ -45,6 +60,27 @@ export class AutoSyncScheduler {
   /** Call whenever ANY sync starts (auto or manual) — resets the interval guard. */
   noteSyncStarted(): void {
     this.lastSyncAt = this.host.now();
+    this.armPeriodic();
+  }
+
+  /**
+   * The trigger fired and the client declined it. Come back — do NOT touch
+   * `lastSyncAt`, because no sync started and the interval guard must not be
+   * reset by something that did not happen.
+   */
+  retryLater(): void {
+    if (this.disposed) return;
+    this.schedule(this.opts.retryMs);
+  }
+
+  /** Start the idle pull timer; also called after every sync. */
+  armPeriodic(): void {
+    if (this.disposed || this.opts.periodicMs <= 0) return;
+    if (this.periodic !== null) this.host.clear(this.periodic);
+    this.periodic = this.host.set(() => {
+      this.periodic = null;
+      this.trigger();
+    }, this.opts.periodicMs);
   }
 
   private schedule(delayMs: number): void {
@@ -65,5 +101,7 @@ export class AutoSyncScheduler {
     this.disposed = true;
     if (this.timer !== null) this.host.clear(this.timer);
     this.timer = null;
+    if (this.periodic !== null) this.host.clear(this.periodic);
+    this.periodic = null;
   }
 }

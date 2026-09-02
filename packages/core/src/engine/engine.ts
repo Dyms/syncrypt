@@ -577,7 +577,7 @@ class Engine implements SyncEngine {
     return this.exclusive(async () => {
       await this.loadStateOnce();
       const plan = await computeReclaimPlan(this.ctx, signal);
-      this.refuseReclaimOnRollback(plan);
+      this.refuseReclaimOnRollback(plan, signal);
       return plan;
     });
   }
@@ -589,8 +589,13 @@ class Engine implements SyncEngine {
    * first recommendation — would need. `pull` and `push` already refuse; this
    * is the third door into the same bucket and it was left open.
    */
-  private refuseReclaimOnRollback(plan: ReclaimPlan): void {
+  private refuseReclaimOnRollback(plan: ReclaimPlan, signal?: AbortSignal): void {
     const base = this.base;
+    // A cancelled run stopped listing early, so its plan reports whatever it
+    // had seen — generation 0 if it stopped immediately. That is not a
+    // rollback, and saying so would put a frightening line in the log for
+    // someone who simply pressed cancel.
+    if (signal?.aborted === true) return;
     if (base === null || plan.generation >= base.generation) return;
     this.ctx.log.notice({
       code: "storage-rolled-back",
@@ -611,7 +616,7 @@ class Engine implements SyncEngine {
       // re-check IS the safety property — never sweep a stale plan.
       await this.loadStateOnce();
       const plan = await computeReclaimPlan(this.ctx, signal);
-      this.refuseReclaimOnRollback(plan);
+      this.refuseReclaimOnRollback(plan, signal);
       const deleted: ObjectKey[] = [];
       let bytesFreed = 0;
       const sizes = new Map(
@@ -634,7 +639,13 @@ class Engine implements SyncEngine {
 
       // Persist what is still waiting so the next run does not restart their
       // clocks. A failure here costs one more grace window, never a file.
-      await writeGcMark(this.ctx, markAfterSweep(plan)).catch(() => undefined);
+      //
+      // NOT written when the run was cancelled: the plan behind it was
+      // computed from a listing that stopped early, so persisting it would
+      // reset the grace clocks of objects nobody looked at (ADR-0045).
+      if (signal?.aborted !== true) {
+        await writeGcMark(this.ctx, markAfterSweep(plan, deleted)).catch(() => undefined);
+      }
 
       this.ctx.log.notice({
         code: "storage-reclaimed",

@@ -25,8 +25,22 @@ export function manifestKey(generation: number, device: DeviceId): ObjectKey {
   if (!Number.isInteger(generation) || generation < 1) {
     throw new SyncError("ManifestCorrupt", `invalid generation: ${generation}`);
   }
+  // Belt and braces on the way OUT too: nothing should be able to build a key
+  // that is a path (ADR-0044), whatever the id came from.
+  if (!DEVICE_ID_RE.test(device)) {
+    throw new SyncError("ManifestCorrupt", `invalid device id: ${device}`);
+  }
   return `${MANIFESTS_PREFIX}${String(generation).padStart(GENERATION_PAD, "0")}-${device}.json`;
 }
+
+/**
+ * What a device id may look like — everywhere it is read back rather than
+ * generated. Generated ones are `dev-<16 hex>`; this is deliberately wider, so
+ * that vaults written by earlier versions still parse, and deliberately closed
+ * on the characters that turn a name into a path. Dots are allowed inside an
+ * id and an id that is ONLY dots is not — "." and ".." are directories.
+ */
+export const DEVICE_ID_RE = /^(?!\.+$)[A-Za-z0-9_.-]{1,64}$/;
 
 /** Parse a manifest object key back into (generation, deviceId); null if foreign. */
 export function parseManifestKey(
@@ -36,10 +50,19 @@ export function parseManifestKey(
     ? key.slice(MANIFESTS_PREFIX.length)
     : null;
   if (!name?.endsWith(".json")) return null;
+  // The device segment is CONSTRAINED, not "anything up to .json". This key
+  // comes out of storage, which is untrusted (ADR-0044): it round-trips back
+  // through `manifestKey()` unchanged and is handed to `delete()`, so a
+  // segment containing "/" or ".." is a path, not a device. Anything that is
+  // not shaped like a device id is a foreign object — which this function
+  // already knows how to say.
   const m = /^(\d+)-(.+)\.json$/.exec(name);
   if (!m?.[1] || !m[2]) return null;
   const generation = Number(m[1]);
   if (!Number.isSafeInteger(generation) || generation < 1) return null;
+  // ONE rule for what a device id may be, shared with the body parser and with
+  // key construction — not three regexes that look alike (ADR-0044).
+  if (!DEVICE_ID_RE.test(m[2])) return null;
   return { generation, device: m[2] };
 }
 
@@ -97,7 +120,7 @@ function validateTombstone(path: string, v: unknown): Tombstone {
   if (!isEpochSeconds(deletedAt)) {
     throw corrupt(`tombstone for "${path}" has invalid deletedAt`);
   }
-  if (typeof device !== "string" || device.length === 0) {
+  if (typeof device !== "string" || !DEVICE_ID_RE.test(device)) {
     throw corrupt(`tombstone for "${path}" has invalid device`);
   }
   return { deletedAt, device };
@@ -127,7 +150,10 @@ export function parseManifest(bytes: Uint8Array): Manifest {
   ) {
     throw corrupt("invalid generation");
   }
-  if (typeof raw.device !== "string" || raw.device.length === 0) {
+  // Same charset as the key parser. `device` is interpolated into the name of
+  // a conflicted copy and written to the vault without re-canonicalization, so
+  // a "/" or ".." in it steers where that file lands (ADR-0044).
+  if (typeof raw.device !== "string" || !DEVICE_ID_RE.test(raw.device)) {
     throw corrupt("invalid device");
   }
   if (!isEpochSeconds(raw.updatedAt)) throw corrupt("invalid updatedAt");

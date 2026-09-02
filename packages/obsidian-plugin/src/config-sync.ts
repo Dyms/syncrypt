@@ -85,6 +85,14 @@ export interface ConfigPaths {
   readonly sharedProfile: string;
   /** Syncrypt's own recycle bin (ADR-0010 §1). Never synced, never walked. */
   readonly syncTrash: string;
+  /**
+   * The base-manifest cache (ADR-0011), inside OUR OWN plugin folder wherever
+   * that is. It used to be a constant, so a vault with a renamed config folder
+   * grew a phantom `.obsidian/plugins/syncrypt/` tree beside the real one, and
+   * a hand-unzipped install kept its state outside its own directory — where a
+   * reinstall would adopt a stranger's base manifest (ADR-0046).
+   */
+  readonly stateFile: string;
   /** Is this path the config folder itself, or something inside it? */
   inside(path: string): boolean;
   /**
@@ -109,6 +117,9 @@ export function configPaths(dir: string, ownPluginDir?: string): ConfigPaths {
 
   const sharedProfile = `${base}/syncrypt-config-sync.json`;
   const syncTrash = `${base}/sync-trash`;
+  // Our own folder if the client told us where it is; the conventional place
+  // under the vault's OWN config folder otherwise — never the constant
+  // ".obsidian" of a vault that does not use it (ADR-0046).
   // Where Obsidian actually put us (`Plugin.manifest.dir`). Normalized the same
   // way as the config folder, and simply absent on a client that does not
   // report it — in which case the conventional location below still stands.
@@ -190,11 +201,14 @@ export function configPaths(dir: string, ownPluginDir?: string): ConfigPaths {
     return false;
   };
 
+  const home = ownDir !== "" ? ownDir : `${base}/plugins/${SYNCRYPT_PLUGIN_ID}`;
+
   return {
     dir: base,
     ownPluginDir: ownDir,
     sharedProfile,
     syncTrash,
+    stateFile: `${home}/sync-state.json`,
     inside,
     hardExcluded,
     allowed,

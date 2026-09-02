@@ -56,6 +56,12 @@ export interface SyncryptSettings {
     minIntervalSec: number;
     /** Skip AUTO syncs on cellular (RFC-0004; default ON on mobile). */
     wifiOnly: boolean;
+    /**
+     * Pull on a timer while the app is open, so another device's work arrives
+     * without an edit here to trigger it (RFC-0004 §Triggers). 0 = never.
+     * Longer on mobile, where every wake-up costs battery.
+     */
+    periodicSec: number;
   };
   /** Vault-creation KDF profile (ADR-0018); affects only the FIRST device. */
   kdfProfile: "cross-device" | "desktop-only";
@@ -102,6 +108,7 @@ export const DEFAULT_SETTINGS: SyncryptSettings = {
     debounceSec: 15,
     minIntervalSec: 30,
     wifiOnly: false,
+    periodicSec: 900, // 15 min
   },
   kdfProfile: "cross-device",
   deviceId: "",
@@ -118,7 +125,7 @@ export function withDefaults(
 ): SyncryptSettings {
   const raw = (typeof loaded === "object" && loaded !== null ? loaded : {}) as Partial<SyncryptSettings>;
   const autoSyncDefaults = platform.mobile
-    ? { ...DEFAULT_SETTINGS.autoSync, minIntervalSec: 120, wifiOnly: true }
+    ? { ...DEFAULT_SETTINGS.autoSync, minIntervalSec: 120, wifiOnly: true, periodicSec: 1800 }
     : DEFAULT_SETTINGS.autoSync;
   return {
     language:
@@ -131,9 +138,12 @@ export function withDefaults(
     // way rather than leaving the plugin pointed at nothing.
     provider: raw.provider === "webdav" ? "webdav" : "s3",
     webdav: { ...DEFAULT_SETTINGS.webdav, ...raw.webdav },
+    // Checked like every other field. A non-array here — a hand-edited
+    // data.json, a half-written file — reached `new ProfileMatcher` and threw
+    // inside unlock, with no way back except editing data.json by hand.
     profile: {
-      include: raw.profile?.include ?? DEFAULT_SETTINGS.profile.include,
-      exclude: raw.profile?.exclude ?? DEFAULT_SETTINGS.profile.exclude,
+      include: globList(raw.profile?.include, DEFAULT_SETTINGS.profile.include),
+      exclude: globList(raw.profile?.exclude, DEFAULT_SETTINGS.profile.exclude),
     },
     configSync: {
       ...DEFAULT_CONFIG_SYNC,
@@ -147,6 +157,14 @@ export function withDefaults(
     kdfProfile: raw.kdfProfile ?? DEFAULT_SETTINGS.kdfProfile,
     deviceId: raw.deviceId !== undefined && raw.deviceId !== "" ? raw.deviceId : generateDeviceId(),
   };
+}
+
+function globList(raw: unknown, fallback: readonly string[]): string[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  const clean = raw.filter((x): x is string => typeof x === "string");
+  // An array that lost every entry to the filter is corrupt, not "sync
+  // nothing": falling back is the direction that keeps a vault working.
+  return clean.length > 0 || raw.length === 0 ? clean : [...fallback];
 }
 
 export function generateDeviceId(): string {

@@ -532,14 +532,33 @@ export class SyncryptSettingTab extends PluginSettingTab {
       t.settings.debounce,
       t.settings.debounceDesc,
       () => s.autoSync.debounceSec,
-      (v) => (s.autoSync.debounceSec = v),
+      (v) => {
+        s.autoSync.debounceSec = v;
+        // The scheduler captures its timings at construction, so a new number
+        // used to take effect only after a lock/unlock or a restart — with
+        // nothing on screen saying so (ADR-0047).
+        this.plugin.reconfigureScheduler();
+      },
     );
     num(
       autoEl,
       t.settings.minInterval,
       t.settings.minIntervalDesc,
       () => s.autoSync.minIntervalSec,
-      (v) => (s.autoSync.minIntervalSec = v),
+      (v) => {
+        s.autoSync.minIntervalSec = v;
+        this.plugin.reconfigureScheduler();
+      },
+    );
+    num(
+      autoEl,
+      t.settings.periodicPull,
+      t.settings.periodicPullDesc,
+      () => s.autoSync.periodicSec,
+      (v) => {
+        s.autoSync.periodicSec = v;
+        this.plugin.reconfigureScheduler();
+      },
     );
 
     new Setting(devicesEl)

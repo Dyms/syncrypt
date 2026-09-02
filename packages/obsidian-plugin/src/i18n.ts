@@ -130,6 +130,8 @@ const EN = {
     bulkCancelled: "Bulk change NOT applied — cancelled by you.",
     configSyncAdopted: (summary: string) =>
       `Obsidian-settings sync: adopted the shared profile from this vault (${summary}).`,
+    ticketAge: (when: string, days: number) =>
+      `Connection ticket accepted. Created ${when} (${String(days)} days ago) — delete the copy you transferred.`,
     configSyncPublished:
       "Obsidian-settings sync: published this device's profile for the other devices.",
     configSyncUnreadable:
@@ -256,6 +258,8 @@ const EN = {
       `Syncrypt: conflict in "${path}" — both versions kept, see the sync log.`,
     alreadyInSync: "Syncrypt: already in sync.",
     ticketCopied: "Ticket copied.",
+    sharePassphraseWrong:
+      "Syncrypt: that passphrase does not open this vault — the ticket would be unusable on the other device.",
     ticketRejected: (detail: string) => `Syncrypt: ticket rejected — ${detail}`,
     ticketImportedNoCreds:
       "Connection settings imported WITHOUT credentials — enter the storage keys in Settings, then Unlock.",
@@ -264,6 +268,8 @@ const EN = {
     configSyncAdopted: "Syncrypt: Obsidian-settings profile updated from another device.",
     configSyncSecretPlugins: (names: string) =>
       `Syncrypt: another device turned on settings sync for ${names} — plugins that can keep API keys in data.json. Turn it off here if you would rather not.`,
+    ticketOld: (days: number) =>
+      `Syncrypt: this ticket was created ${String(days)} days ago. If you did not make it just now, delete it wherever you sent it and share a new one.`,
     hashCacheCleared: "Syncrypt: re-hashing the vault — this sync will take longer than usual.",
     storageAccepted:
       "Syncrypt: storage accepted. The next sync compares both sides from scratch — anything that differs is kept as a conflict copy.",
@@ -422,6 +428,9 @@ const EN = {
     wifiOnlyDesc: "Skip automatic syncs on cellular data (manual Sync now always works).",
     debounce: "Debounce (seconds)",
     debounceDesc: "Quiet time after the last edit before an auto-sync.",
+    periodicPull: "Pull every (seconds)",
+    periodicPullDesc:
+      "While Obsidian is open, check for other devices' changes on a timer even if nothing changed here. 0 turns it off.",
     minInterval: "Minimum interval (seconds)",
     minIntervalDesc: "At most one auto-sync per this many seconds.",
 
@@ -554,6 +563,8 @@ const RU: Strings = {
     bulkCancelled: "Массовое изменение НЕ применено — вы отменили его.",
     configSyncAdopted: (summary: string) =>
       `Синхронизация настроек Obsidian: применён общий профиль хранилища (${summary}).`,
+    ticketAge: (when: string, days: number) =>
+      `Тикет подключения принят. Создан ${when} (${String(days)} дн. назад) — удали переданную копию.`,
     configSyncPublished:
       "Синхронизация настроек Obsidian: профиль этого устройства опубликован для остальных.",
     configSyncUnreadable:
@@ -678,6 +689,8 @@ const RU: Strings = {
       `Syncrypt: конфликт в «${path}» — обе версии сохранены, подробности в журнале.`,
     alreadyInSync: "Syncrypt: уже синхронизировано.",
     ticketCopied: "Тикет скопирован.",
+    sharePassphraseWrong:
+      "Syncrypt: эта парольная фраза не открывает хранилище — тикет на другом устройстве не заработает.",
     ticketRejected: (detail: string) => `Syncrypt: тикет отклонён — ${detail}`,
     ticketImportedNoCreds:
       "Настройки подключения импортированы БЕЗ ключей доступа — введите ключи в настройках и разблокируйте.",
@@ -687,6 +700,8 @@ const RU: Strings = {
     configSyncAdopted: "Syncrypt: профиль настроек Obsidian обновлён с другого устройства.",
     configSyncSecretPlugins: (names: string) =>
       `Syncrypt: другое устройство включило синхронизацию настроек для ${names} — эти плагины могут хранить ключи API в data.json. Если не нужно — выключите здесь.`,
+    ticketOld: (days: number) =>
+      `Syncrypt: этому тикету ${String(days)} дн. Если ты не создавал его только что — удали его там, куда отправлял, и поделись новым.`,
     hashCacheCleared: "Syncrypt: пересчитываю хеши хранилища — эта синхронизация будет дольше обычной.",
     storageAccepted:
       "Syncrypt: хранилище принято. Следующая синхронизация сверит обе стороны с нуля — всё расходящееся сохранится как конфликт.",
@@ -847,6 +862,9 @@ const RU: Strings = {
     wifiOnlyDesc: "Не синхронизировать автоматически по мобильной сети (ручная всегда доступна).",
     debounce: "Задержка (секунды)",
     debounceDesc: "Сколько тишины после последней правки ждать до автосинхронизации.",
+    periodicPull: "Проверять раз в (секунды)",
+    periodicPullDesc:
+      "Пока Obsidian открыт, забирать изменения с других устройств по таймеру, даже если здесь ничего не менялось. 0 — выключено.",
     minInterval: "Минимальный интервал (секунды)",
     minIntervalDesc: "Не чаще одной автосинхронизации за столько секунд.",
 

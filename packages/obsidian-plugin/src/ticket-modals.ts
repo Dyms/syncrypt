@@ -47,6 +47,14 @@ export class ShareConnectionModal extends Modal {
 
   private async generate(): Promise<void> {
     if (this.passphrase.length === 0) return;
+    // The passphrase is checked against the VAULT first. A typo used to
+    // produce a ticket that decrypts into settings nobody can unlock, and the
+    // person only found out on the other device (ADR-0048).
+    const wrong = await this.plugin.passphraseIsWrong(this.passphrase);
+    if (wrong) {
+      new Notice(this.plugin.t().notices.sharePassphraseWrong, 8000);
+      return;
+    }
     const settings = this.plugin.settings;
     const s3 = settings.s3;
     const dav = settings.webdav;
@@ -133,8 +141,21 @@ export class AddDeviceModal extends Modal {
     try {
       // Decrypt LOCALLY first (fail-closed); only then touch settings/network.
       const payload = await openConnectionTicket(this.ticket, this.passphrase);
-      this.plugin.settings = applyTicketToSettings(this.plugin.settings, payload);
-      await this.plugin.saveSettings();
+      // A ticket never expires (ADR-0020), on the stated grounds that it
+      // carries its creation time so a UI can show it. The UI never did. One
+      // recovered from a chat a year later used to enrol a device in silence.
+      this.plugin.logTicketAge(payload.createdAt);
+      // Swap the live settings only once the new ones are on disk. The old
+      // order left this device pointed at the ticket's provider in memory when
+      // the write failed, while the notice said the ticket was rejected.
+      const previous = this.plugin.settings;
+      this.plugin.settings = applyTicketToSettings(previous, payload);
+      try {
+        await this.plugin.saveSettings();
+      } catch (e) {
+        this.plugin.settings = previous;
+        throw e;
+      }
       const passphrase = this.passphrase;
       this.passphrase = "";
       this.close();
@@ -143,9 +164,15 @@ export class AddDeviceModal extends Modal {
         return;
       }
       new Notice(t.notices.ticketImported);
+      // Connecting is a SEPARATE step: the ticket was accepted and saved
+      // whatever happens next, so a connection failure must not be reported
+      // as "ticket rejected".
+      // Reports its own failure — a connection problem is not a rejected
+      // ticket, and the ticket has already been accepted and saved.
       await this.plugin.connectWithPassphrase(passphrase);
     } catch (e) {
-      // Nothing was applied — openConnectionTicket is all-or-nothing.
+      // Nothing was applied — openConnectionTicket is all-or-nothing, and the
+      // settings are rolled back above if persisting them failed.
       new Notice(t.notices.ticketRejected(String(e)), 8000);
     }
   }
