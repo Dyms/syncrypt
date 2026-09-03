@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createSyncEngine, parseManifest, type SyncEngine } from "../src/index.js";
+import { createSyncEngine, gcMarkKey, parseManifest, type SyncEngine } from "../src/index.js";
 import {
   FixedClock, IdentityCrypto, MemoryLog, MemoryStateStore, MemoryStorage, MemoryVault,
 } from "../src/testing/index.js";
@@ -81,7 +81,9 @@ describe("an interrupted reclaim does not restart everyone's grace clocks", () =
 
     await d.engine.reclaimStorage(); // marks the orphan, deletes nothing yet
     const mark = async (): Promise<string> =>
-      storage.get("meta/gc-mark.json").then((b) => new TextDecoder().decode(b), () => "MISSING");
+      storage
+        .get(gcMarkKey("dev-a"))
+        .then((b) => new TextDecoder().decode(b), () => "MISSING");
     const after1 = await mark();
     expect(after1).not.toBe("MISSING");
 

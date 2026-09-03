@@ -6,6 +6,8 @@
 // rejected (see keys.ts) so a poisoned keyfile cannot OOM a device.
 
 import {
+  MANIFESTS_PREFIX,
+  OBJECTS_PREFIX,
   SyncError,
   isSyncError,
   type KdfParams,
@@ -125,8 +127,18 @@ export interface OpenVaultCryptoOptions {
  *
  * Two fresh devices may race to create different salts; the stored file is
  * authoritative: we PUT with create-if-absent where supported, then GET back
- * and derive from whatever actually won. Divergence is thereby impossible
- * (worst case on a last-writer-wins backend: one device re-derives).
+ * and derive from whatever actually won.
+ *
+ * Creating it is the dangerous half. `meta/keyfile-params.json` is the only
+ * copy of the Argon2id salt, and every byte in the vault was encrypted under
+ * a key derived from it: overwrite it and the data is not lost-and-restorable,
+ * it is unreadable for ever, by every device, with the correct passphrase in
+ * hand. A backend without conditional writes cannot refuse the overwrite for
+ * us — WebDAV declares `conditionalWrites: false` by design — so "the file was
+ * not there" must be established, not assumed from one answer. ADR-0039: the
+ * server is untrusted input, and a spurious 404 is a thing servers and proxies
+ * do. Hence two gates before a create: ask twice, and refuse outright if the
+ * vault already holds anything that only the missing salt could decrypt.
  */
 export async function openVaultCrypto(
   opts: OpenVaultCryptoOptions,
@@ -142,7 +154,20 @@ export async function openVaultCrypto(
     if (!isSyncError(e, "StorageNotFound")) throw e;
   }
 
+  // Gate 1. One more read before believing it is not there. A single dropped
+  // or lied-about 404 costs one extra request here — and the whole vault if we
+  // skip it.
+  stored ??= await tryGet(storage, key);
+
   if (stored === null) {
+    // Gate 2. A vault that holds ciphertext holds the keyfile that made it
+    // readable — the protocol produces no other state. "Data, but no salt" is
+    // therefore never a vault to initialize; it is a listing that lied, a
+    // prefix typed wrong, a bucket pointed at by mistake, or the salt already
+    // gone. Creating a fresh salt over any of those is the one mistake with
+    // no way back, so this refuses instead, and says which it is.
+    await refuseIfVaultHasContent(storage, prefix);
+
     const preset = opts.defaults ?? CROSS_DEVICE_KDF_PRESET;
     // The creation guard too: never create a vault THIS device cannot unlock.
     assertAffordable(preset.memoryKiB, opts.affordability);
@@ -168,6 +193,50 @@ export async function openVaultCrypto(
   // of letting Argon2id OOM the webview.
   assertAffordable(params.memoryKiB, opts.affordability);
   return SyncryptCrypto.create(opts.passphrase, params);
+}
+
+/** GET that answers null for "not there" and rethrows everything else. */
+async function tryGet(storage: StoragePort, key: ObjectKey): Promise<Uint8Array | null> {
+  try {
+    return await storage.get(key);
+  } catch (e) {
+    if (isSyncError(e, "StorageNotFound")) return null;
+    throw e;
+  }
+}
+
+/** The first key under a prefix, or null. Stops after one — this is a probe. */
+async function firstKeyUnder(storage: StoragePort, prefix: string): Promise<ObjectKey | null> {
+  for await (const stat of storage.list(prefix)) return stat.key;
+  return null;
+}
+
+/**
+ * Refuse to create a salt for a vault that already has data under it.
+ *
+ * A LIST that cannot answer is NOT taken as "empty": the error propagates.
+ * Being unable to prove the vault empty is exactly the state in which
+ * creating a new salt must not happen, and every sync lists these prefixes
+ * anyway, so a storage that cannot list is not a storage this vault works on.
+ */
+async function refuseIfVaultHasContent(storage: StoragePort, prefix: string): Promise<void> {
+  const at = (relative: string): string =>
+    prefix === "" ? relative : `${prefix}/${relative}`;
+  for (const [what, where] of [
+    ["manifest", at(MANIFESTS_PREFIX)],
+    ["encrypted object", at(OBJECTS_PREFIX)],
+  ] as const) {
+    const found = await firstKeyUnder(storage, where);
+    if (found === null) continue;
+    throw new SyncError(
+      "VaultKeyfileMissing",
+      `refusing to create a new vault key: "${at(KEYFILE_KEY)}" is missing, but the ` +
+        `storage already holds at least one ${what} ("${found}"). Writing a new Argon2id ` +
+        `salt here would make everything already stored permanently unreadable. Check the ` +
+        `endpoint, bucket and prefix in settings; if they are right, restore ` +
+        `${KEYFILE_KEY} from a backup before syncing.`,
+    );
+  }
 }
 
 function assertAffordable(

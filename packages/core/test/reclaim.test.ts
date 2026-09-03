@@ -5,7 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  GC_MARK_KEY,
+  gcMarkKey,
+  LEGACY_GC_MARK_KEY,
   markAfterSweep,
   MAX_MARKED_KEYS,
   OBJECTS_PREFIX,
@@ -260,6 +261,23 @@ describe("an empty manifest listing is a broken listing, not an empty vault", ()
   });
 });
 
+describe("the mark belongs to one device", () => {
+  it("the key carries the device id", () => {
+    expect(gcMarkKey("dev-0123456789abcdef")).toBe("meta/gc-mark-dev-0123456789abcdef.json");
+  });
+
+  it("a device id that is really a path is refused, never pasted into a key", () => {
+    // ADR-0044: this comes out of settings that a ticket can write.
+    for (const bad of ["../../manifests/000000001-dev-1", "a/b", "..", "", "x".repeat(65)]) {
+      expect(() => gcMarkKey(bad), bad).toThrow();
+    }
+  });
+
+  it("is not the key earlier clients shared", () => {
+    expect(gcMarkKey("dev-1")).not.toBe(LEGACY_GC_MARK_KEY);
+  });
+});
+
 describe("what is structurally out of reach", () => {
   it("NOTHING outside objects/ is ever a candidate — the keyfile above all", () => {
     // meta/keyfile-params.json holds the Argon2id salt. Delete it and every
@@ -269,7 +287,8 @@ describe("what is structurally out of reach", () => {
       updatedAt: 0,
       unreachableSince: {
         "meta/keyfile-params.json": 0,
-        [GC_MARK_KEY]: 0,
+        [gcMarkKey("dev-1")]: 0,
+        [LEGACY_GC_MARK_KEY]: 0,
         "manifests/000000001-dev-1.json": 0,
         "something-else": 0,
       },
@@ -279,7 +298,8 @@ describe("what is structurally out of reach", () => {
       manifests: [manifestAt({ generation: 1 })],
       objects: [
         obj("meta/keyfile-params.json"),
-        obj(GC_MARK_KEY),
+        obj(gcMarkKey("dev-1")),
+        obj(LEGACY_GC_MARK_KEY),
         obj("manifests/000000001-dev-1.json"),
         obj("something-else"),
       ],

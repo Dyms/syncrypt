@@ -14,13 +14,45 @@
 // FIRST SEEN unreachable, plus a re-check at sweep time.
 
 import { SyncError } from "./errors.js";
-import type { Manifest, ObjectKey } from "./types.js";
+import { DEVICE_ID_RE } from "./manifest.js";
+import type { DeviceId, Manifest, ObjectKey } from "./types.js";
 
 /** Content objects live here and nothing else is ever a GC candidate. */
 export const OBJECTS_PREFIX = "objects/";
 
-/** Where the pending mark is kept (encrypted with the manifest key). */
-export const GC_MARK_KEY: ObjectKey = "meta/gc-mark.json";
+/**
+ * Where THIS DEVICE's pending mark is kept (encrypted with the manifest key).
+ *
+ * Per device, and that is the whole point. The mark records when an object was
+ * first seen unreachable, and "when" only means something inside one clock.
+ * A single shared mark hands the grace window to the worst clock in the vault:
+ * a phone three days behind writes "first seen three days ago" for an object
+ * it saw a second ago, every other device reads that as ripe, and the window
+ * this design rests on is zero — for the whole vault, not for one object. A
+ * device now waits out the grace on its OWN observations, timed by its OWN
+ * clock, and never converts somebody else's timestamp into its own.
+ *
+ * The cost is that waiting is no longer shared: a device that has never
+ * marked an object cannot sweep it, and must see it unreachable across two
+ * runs a grace window apart. That is what the command already does on the
+ * first device to run it, and it is the direction that fails safe.
+ */
+export function gcMarkKey(device: DeviceId): ObjectKey {
+  // Read back out of config and pasted into a storage key — the one rule for
+  // what a device id may be, shared with manifest keys (ADR-0044).
+  if (!DEVICE_ID_RE.test(device)) {
+    throw new SyncError("ManifestCorrupt", `not a usable device id: "${device}"`);
+  }
+  return `meta/gc-mark-${device}.json`;
+}
+
+/**
+ * The shared mark written by clients before the per-device split. Never read
+ * and never written now; kept named so that it is obviously not a stray
+ * object, and so the test that nothing outside objects/ is ever swept can
+ * point at a real key.
+ */
+export const LEGACY_GC_MARK_KEY: ObjectKey = "meta/gc-mark.json";
 
 /**
  * How many keys the mark may carry.
@@ -36,9 +68,10 @@ export const GC_MARK_KEY: ObjectKey = "meta/gc-mark.json";
 export const MAX_MARKED_KEYS = 20_000;
 
 /**
- * Object keys seen unreachable, and when they were FIRST seen that way.
- * Persisted so that running the command twice in a minute does not restart
- * everybody's clock.
+ * Object keys seen unreachable, and when THIS device first saw them that way,
+ * by its own clock. Persisted so that running the command twice in a minute
+ * does not restart the clock. Never merged with another device's mark: see
+ * gcMarkKey for why a timestamp does not survive the trip.
  */
 export interface GcMark {
   version: 1;
@@ -179,7 +212,9 @@ export function planReclaim(input: ReclaimInput): ReclaimPlan {
     if (reachable.has(object.key)) continue;
 
     // An object already in the mark keeps its ORIGINAL timestamp — otherwise
-    // running the command often would mean nothing ever ripens.
+    // running the command often would mean nothing ever ripens. Clamped to
+    // `now` because a timestamp in the future is this device's own clock
+    // having moved, and restarting that object's window is the safe answer.
     const since = Math.min(previous[object.key] ?? now, now);
     unreachableSince[object.key] = since;
 

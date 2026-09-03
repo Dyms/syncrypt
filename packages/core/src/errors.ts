@@ -1,7 +1,8 @@
 // Typed error taxonomy — RFC-0007 §6.
 //
-// CryptoAuthError and ManifestCorrupt are FAIL-CLOSED: the affected data is
-// never applied. StoragePreconditionFailed maps to "pull first".
+// CryptoAuthError, VaultKeyfileMissing and ManifestCorrupt are FAIL-CLOSED:
+// the affected data is never applied, and in the keyfile's case nothing is
+// created over it. StoragePreconditionFailed maps to "pull first".
 // StorageTransient / StorageRateLimited are retryable with backoff.
 
 export type SyncErrorCode =
@@ -13,6 +14,7 @@ export type SyncErrorCode =
   | "VaultFileNotFound"
   | "VaultWriteFailed"
   | "CryptoAuthError" // GCM tag mismatch / wrong passphrase (fail-closed)
+  | "VaultKeyfileMissing" // storage holds data but not the salt that opens it
   | "ManifestCorrupt"
   | "ManifestForkUnresolved"
   | "Aborted"; // AbortSignal fired

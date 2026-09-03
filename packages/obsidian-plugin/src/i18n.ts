@@ -450,6 +450,8 @@ const EN = {
       "That passphrase does not open this vault. Nothing was changed.\nCheck your keyboard layout and Caps Lock, then try again.",
     manifestCorrupt:
       "The vault index in storage could not be read. Your local notes are untouched — check the sync log before syncing.",
+    keyfileMissing:
+      "The storage holds this vault's data but not the key file that opens it, so nothing was created or changed. Check the endpoint, bucket and prefix in Settings; if they are right, restore meta/keyfile-params.json from a backup before syncing.",
     storageUnauthorized:
       "The storage rejected these keys. The passphrase was not the problem — check the access keys and the bucket in Settings.",
     storageUnreachable:
@@ -884,6 +886,8 @@ const RU: Strings = {
       "Эта парольная фраза не открывает хранилище. Ничего не изменилось.\nПроверьте раскладку и Caps Lock и попробуйте ещё раз.",
     manifestCorrupt:
       "Не удалось прочитать индекс хранилища. Локальные заметки не тронуты — загляните в журнал перед синхронизацией.",
+    keyfileMissing:
+      "В хранилище есть данные, но нет файла с параметрами ключа, который их открывает, — поэтому ничего не создано и не изменено. Проверьте адрес, бакет и префикс в настройках; если они верны, восстановите meta/keyfile-params.json из резервной копии перед синхронизацией.",
     storageUnauthorized:
       "Хранилище отклонило ключи доступа. Дело не в парольной фразе — проверьте ключи и бакет в настройках.",
     storageUnreachable:

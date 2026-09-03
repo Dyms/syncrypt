@@ -14,6 +14,10 @@ import type { Strings } from "./i18n.js";
 export function unlockFailureMessage(error: unknown, t: Strings): string {
   if (isSyncError(error, "CryptoAuthError")) return t.unlockModal.wrongPassphrase;
   if (isSyncError(error, "ManifestCorrupt")) return t.unlockModal.manifestCorrupt;
+  // Not "wrong passphrase" and not "storage unreachable": the storage answered,
+  // and what it said is that the salt is gone. The fix is a restore, and this
+  // is the one screen where saying so early costs nothing.
+  if (isSyncError(error, "VaultKeyfileMissing")) return t.unlockModal.keyfileMissing;
   if (isSyncError(error, "StorageUnauthorized")) return t.unlockModal.storageUnauthorized;
   if (
     isSyncError(error, "StorageTransient") ||

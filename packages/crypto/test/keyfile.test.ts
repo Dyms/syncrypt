@@ -3,7 +3,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isSyncError, type KdfParams } from "@syncrypt/core";
+import {
+  MANIFESTS_PREFIX,
+  OBJECTS_PREFIX,
+  SyncError,
+  isSyncError,
+  type KdfParams,
+} from "@syncrypt/core";
 import { MemoryStorage } from "@syncrypt/core/testing";
 
 import {
@@ -183,41 +189,105 @@ describe("openVaultCrypto", () => {
     expect(storage.keys()).toEqual([]); // nothing was written
   });
 
-  it("two fresh devices racing to create the salt converge on the stored one", async () => {
-    for (const conditionalWrites of [true, false]) {
-      const storage = new MemoryStorage({ conditionalWrites });
-      // Interpose: when the first device PUTs its keyfile, a competitor's
-      // keyfile lands first.
-      const competitor = serializeKdfParams(generateKdfParams(TEST_PRESET));
-      const originalPut = storage.put.bind(storage);
-      let injected = false;
-      storage.put = async (key, data, opts) => {
-        if (!injected && key === KEYFILE_KEY) {
-          injected = true;
-          await originalPut(KEYFILE_KEY, competitor);
-        }
-        return originalPut(key, data, opts);
-      };
+  it("a fresh device that loses the create race adopts the stored salt", async () => {
+    const storage = new MemoryStorage({ conditionalWrites: true });
+    // Interpose: when this device PUTs its keyfile, a competitor's is already
+    // there. create-if-absent refuses ours, and theirs is what the vault uses.
+    const competitor = generateKdfParams(TEST_PRESET);
+    const originalPut = storage.put.bind(storage);
+    let injected = false;
+    storage.put = async (key, data, opts) => {
+      if (!injected && key === KEYFILE_KEY) {
+        injected = true;
+        await originalPut(KEYFILE_KEY, serializeKdfParams(competitor));
+      }
+      return originalPut(key, data, opts);
+    };
 
-      const device = await openVaultCrypto({
-        storage,
-        storagePrefix: "",
-        passphrase: "p",
-        defaults: TEST_PRESET,
-      });
-      // The device must have derived from whatever is ACTUALLY stored.
-      const stored = parseKdfParams(await storage.get(KEYFILE_KEY));
-      const reference = await openVaultCryptoFromParams(stored);
-      const blob = await device.encrypt("content", new TextEncoder().encode("agree"));
-      expect(
-        new TextDecoder().decode(await reference.decrypt("content", blob)),
-        `capability mode conditionalWrites=${String(conditionalWrites)}`,
-      ).toBe("agree");
-    }
+    const device = await openVaultCrypto({
+      storage,
+      storagePrefix: "",
+      passphrase: "p",
+      defaults: TEST_PRESET,
+    });
 
-    async function openVaultCryptoFromParams(params: KdfParams) {
-      const { SyncryptCrypto } = await import("../src/index.js");
-      return SyncryptCrypto.create("p", params);
+    // The salt in storage is the COMPETITOR's — ours never landed — and the
+    // device derived from it. Asserting only "device agrees with storage"
+    // would pass just as happily if we had overwritten them.
+    const stored = parseKdfParams(await storage.get(KEYFILE_KEY));
+    expect(stored.salt).toBe(competitor.salt);
+    const reference = await openVaultCryptoFromParams(stored);
+    const blob = await device.encrypt("content", new TextEncoder().encode("agree"));
+    expect(new TextDecoder().decode(await reference.decrypt("content", blob))).toBe("agree");
+  });
+
+  it("ONE SPURIOUS 404 DOES NOT COST THE VAULT ITS SALT", async () => {
+    // No conditional writes (WebDAV, by design), so nothing but this code
+    // stands between a lying 404 and a PUT over the only copy of the salt.
+    const storage = new MemoryStorage({ conditionalWrites: false });
+    const original = generateKdfParams(TEST_PRESET);
+    await storage.put(KEYFILE_KEY, serializeKdfParams(original));
+
+    const realGet = storage.get.bind(storage);
+    let lies = 1;
+    storage.get = (key) => {
+      if (key === KEYFILE_KEY && lies-- > 0) return realGet("no-such-key");
+      return realGet(key);
+    };
+
+    await openVaultCrypto({ storage, storagePrefix: "", passphrase: "p", defaults: TEST_PRESET });
+    expect(parseKdfParams(await realGet(KEYFILE_KEY)).salt).toBe(original.salt);
+  });
+
+  it("A VAULT WITH DATA AND NO KEYFILE IS REFUSED, NOT INITIALIZED", async () => {
+    for (const [what, key] of [
+      ["manifest", `${MANIFESTS_PREFIX}000000004-dev-1.json`],
+      ["object", `${OBJECTS_PREFIX}aa/bb/aabb`],
+    ] as const) {
+      const storage = new MemoryStorage({ conditionalWrites: false });
+      const original = generateKdfParams(TEST_PRESET);
+      await storage.put(KEYFILE_KEY, serializeKdfParams(original));
+      await storage.put(key, new TextEncoder().encode("ciphertext"));
+
+      // The server keeps insisting the keyfile is not there.
+      const realGet = storage.get.bind(storage);
+      storage.get = (k) => (k === KEYFILE_KEY ? realGet("no-such-key") : realGet(k));
+
+      await expect(
+        openVaultCrypto({ storage, storagePrefix: "", passphrase: "p", defaults: TEST_PRESET }),
+        what,
+      ).rejects.toSatisfy((e) => isSyncError(e, "VaultKeyfileMissing"));
+      expect(parseKdfParams(await realGet(KEYFILE_KEY)).salt, what).toBe(original.salt);
     }
   });
+
+  it("the refusal respects the vault prefix — a neighbour's data is not ours", async () => {
+    const storage = new MemoryStorage({ conditionalWrites: false });
+    await storage.put(`other/${MANIFESTS_PREFIX}000000004-dev-1.json`, new TextEncoder().encode("x"));
+    // Empty vault under OUR prefix: creating the salt is exactly right here.
+    const crypto = await openVaultCrypto({
+      storage,
+      storagePrefix: "mine",
+      passphrase: "p",
+      defaults: TEST_PRESET,
+    });
+    expect(crypto).toBeDefined();
+    expect(storage.keys()).toContain(`mine/${KEYFILE_KEY}`);
+  });
+
+  it("a storage that cannot be listed is not a vault to initialize", async () => {
+    const storage = new MemoryStorage({ conditionalWrites: false });
+    storage.list = () => {
+      throw new SyncError("StorageTransient", "listing is down");
+    };
+    await expect(
+      openVaultCrypto({ storage, storagePrefix: "", passphrase: "p", defaults: TEST_PRESET }),
+    ).rejects.toSatisfy((e) => isSyncError(e, "StorageTransient"));
+    expect(storage.keys()).toEqual([]); // nothing written
+  });
+
+  async function openVaultCryptoFromParams(params: KdfParams) {
+    const { SyncryptCrypto } = await import("../src/index.js");
+    return SyncryptCrypto.create("p", params);
+  }
 });

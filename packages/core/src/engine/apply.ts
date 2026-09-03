@@ -11,6 +11,7 @@ import type {
   Hash,
   Manifest,
   ManifestEntry,
+  ObjectKey,
   Tombstone,
   VaultPath,
 } from "../types.js";
@@ -207,6 +208,8 @@ export async function applyPushOps(
   const entries: SyncReportEntry[] = [];
   const uploaded: Record<VaultPath, ManifestEntry> = {};
   const tombstoned: VaultPath[] = [];
+  /** Objects the dedup probe let us skip uploading — see confirmAdopted. */
+  const adopted: { path: VaultPath; objectKey: ObjectKey }[] = [];
   let aborted = false;
 
   for (const op of operations) {
@@ -261,6 +264,10 @@ export async function applyPushOps(
             // Already stored by this or another device — the desired end state.
           }
         }
+        // Uploaded nothing because the probe said it was already there: the
+        // manifest this push publishes will point at bytes THIS push did not
+        // write. Remembered so they can be checked again at the last moment.
+        if (exists) adopted.push({ path: op.path, objectKey });
         const mtime = localByPath.get(op.path)?.mtime ?? ctx.clock.now();
         uploaded[op.path] = { hash, size: data.length, mtime, objectKey };
         entries.push(reportEntry(op, { bytes: data.length }));
@@ -278,7 +285,51 @@ export async function applyPushOps(
         break; // pull side / nothing to do
     }
   }
+  if (!aborted) await confirmAdopted(ctx, adopted, signal);
   return { entries, uploaded, tombstoned, aborted };
+}
+
+/**
+ * Re-check the objects the dedup probe let this push adopt — as late as this
+ * layer can, right before the caller builds and publishes the manifest.
+ *
+ * The probe skips uploading content that is already stored. Reclaim's grace
+ * window exists because such an object can be swept between the probe and the
+ * manifest that names it (ADR-0030), and the window is only as good as the
+ * clocks behind it: with a shared mark, one slow device collapsed it to zero
+ * and this race stopped being theoretical — a push reported `applied`, the
+ * manifest went out, and every device's pull died on bytes that were gone.
+ * The mark is per-device now, but the window still bounds one push and a push
+ * over a mobile link is not instantaneous.
+ *
+ * So: prove they are still there, or publish nothing. Failing the push is the
+ * whole fix — the next one re-probes, finds the object missing, and uploads it
+ * for real. Re-uploading from here instead would mean holding every adopted
+ * file's plaintext in memory for the length of the push, to repair something
+ * that should almost never happen.
+ *
+ * A storage that cannot ANSWER is not evidence of absence and does not fail
+ * the push: the same rule the probe itself follows.
+ */
+async function confirmAdopted(
+  ctx: EngineContext,
+  adopted: readonly { path: VaultPath; objectKey: ObjectKey }[],
+  signal?: AbortSignal,
+): Promise<void> {
+  for (const { path, objectKey } of adopted) {
+    if (signal?.aborted) return;
+    try {
+      await ctx.storage.stat(ctx.key(objectKey));
+    } catch (e) {
+      if (!(e instanceof SyncError) || e.code !== "StorageNotFound") continue;
+      throw new SyncError(
+        "StorageTransient",
+        `object for "${path}" was in storage when this push started and is gone now ` +
+          `(${objectKey}) — publishing would name ciphertext nobody can fetch. ` +
+          `Nothing was published; the next sync uploads it.`,
+      );
+    }
+  }
 }
 
 /**

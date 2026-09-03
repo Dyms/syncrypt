@@ -241,6 +241,61 @@ describe("reclaiming storage (ADR-0030)", () => {
     expect(reader.vault.getText("note.md")).toBe("irreplaceable");
   });
 
+  it("A DEVICE WITH A SLOW CLOCK CANNOT MAKE ANOTHER DEVICE SWEEP", async () => {
+    // The mark says "first seen unreachable at T". Before the per-device
+    // split, T came from whichever device wrote it: a phone three days behind
+    // marked an object it had just seen as three days old, and the desktop
+    // read that as ripe seconds later. The grace window — the only thing
+    // standing between a push in flight and its object — was gone for the
+    // whole vault.
+    const storage = new MemoryStorage();
+    const now = 1_000_000;
+    const safeSync = { generationsToKeep: 1, reclaimGraceSeconds: DAY, versionsToKeep: 0 };
+    const desktop = makeDevice(storage, "desktop", new FixedClock(now), safeSync);
+    const phone = makeDevice(storage, "phone", new FixedClock(now - 3 * DAY), {
+      ...safeSync,
+    });
+
+    desktop.vault.setFile("note.md", "one");
+    await desktop.engine.sync();
+    desktop.vault.now += 10;
+    desktop.vault.setFile("note.md", "two-longer-content");
+    await desktop.engine.sync(); // the "one" object is now unreachable
+
+    await phone.engine.sync();
+    const phoneRun = await phone.engine.reclaimStorage();
+    expect(phoneRun.deleted).toEqual([]); // nothing ripe on its own clock either
+
+    const before = objects(storage);
+    const desktopRun = await desktop.engine.reclaimStorage();
+    expect(desktopRun.deleted).toEqual([]);
+    expect(objects(storage)).toEqual(before);
+
+    // And the desktop's own waiting is real: a day later it sweeps.
+    desktop.clock.advance(DAY + 1);
+    expect((await desktop.engine.reclaimStorage()).deleted).toHaveLength(1);
+  });
+
+  it("one device's mark does not reset another's — each waits its own window", async () => {
+    const storage = new MemoryStorage();
+    const now = 2_000_000;
+    const safeSync = { generationsToKeep: 1, reclaimGraceSeconds: DAY, versionsToKeep: 0 };
+    const a = makeDevice(storage, "dev-a", new FixedClock(now), safeSync);
+    const b = makeDevice(storage, "dev-b", new FixedClock(now), safeSync);
+
+    a.vault.setFile("note.md", "one");
+    await a.engine.sync();
+    a.vault.now += 10;
+    a.vault.setFile("note.md", "two-longer-content");
+    await a.engine.sync();
+    await b.engine.sync();
+
+    await a.engine.reclaimStorage(); // a marks
+    await b.engine.reclaimStorage(); // b marks, and must not disturb a's mark
+    a.clock.advance(DAY + 1);
+    expect((await a.engine.reclaimStorage()).deleted).toHaveLength(1);
+  });
+
   it("reads only the RETAINED manifests, not every generation ever published", async () => {
     // A vault that has synced for a month has thousands of generations, and one
     // manifest for a three-thousand-file vault is most of a megabyte. Fetching

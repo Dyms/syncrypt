@@ -120,3 +120,83 @@ describe("upload when the existence probe is unavailable", () => {
     expect(keys).toHaveLength(1);
   });
 });
+
+describe("an object adopted from the probe is confirmed before the manifest names it", () => {
+  /**
+   * One engine, one state store, one vault — the sequence that makes a push
+   * ADOPT an object instead of uploading it: content that exists in storage
+   * from an earlier generation comes back.
+   */
+  async function adoptingPush(hooks: {
+    onDedupProbe?: (key: string, storage: MemoryStorage) => void;
+    failConfirmation?: boolean;
+  }) {
+    const storage = new MemoryStorage();
+    const vault = new MemoryVault();
+    let armed = false;
+    let objectStats = 0;
+    const hooked: StoragePort = {
+      capabilities: () => storage.capabilities(),
+      get: (key) => storage.get(key),
+      put: (key, data, opts) => storage.put(key, data, opts),
+      delete: (key) => storage.delete(key),
+      list: (prefix) => storage.list(prefix),
+      stat: async (key: string): Promise<ObjectStat> => {
+        if (!armed || !key.startsWith("objects/")) return storage.stat(key);
+        const which = objectStats++;
+        if (which === 0) {
+          // The dedup probe.
+          const stat = await storage.stat(key);
+          hooks.onDedupProbe?.(key, storage);
+          return stat;
+        }
+        // The confirmation.
+        if (hooks.failConfirmation === true) {
+          throw new SyncError("StorageTransient", `S3 stat "${key}": network error`);
+        }
+        return storage.stat(key);
+      },
+    };
+    const engine = createSyncEngine({
+      storage: hooked,
+      vault,
+      crypto: new IdentityCrypto(),
+      clock: new FixedClock(),
+      state: new MemoryStateStore(),
+      deviceId: "device-a",
+      storagePrefix: "",
+    });
+
+    vault.setFile("note.md", "hello");
+    await engine.sync();
+    vault.now += 10;
+    vault.setFile("note.md", "something else entirely");
+    await engine.sync();
+    vault.now += 10;
+    vault.setFile("note.md", "hello"); // back to content that is still stored
+
+    const manifestsBefore: string[] = [];
+    for await (const stat of storage.list("manifests/")) manifestsBefore.push(stat.key);
+    armed = true;
+    return { engine, storage, manifestsBefore };
+  }
+
+  it("REFUSES TO PUBLISH A MANIFEST POINTING AT BYTES THAT ARE GONE", async () => {
+    const { engine, storage, manifestsBefore } = await adoptingPush({
+      // Reclaim on another device sweeps it between the probe and the commit.
+      onDedupProbe: (key, s) => void s.delete(key),
+    });
+
+    await expect(engine.sync()).rejects.toThrow(/is gone now/);
+
+    const manifestsAfter: string[] = [];
+    for await (const stat of storage.list("manifests/")) manifestsAfter.push(stat.key);
+    expect(manifestsAfter).toEqual(manifestsBefore); // nothing was published
+  });
+
+  it("a probe that cannot answer is not evidence of absence — the push proceeds", async () => {
+    const { engine } = await adoptingPush({ failConfirmation: true });
+    const report = await engine.sync();
+    expect(report.outcome).toBe("applied");
+  });
+});

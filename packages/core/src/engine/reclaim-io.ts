@@ -9,7 +9,7 @@ import {
   parseManifestKey,
 } from "../manifest.js";
 import {
-  GC_MARK_KEY,
+  gcMarkKey,
   OBJECTS_PREFIX,
   planReclaim,
   retainedGenerations,
@@ -78,10 +78,14 @@ export async function listObjects(
   return out;
 }
 
-/** The pending mark, or null. Unreadable is the same as absent — fail closed. */
+/**
+ * THIS device's pending mark, or null. Unreadable is the same as absent — fail
+ * closed. Another device's mark is never read: its timestamps are in its own
+ * clock, and there is no way to convert them into ours (see gcMarkKey).
+ */
 export async function readGcMark(ctx: EngineContext): Promise<GcMark | null> {
   try {
-    const blob = await ctx.storage.get(ctx.key(GC_MARK_KEY));
+    const blob = await ctx.storage.get(ctx.key(gcMarkKey(ctx.deviceId)));
     return parseGcMark(await ctx.crypto.decrypt("manifest", blob));
   } catch {
     return null;
@@ -90,7 +94,9 @@ export async function readGcMark(ctx: EngineContext): Promise<GcMark | null> {
 
 export async function writeGcMark(ctx: EngineContext, mark: GcMark): Promise<void> {
   const blob = await ctx.crypto.encrypt("manifest", serializeGcMark(mark));
-  await ctx.storage.put(ctx.key(GC_MARK_KEY), blob, { contentType: "application/json" });
+  await ctx.storage.put(ctx.key(gcMarkKey(ctx.deviceId)), blob, {
+    contentType: "application/json",
+  });
 }
 
 /** Read everything the planner needs and compute the plan. Publishes nothing. */

@@ -35,6 +35,18 @@ describe("unlockFailureMessage", () => {
     }
   });
 
+  it("a missing keyfile says restore, not 'wrong passphrase'", () => {
+    for (const t of [EN_STRINGS, stringsFor("ru")]) {
+      const message = unlockFailureMessage(
+        new SyncError("VaultKeyfileMissing", "refusing to create a new vault key"),
+        t,
+      );
+      expect(message).toBe(t.unlockModal.keyfileMissing);
+      expect(message).not.toBe(t.unlockModal.wrongPassphrase);
+      expect(message).toContain("keyfile-params.json");
+    }
+  });
+
   it("separates a corrupt manifest from a wrong passphrase", () => {
     expect(
       unlockFailureMessage(new SyncError("ManifestCorrupt", "bad"), EN_STRINGS),
