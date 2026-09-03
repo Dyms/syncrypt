@@ -29,18 +29,41 @@ export type HashCache = Map<VaultPath, HashCacheEntry>;
  * Scan the vault into a deterministic (path-sorted) list of descriptors.
  * Files that disappear between list() and stat() are skipped (a scan is always
  * a snapshot attempt, never an error source).
+ *
+ * `ambiguous`, when given, collects paths that TWO listed files canonicalize
+ * to. Those are left out of the result and are the caller's to exclude from
+ * the plan — see the note at the collision check below.
  */
 export async function scanVault(
   vault: VaultPort,
   crypto: CryptoPort,
   cache?: HashCache,
   signal?: AbortSignal,
+  ambiguous?: Set<VaultPath>,
 ): Promise<FileDescriptor[]> {
-  const out: FileDescriptor[] = [];
+  const found = new Map<VaultPath, FileDescriptor>();
+  const collided = new Set<VaultPath>();
   const seen = new Set<VaultPath>();
   for await (const listed of vault.list()) {
     if (signal?.aborted) break;
     const path = canonicalizePath(listed);
+    // Two files of this vault, one manifest key. Canonicalization is not
+    // injective — "café.md" composed and decomposed are one path afterwards
+    // (ADR-0007) — and the manifest has room for one of them. Taking either
+    // is a coin toss the user never sees: the loser is never uploaded, and
+    // each scan can pick the other one, so its hash flips and every sync
+    // re-uploads the same key with different content.
+    //
+    // So neither is synced, and the caller is told. They are NOT reported as
+    // absent, which would read as a local deletion and tombstone the entry
+    // for every other device — the engine excludes them the way it excludes
+    // paths outside this device's profile (ADR-0022).
+    if (found.has(path) || collided.has(path)) {
+      collided.add(path);
+      found.delete(path);
+      seen.add(path);
+      continue;
+    }
     const stat = await vault.stat(path);
     if (stat === null) continue; // vanished mid-scan
     seen.add(path);
@@ -52,8 +75,9 @@ export async function scanVault(
       hash = await crypto.hash(data);
       cache?.set(path, { size: stat.size, mtime: stat.mtime, hash });
     }
-    out.push({ path, hash, size: stat.size, mtime: stat.mtime });
+    found.set(path, { path, hash, size: stat.size, mtime: stat.mtime });
   }
+  for (const path of collided) ambiguous?.add(path);
   // Only a COMPLETE scan knows which paths are gone. An aborted scan saw a
   // prefix of the vault, so pruning there would evict live entries and cost a
   // full re-hash next run.
@@ -62,6 +86,7 @@ export async function scanVault(
       if (!seen.has(path)) cache.delete(path);
     }
   }
+  const out = [...found.values()];
   out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return out;
 }

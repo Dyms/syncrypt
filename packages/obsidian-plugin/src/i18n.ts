@@ -229,6 +229,8 @@ const EN = {
       `Another device is running ${writer === undefined || writer === "" ? "an older Syncrypt" : `Syncrypt ${writer}`}; this one is running ${self}. Syncing works, but until every device is updated they do not all behave the same way — update the others when you can.`,
     forkLost: (generation: number) =>
       `Two devices published generation ${String(generation)} at the same moment, and this one did not win (ADR-0006 §4). Its own view of that generation is not what the others will read, so this sync compares against the published version instead of it. Files that differ come back as conflicts with both versions kept — nothing is overwritten, and nothing you deleted around then stays deleted.`,
+    pathsNotDistinct: (paths: string[]) =>
+      `${String(paths.length)} vault path${paths.length === 1 ? " is" : "s are"} the name of two different local files once names are normalized the same way (ADR-0007), and the vault index has room for one of them: ${paths.join(", ")}. Nothing was lost and nothing was uploaded for ${paths.length === 1 ? "it" : "them"} — rename one file of each pair and both will sync.`,
     tombstonesExpired: (count: number, days: number) =>
       `${String(count)} deletion record${count === 1 ? "" : "s"} older than ${String(days)} days dropped from the manifest (ADR-0031). The files stay deleted; only the record of the deletion is gone. A device that has been offline longer than that will bring its copies back — delete them again if it does.`,
     storageReclaimed: (deleted: number, freed: string, manifests: number, waiting: number) =>
@@ -661,6 +663,8 @@ const RU: Strings = {
       `На другом устройстве ${writer === undefined || writer === "" ? "более старый Syncrypt" : `Syncrypt ${writer}`}, на этом — ${self}. Синхронизация работает, но пока обновлены не все устройства, ведут себя они по-разному — обнови остальные, когда сможешь.`,
     forkLost: (generation: number) =>
       `Два устройства опубликовали поколение ${String(generation)} в один момент, и это устройство не выиграло (ADR-0006 §4). Его собственная версия этого поколения — не та, которую прочитают остальные, поэтому синхронизация сверяется с опубликованной, а не с ней. Расходящиеся файлы вернутся конфликтами, обе версии сохранятся; ничего не перезаписывается, но и удаления, сделанные примерно тогда же, могут вернуться.`,
+    pathsNotDistinct: (paths: string[]) =>
+      `После одинаковой нормализации имён (ADR-0007) на один и тот же путь хранилища претендуют по два разных локальных файла, а место в индексе есть только для одного. Таких путей: ${String(paths.length)} — ${paths.join(", ")}. Ничего не потеряно и ничего не выгружено: переименуйте по одному файлу из каждой пары, и синхронизироваться будут оба.`,
     tombstonesExpired: (count: number, days: number) =>
       `Из манифеста убрано записей об удалении старше ${String(days)} дн.: ${String(count)} (ADR-0031). Сами файлы остаются удалёнными — исчезла только запись о том, что их удалили. Устройство, простоявшее офлайн дольше этого срока, вернёт свои копии; если так случится, удалите их ещё раз.`,
     storageReclaimed: (deleted: number, freed: string, manifests: number, waiting: number) =>

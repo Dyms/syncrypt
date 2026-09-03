@@ -38,6 +38,10 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     discount: { destructive: 37, effective: 8, paced: 31, spanSeconds: 25_200 },
   },
   "fork-lost": { code: "fork-lost", generation: 42 },
+  "paths-not-distinct": {
+    code: "paths-not-distinct",
+    paths: ["Notes/caf\u00e9.md", "Notes/re\u0301sume\u0301.md"],
+  },
   "storage-rolled-back": { code: "storage-rolled-back", remote: 17, base: 23 },
   "vault-written-by-newer": {
     code: "vault-written-by-newer",

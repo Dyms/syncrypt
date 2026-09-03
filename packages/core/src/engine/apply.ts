@@ -4,6 +4,7 @@
 
 import { SyncError } from "../errors.js";
 import type { Operation } from "../plan.js";
+import { ReasonCode } from "../reasons.js";
 import type { EntryDetail, SyncReportEntry } from "../report.js";
 import type {
   DeviceId,
@@ -139,6 +140,35 @@ export async function applyPullOps(
       case "download": {
         const entry = remote.files[op.path];
         if (entry === undefined) continue; // planner/remote drift — nothing to fetch
+        // A download the planner classified as a CREATION (no local hash: the
+        // scan saw nothing at this path) must not land on top of a file. If
+        // one is there now, the plan's picture of this path is wrong, and
+        // overwriting it is the silent overwrite this project exists to avoid.
+        //
+        // Two ways it gets there. A case-insensitive filesystem folds two
+        // manifest paths onto one file: "Note.md" and "note.md" are both new
+        // to this device, the planner cannot know the filesystem folds them —
+        // it is pure, and the answer differs per platform — so it emits two
+        // creations and the second used to overwrite the first (ADR-0007 says
+        // case-only collisions are conflicts, never dupes or overwrites; the
+        // existing check only looks at paths the scan already saw). And the
+        // ordinary race: the user created the file between the scan and now.
+        //
+        // Asking the filesystem is what makes this exact rather than a guess
+        // about case sensitivity, and it costs one stat per created file.
+        if (op.localHash === undefined && (await ctx.vault.stat(op.path)) !== null) {
+          const copyPath = await freeCopyPath(ctx, op.path, remote.device);
+          const data = await fetchVerified(ctx, op.path, entry);
+          await writeAndRemember(ctx, copyPath, data, entry.hash);
+          conflicts.push(op.path);
+          entries.push(
+            reportEntry(
+              { ...op, kind: "conflict", reason: ReasonCode.ConflictSamePath },
+              { detail: { code: "conflict-copy-saved", copyPath }, bytes: data.length },
+            ),
+          );
+          break;
+        }
         const data = await fetchVerified(ctx, op.path, entry);
         await writeAndRemember(ctx, op.path, data, entry.hash);
         entries.push(reportEntry(op, { bytes: data.length }));

@@ -24,6 +24,7 @@ import {
 } from "../scan.js";
 import type {
   DeviceId,
+  FileDescriptor,
   Hash,
   Manifest,
   ManifestEntry,
@@ -697,12 +698,44 @@ class Engine implements SyncEngine {
     return this.exclusive(() => this.doPull(signal));
   }
 
+  /**
+   * Scan, and hand back the plan options this scan is valid under.
+   *
+   * A path two local files canonicalize to cannot go in the manifest, which
+   * has room for one of them (ADR-0053). It must also not be read as ABSENT:
+   * that is a local deletion, and it would tombstone the entry for every
+   * other device. Excluding it is exactly what `syncable` already means —
+   * "not this device's business" — so the same door is used.
+   */
+  private async scanLocal(
+    signal?: AbortSignal,
+  ): Promise<{ local: FileDescriptor[]; planOptions: PlanOptions }> {
+    const ambiguous = new Set<VaultPath>();
+    const local = await scanVault(
+      this.ctx.vault,
+      this.ctx.crypto,
+      this.cache,
+      signal,
+      ambiguous,
+    );
+    if (ambiguous.size === 0) return { local, planOptions: this.ctx.planOptions };
+    this.ctx.log.notice({ code: "paths-not-distinct", paths: [...ambiguous].sort() });
+    const carried = this.ctx.planOptions.syncable ?? ((): boolean => true);
+    return {
+      local,
+      planOptions: {
+        ...this.ctx.planOptions,
+        syncable: (path: VaultPath): boolean => !ambiguous.has(path) && carried(path),
+      },
+    };
+  }
+
   private async doPull(signal?: AbortSignal): Promise<SyncReport> {
     const startedAt = this.ctx.clock.now();
     await this.loadStateOnce();
     const fromGen = this.base?.generation ?? null;
     const remote = await readRemote(this.ctx);
-    const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache, signal);
+    const { local, planOptions } = await this.scanLocal(signal);
     if (signal?.aborted) {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
@@ -711,7 +744,7 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     this.noteVersionSkew(remote.manifest);
-    const p = plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
+    const p = plan(local, this.baseFor(remote), remote.manifest, planOptions);
 
     if (p.requiresConfirmation) {
       // Invariant §8.7: never auto-apply; the caller must confirmAndApply.
@@ -763,7 +796,7 @@ class Engine implements SyncEngine {
     await this.loadStateOnce();
     const fromGen = this.base?.generation ?? null;
     const remote = await readRemote(this.ctx);
-    const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache, signal);
+    const { local, planOptions } = await this.scanLocal(signal);
     if (signal?.aborted) {
       // A partial scan must never be mistaken for mass deletion.
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
@@ -772,7 +805,7 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     this.noteVersionSkew(remote.manifest);
-    const p = plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
+    const p = plan(local, this.baseFor(remote), remote.manifest, planOptions);
 
     if (p.pullFirst) {
       // ADR-0002 / RFC-0002 FR-8: someone published since our last pull.
@@ -868,8 +901,8 @@ class Engine implements SyncEngine {
     return this.exclusive(async () => {
       await this.loadStateOnce();
       const remote = await readRemote(this.ctx);
-      const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache, signal);
-      return plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
+      const { local, planOptions } = await this.scanLocal(signal);
+      return plan(local, this.baseFor(remote), remote.manifest, planOptions);
     });
   }
 
@@ -889,7 +922,7 @@ class Engine implements SyncEngine {
     // user saw the plan. Anything destructive that was not in the confirmed
     // plan must NOT be applied on the strength of that confirmation.
     const remote = await readRemote(this.ctx);
-    const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache, signal);
+    const { local, planOptions } = await this.scanLocal(signal);
     if (signal?.aborted) {
       return this.report(startedAt, "aborted", [], fromGen, fromGen);
     }
@@ -898,7 +931,7 @@ class Engine implements SyncEngine {
     if (this.rolledBack(remote)) {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
-    const fresh = plan(local, this.baseFor(remote), remote.manifest, this.ctx.planOptions);
+    const fresh = plan(local, this.baseFor(remote), remote.manifest, planOptions);
     const confirmedDestructive = new Set(
       confirmed.operations.map(destructiveKey).filter((k) => k !== null),
     );
@@ -986,8 +1019,8 @@ class Engine implements SyncEngine {
     const locked = this.running;
     return this.exclusive(async () => {
       await this.loadStateOnce();
-      const local = await scanVault(this.ctx.vault, this.ctx.crypto, this.cache);
-      const changes = detectLocalChanges(local, this.base, this.ctx.planOptions.syncable);
+      const { local, planOptions } = await this.scanLocal();
+      const changes = detectLocalChanges(local, this.base, planOptions.syncable);
       const status: SyncStatus = {
         baseGeneration: this.base?.generation ?? null,
         dirtyFiles:

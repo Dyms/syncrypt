@@ -67,7 +67,15 @@ export type StorageProvider = StoragePort;
 // ---------------------------------------------------------------------------
 
 export interface VaultPort {
-  /** List files matching the active profile. Returns canonical paths. */
+  /**
+   * List files matching the active profile, as canonical paths.
+   *
+   * Canonicalization is not injective (ADR-0007): two native names can arrive
+   * here as one path, and the vault index has room for one of them. The
+   * engine detects that and syncs neither, rather than picking one silently
+   * (ADR-0053) — but an implementation that can map back losslessly should,
+   * because a path excluded that way is a file the user is not backing up.
+   */
   list(): AsyncIterable<VaultPath>;
 
   /** Read plaintext bytes of a file. Rejects VaultFileNotFound if missing. */
@@ -174,6 +182,7 @@ export type EngineNotice =
   | { code: "storage-rolled-back"; remote: number; base: number }
   | { code: "vault-written-by-newer"; writer: string; self: string }
   | { code: "vault-written-by-older"; writer: string | undefined; self: string }
+  | { code: "paths-not-distinct"; paths: VaultPath[] }
   | {
       code: "storage-reclaimed";
       deleted: number;
