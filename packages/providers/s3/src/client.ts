@@ -5,6 +5,8 @@
 
 import { AwsV4Signer } from "aws4fetch";
 
+import { SyncError } from "@syncrypt/core";
+
 import { S3_DEFAULTS, type S3Config } from "./config.js";
 import { normalizeNetworkError, normalizeS3Error, s3ErrorCode } from "./errors.js";
 import { fetchTransport, type HttpTransport } from "./transport.js";
@@ -70,11 +72,21 @@ export class S3Client {
   }
 
   urlFor(key: string, query?: Record<string, string>): string {
+    // No caller in the engine produces a traversing key, so one arriving here
+    // came out of a listing — which is the server talking (ADR-0039). It must
+    // not become a URL: `encodeURIComponent` leaves ".." intact, and the
+    // `new URL()` inside the signer then normalizes it away, so
+    // "vaults/main/objects/../../../manifests/000000009-devA.json" is signed
+    // and dispatched as "/manifests/000000009-devA.json". Reclamation's
+    // "never outside objects/" is a prefix test on a string the server chose.
+    if (key !== "" && !safeKey(key)) {
+      throw new SyncError("StorageTransient", `S3: refusing unsafe key "${key}"`);
+    }
     const encodedKey = key
       .split("/")
       .map((s) => encodeURIComponent(s))
       .join("/");
-    const q = new URLSearchParams(query).toString();
+    const q = encodeQuery(query);
     return `${this.baseUrl}/${encodedKey}${q === "" ? "" : `?${q}`}`;
   }
 
@@ -124,6 +136,45 @@ export class S3Client {
     if (res.ok) return res;
     throw normalizeS3Error(res.status, s3ErrorCode(res.text()), req.key, req.operation);
   }
+}
+
+/** A key we are willing to turn into a URL: no empty, "." or ".." segments. */
+function safeKey(key: string): boolean {
+  return key.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
+}
+
+/**
+ * RFC-3986 percent-encoding, which is what SigV4 canonicalizes a query with
+ * and what S3 matches a `prefix=` against.
+ *
+ * `URLSearchParams` writes application/x-www-form-urlencoded instead: a space
+ * becomes "+", and "~" and "*" are escaped. aws4fetch builds the canonical
+ * request from the DECODED `url.searchParams` and re-encodes per RFC 3986, so
+ * the string that gets signed and the string that goes on the wire are not the
+ * same one. A vault prefix with a space in it — "Мои заметки" — was signed as
+ * %20 and sent as +:
+ *
+ *   a backend that checks the signature answers 403 SignatureDoesNotMatch;
+ *   a backend that does not compares "Мои+заметки/" literally and finds
+ *   nothing, so `readRemote` sees generation 0 on a vault full of data.
+ *
+ * put/get/stat/delete kept working throughout, because they build a path and
+ * not a query — the same shape of silence as the WebDAV base-path defect in
+ * ADR-0039, and with the same consequence: an ADR-0038 refusal for ever on a
+ * device that has a base, an empty vault on one that does not.
+ */
+function encodeQuery(query?: Record<string, string>): string {
+  if (query === undefined) return "";
+  return Object.entries(query)
+    .map(([k, v]) => `${rfc3986(k)}=${rfc3986(v)}`)
+    .join("&");
+}
+
+function rfc3986(raw: string): string {
+  return encodeURIComponent(raw).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 async function sha256Hex(data: Uint8Array): Promise<string> {

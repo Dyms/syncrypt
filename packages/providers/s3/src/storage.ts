@@ -45,6 +45,7 @@ export class S3Storage implements StoragePort {
     private readonly multipartThreshold: number,
     private readonly partSize: number,
     private readonly retryOpts: RetryOptions,
+    private readonly listPageSize: number,
   ) {}
 
   /**
@@ -73,6 +74,7 @@ export class S3Storage implements StoragePort {
       config.multipartThresholdBytes ?? S3_DEFAULTS.multipartThresholdBytes,
       partSize,
       retryOpts,
+      Math.min(Math.max(1, Math.floor(config.listPageSize ?? S3_DEFAULTS.listPageSize)), 1000),
     );
   }
 
@@ -270,14 +272,26 @@ export class S3Storage implements StoragePort {
     throw new SyncError("StorageNotFound", `S3 stat(list) "${key}": HTTP 404`);
   }
 
+  /**
+   * List every key under a prefix. The paging here is answered by the server,
+   * so all three ways it can lie are refused rather than believed (ADR-0039).
+   */
   async *list(prefix: string): AsyncIterable<ObjectStat> {
     let continuationToken: string | null = null;
-    do {
+    let pages = 0;
+    const seenTokens = new Set<string>();
+    for (;;) {
+      if (++pages > MAX_LIST_PAGES) {
+        throw new SyncError(
+          "StorageTransient",
+          `S3 list "${prefix}": more than ${String(MAX_LIST_PAGES)} pages — refusing to keep listing`,
+        );
+      }
       const page = await withRetry(async () => {
         const query: Record<string, string> = {
           "list-type": "2",
           "encoding-type": "url",
-          "max-keys": "1000",
+          "max-keys": String(this.listPageSize),
           prefix,
         };
         if (continuationToken !== null) query["continuation-token"] = continuationToken;
@@ -290,10 +304,37 @@ export class S3Storage implements StoragePort {
         return parseListObjectsV2(res.text());
       }, this.retryOpts);
       for (const obj of page.contents) {
+        // A listing answers about the prefix it was asked about. A key outside
+        // it is the server volunteering something else, and every caller here
+        // hands these keys to stat(), get() and delete().
+        if (!obj.key.startsWith(prefix)) continue;
         yield { key: obj.key, size: obj.size, etag: obj.etag, lastModified: obj.lastModified };
       }
-      continuationToken = page.isTruncated ? page.nextContinuationToken : null;
-    } while (continuationToken !== null);
+
+      if (!page.isTruncated) return;
+      const next = page.nextContinuationToken;
+      // "There is more" with nothing to ask for it with. Stopping here would
+      // report a PARTIAL listing as a complete one: a generation lower than
+      // the vault's real one on manifests/, and a retained-generation set
+      // computed from half the manifests when reclaiming.
+      if (next === null || next === "") {
+        throw new SyncError(
+          "StorageTransient",
+          `S3 list "${prefix}": truncated with no continuation token — the listing is incomplete`,
+        );
+      }
+      // The same token twice is a loop. Empty pages never yield, so the
+      // abort checks in readRemote and listObjects never get control and the
+      // sync cannot even be cancelled.
+      if (seenTokens.has(next)) {
+        throw new SyncError(
+          "StorageTransient",
+          `S3 list "${prefix}": the server repeated a continuation token — refusing to loop`,
+        );
+      }
+      seenTokens.add(next);
+      continuationToken = next;
+    }
   }
 
   async delete(key: ObjectKey): Promise<void> {
@@ -361,6 +402,14 @@ export async function probeConditionalWrites(
 }
 
 type StatStrategy = "head" | "range" | "list";
+
+/**
+ * A backstop on the number of LIST pages one call may fetch. The repeated-token
+ * check above is what actually catches a looping server; this catches the one
+ * that cycles through fresh tokens for ever. At 1000 keys a page it is far
+ * above any real vault.
+ */
+const MAX_LIST_PAGES = 100_000;
 
 /** "bytes 0-0/12345" → 12345 */
 const TOTAL_AFTER_SLASH = /\/(\d+)\s*$/;

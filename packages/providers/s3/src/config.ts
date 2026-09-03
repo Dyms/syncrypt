@@ -35,6 +35,13 @@ export interface S3Config {
   multipartThresholdBytes?: number;
   /** Multipart part size (default 16 MiB; S3 minimum is 5 MiB per part). */
   partSizeBytes?: number;
+  /**
+   * Keys requested per ListObjectsV2 call (default 1000, the S3 maximum).
+   * Lowering it is how the conformance suite crosses a page boundary without
+   * writing a thousand objects: before this, no test in the project ever
+   * exercised the continuation-token branch at all.
+   */
+  listPageSize?: number;
   retry?: S3RetryConfig;
   /**
    * HTTP transport for the SIGNED requests (RFC-0006 §Injectable transport).
@@ -52,6 +59,7 @@ export const S3_DEFAULTS = {
   maxRetries: 4,
   baseDelayMs: 200,
   maxDelayMs: 5000,
+  listPageSize: 1000,
 } as const;
 
 export const MIN_PART_SIZE_BYTES = 5 * 1024 * 1024;

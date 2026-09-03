@@ -80,6 +80,80 @@ export function describeStorageConformance(
       expect(await under("nope/")).toEqual([]);
     });
 
+    it("round-trips keys that need percent-encoding", async () => {
+      // Every one of these is a legal object key, and every one of them has to
+      // survive being turned into a URL, sent, and read back out of a listing.
+      //
+      // What this CANNOT prove is that the request was canonicalized the way
+      // the backend's signature check will canonicalize it. A test backend
+      // that does not verify signatures — moto, and most local doubles —
+      // accepts a query encoded any way at all, and a form-encoded space
+      // round-trips through it perfectly while a real S3 answers 403. That
+      // half belongs to a provider's own suite, at the wire (ADR-0052).
+      const keys = [
+        "objects/a b/one",
+        "objects/a+b/one",
+        "objects/a~b/one",
+        "objects/a&b/one",
+        "objects/a=b/one",
+        "objects/a%b/one",
+        "objects/Заметки/one",
+        "objects/naïve/one",
+      ];
+      for (const key of keys) await storage.put(key, enc(key));
+      for (const key of keys) {
+        expect(dec(await storage.get(key)), key).toBe(key);
+        expect((await storage.stat(key)).key, key).toBe(key);
+      }
+      const listed: string[] = [];
+      for await (const stat of storage.list("objects/")) listed.push(stat.key);
+      expect(listed.sort()).toEqual([...keys].sort());
+    });
+
+    it("lists under a prefix that needs percent-encoding", async () => {
+      await storage.put("Мои заметки/manifests/000000001-devA.json", enc("mine"));
+      await storage.put("other/manifests/000000001-devA.json", enc("theirs"));
+      const listed: string[] = [];
+      for await (const stat of storage.list("Мои заметки/manifests/")) listed.push(stat.key);
+      // Not a subset, not empty: an under-reporting listing on manifests/ is
+      // read as a lower generation, which is an ADR-0038 refusal for ever on a
+      // device that has a base and an empty vault on one that does not. Same
+      // caveat as above — a backend that does not check signatures will pass
+      // this while a real one refuses the request outright.
+      expect(listed).toEqual(["Мои заметки/manifests/000000001-devA.json"]);
+    });
+
+    it("a zero-byte object is an object", async () => {
+      await storage.put("objects/empty", new Uint8Array(0));
+      expect((await storage.stat("objects/empty")).size).toBe(0);
+      expect(await storage.get("objects/empty")).toEqual(new Uint8Array(0));
+      const listed: Record<string, number> = {};
+      for await (const stat of storage.list("objects/")) listed[stat.key] = stat.size;
+      expect(listed).toEqual({ "objects/empty": 0 });
+    });
+
+    it("refuses a key with a traversing segment instead of resolving it", async () => {
+      // These arrive from a listing, which is the server talking, and go
+      // straight into stat/get/delete. `..` normalizes out of a URL and out of
+      // a filesystem path alike, so the object acted on is not the one named.
+      for (const key of ["objects/../manifests/000000009-devA.json", "objects/./x", "objects//x"]) {
+        await expect(storage.put(key, enc("x")), key).rejects.toSatisfy((e) => isSyncError(e));
+        await expect(storage.get(key), key).rejects.toSatisfy((e) => isSyncError(e));
+        await expect(storage.delete(key), key).rejects.toSatisfy((e) => isSyncError(e));
+      }
+      // …and nothing was created by any of those attempts.
+      const listed: string[] = [];
+      for await (const stat of storage.list("")) listed.push(stat.key);
+      expect(listed).toEqual([]);
+    });
+
+    /**
+     * 60 keys, and providers are configured for a SMALL page in their test
+     * harness, so the continuation branch actually runs. With the S3 page size
+     * left at its production 1000 this test wrote 60 objects and proved only
+     * that one page works — the pagination defect it was meant to catch
+     * (a truncated listing reported as complete) sat under it untouched.
+     */
     it("list paginates correctly over many keys", async () => {
       const expected: string[] = [];
       for (let i = 0; i < 60; i++) {

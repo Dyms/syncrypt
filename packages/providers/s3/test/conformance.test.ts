@@ -37,10 +37,12 @@ if (live === null) {
     },
   });
 
-  describeStorageConformance("s3/MinIO (probed capabilities)", harness({}));
+  // A small page size so the continuation-token branch is exercised by the
+  // 60-key pagination test rather than sitting unreached behind max-keys=1000.
+  describeStorageConformance("s3/MinIO (probed capabilities)", harness({ listPageSize: 10 }));
   describeStorageConformance(
     "s3/MinIO (universal subset only)",
-    harness({ conditionalWrites: false }),
+    harness({ conditionalWrites: false, listPageSize: 10 }),
   );
 
   describe("capability probe against the live backend", () => {
