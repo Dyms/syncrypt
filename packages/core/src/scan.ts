@@ -6,6 +6,7 @@
 // engine persists it through StateStorePort — so reopening the app does not
 // re-read and re-hash the whole vault.
 
+import { isSyncError } from "./errors.js";
 import type { CryptoPort, VaultPort } from "./ports.js";
 import { canonicalizePath } from "./paths.js";
 import type { FileDescriptor, Hash, Manifest, VaultPath } from "./types.js";
@@ -71,7 +72,20 @@ export async function scanVault(
     let hash =
       cached?.size === stat.size && cached.mtime === stat.mtime ? cached.hash : undefined;
     if (hash === undefined) {
-      const data = await vault.read(path);
+      // The same window the stat above already handles, one call later: a file
+      // can go between being listed and being read. That is a snapshot missing
+      // an entry, not a broken vault — and letting it out of here failed the
+      // whole sync, because scanVault is the first thing pull, push, dryRun
+      // and status all do. On an actively edited vault it happens by itself.
+      //
+      // ONLY "it is not there": anything else (a permission, a locked file, a
+      // disk error) is a real answer about a file that does exist, and
+      // pretending it vanished would tombstone it for every device.
+      const data = await readIfStillThere(vault, path);
+      if (data === null) {
+        seen.delete(path);
+        continue;
+      }
       hash = await crypto.hash(data);
       cache?.set(path, { size: stat.size, mtime: stat.mtime, hash });
     }
@@ -89,6 +103,19 @@ export async function scanVault(
   const out = [...found.values()];
   out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return out;
+}
+
+/** Read, or null when the file is simply not there any more. */
+async function readIfStillThere(
+  vault: VaultPort,
+  path: VaultPath,
+): Promise<Uint8Array | null> {
+  try {
+    return await vault.read(path);
+  } catch (e) {
+    if (isSyncError(e, "VaultFileNotFound")) return null;
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------

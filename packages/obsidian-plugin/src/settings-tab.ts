@@ -20,7 +20,7 @@ import {
   type SectionId,
   type SectionMemory,
 } from "./settings-sections.js";
-import { endpointOf, settingsComplete } from "./settings.js";
+import { endpointOf, flooredSetting, settingsComplete } from "./settings.js";
 
 export class SyncryptSettingTab extends PluginSettingTab {
   constructor(
@@ -464,7 +464,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       t.settings.versionsToKeep,
       t.settings.versionsToKeepDesc,
       () => s.safeSync.versionsToKeep,
-      (v) => (s.safeSync.versionsToKeep = Math.floor(v)),
+      (v) => (s.safeSync.versionsToKeep = flooredSetting("versionsToKeep", v)),
     );
     // Days and hours in the UI, seconds in the engine: nobody reasons about a
     // deletion-memory window in seconds.
@@ -480,14 +480,14 @@ export class SyncryptSettingTab extends PluginSettingTab {
       t.settings.reclaimGrace,
       t.settings.reclaimGraceDesc,
       () => Math.round(s.safeSync.reclaimGraceSeconds / 3600),
-      (v) => (s.safeSync.reclaimGraceSeconds = Math.max(1, Math.floor(v)) * 3600),
+      (v) => (s.safeSync.reclaimGraceSeconds = flooredSetting("reclaimGraceHours", v) * 3600),
     );
     num(
       safeEl,
       t.settings.generationsToKeep,
       t.settings.generationsToKeepDesc,
       () => s.safeSync.generationsToKeep,
-      (v) => (s.safeSync.generationsToKeep = Math.max(1, Math.floor(v))),
+      (v) => (s.safeSync.generationsToKeep = flooredSetting("generationsToKeep", v)),
     );
 
     // --- Vault creation profile (ADR-0018) -----------------------------------

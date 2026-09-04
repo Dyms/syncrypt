@@ -5,6 +5,53 @@ import { DEFAULT_CONFIG_SYNC, type ConfigSyncSettings } from "./config-sync.js";
 import type { LangSetting } from "./i18n.js";
 import { DEFAULT_PROFILE, type SyncProfile } from "./profile.js";
 
+/**
+ * Floors for the Safe-Sync numbers the user can type, in the units the SETTINGS
+ * screen uses (ADR-0054).
+ *
+ * Two of these already had a floor and one did not, which is how a vault could
+ * be opted out of version retention by one device: `versionsToKeep: 0` is not a
+ * per-device preference, because the manifest records how many versions a vault
+ * HAS and never how many it wants. A push from a device set to zero therefore
+ * cannot start a history for a vault that has none, and the version it
+ * overwrites is retained nowhere.
+ *
+ * Kept here rather than in the settings tab so the rule is testable without
+ * Obsidian's runtime.
+ */
+export const SAFE_SYNC_FLOORS = {
+  versionsToKeep: 1,
+  generationsToKeep: 1,
+  /** Hours, as typed; the engine holds seconds. */
+  reclaimGraceHours: 1,
+} as const;
+
+/** Apply a floor to what the user typed. Fractions and NaN floor too. */
+export function flooredSetting(
+  name: keyof typeof SAFE_SYNC_FLOORS,
+  raw: number,
+): number {
+  const floor = SAFE_SYNC_FLOORS[name];
+  return Number.isFinite(raw) ? Math.max(floor, Math.floor(raw)) : floor;
+}
+
+/** Apply every floor to a whole Safe-Sync block, in the units it stores. */
+export function flooredSafeSync<T extends SafeSyncNumbers>(safeSync: T): T {
+  return {
+    ...safeSync,
+    versionsToKeep: flooredSetting("versionsToKeep", safeSync.versionsToKeep),
+    generationsToKeep: flooredSetting("generationsToKeep", safeSync.generationsToKeep),
+    reclaimGraceSeconds:
+      flooredSetting("reclaimGraceHours", Math.round(safeSync.reclaimGraceSeconds / 3600)) * 3600,
+  };
+}
+
+interface SafeSyncNumbers {
+  versionsToKeep: number;
+  generationsToKeep: number;
+  reclaimGraceSeconds: number;
+}
+
 /** The backends the plugin can talk to (ADR-0033). */
 export type StorageProviderKind = "s3" | "webdav";
 
@@ -152,7 +199,11 @@ export function withDefaults(
         ? raw.configSync.plugins.filter((x): x is string => typeof x === "string")
         : [],
     },
-    safeSync: { ...DEFAULT_SETTINGS.safeSync, ...raw.safeSync },
+    // Floors applied on LOAD as well as on edit: a value stored before they
+    // existed keeps its effect until someone opens that field, and a device
+    // sitting at versionsToKeep 0 opts the whole vault out of retention
+    // without anything on screen saying so (ADR-0054).
+    safeSync: flooredSafeSync({ ...DEFAULT_SETTINGS.safeSync, ...raw.safeSync }),
     autoSync: { ...autoSyncDefaults, ...raw.autoSync },
     kdfProfile: raw.kdfProfile ?? DEFAULT_SETTINGS.kdfProfile,
     deviceId: raw.deviceId !== undefined && raw.deviceId !== "" ? raw.deviceId : generateDeviceId(),

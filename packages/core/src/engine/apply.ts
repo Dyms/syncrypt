@@ -380,7 +380,7 @@ export function buildNextManifest(
   const history: Record<VaultPath, ManifestEntry[]> = { ...(remote?.history ?? {}) };
 
   const retain = (path: VaultPath, prior: ManifestEntry | undefined): void => {
-    if (prior === undefined || ctx.versionsToKeep <= 0) return;
+    if (prior === undefined) return;
     const existing = history[path] ?? [];
     // `versionsToKeep` is a per-DEVICE setting applied to a SHARED structure.
     // A phone set to keep one version used to cut a path's history to one on
@@ -388,7 +388,14 @@ export function buildNextManifest(
     // handing their ciphertext to the next reclaim (ADR-0045). A push may add
     // its own version and rotate the list; it may not make the list shorter
     // than it found it.
+    //
+    // ZERO is the same rule, and it used to be exempt from it: the early
+    // return above ran before any of this, so one device set to keep nothing
+    // published a manifest with no history at all — erasing, for every device,
+    // the versions they were configured to keep. The setting says what THIS
+    // device wants kept, never what the others may not have.
     const depth = Math.max(ctx.versionsToKeep, existing.length);
+    if (depth <= 0) return; // nobody in this vault is keeping anything
     history[path] = [prior, ...existing].slice(0, depth);
   };
 
