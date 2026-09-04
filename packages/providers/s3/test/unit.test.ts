@@ -15,7 +15,7 @@ import {
 } from "../src/xml.js";
 import { normalizeS3Error, s3ErrorCode } from "../src/errors.js";
 import { withRetry } from "../src/retry.js";
-import { probeConditionalWrites, S3Storage } from "../src/storage.js";
+import { probeConditionalWrites, probeKey, S3Storage } from "../src/storage.js";
 import { S3Client } from "../src/client.js";
 import type { S3Config } from "../src/config.js";
 
@@ -182,7 +182,29 @@ describe("capability probe (honest reporting)", () => {
     });
     await probeConditionalWrites(new S3Client(CONFIG), retry);
     expect(deleted).toHaveLength(1);
-    expect(deleted[0]).toContain(".syncrypt-capability-probe-");
+    // ADR-0056: the probe lives under the vault's own prefix, inside meta/, so a
+    // bucket shared with other data never sees a stray key at its root — and a
+    // credential scoped to the prefix can still run the probe at all.
+    expect(deleted[0]).toContain("/meta/capability-probe-");
+  });
+
+  it("probes inside the vault prefix it was given", async () => {
+    const deleted: string[] = [];
+    mockFetch((req) => {
+      if (req.method === "DELETE") {
+        deleted.push(new URL(req.url).pathname);
+        return new Response(null, { status: 204 });
+      }
+      return new Response(null, { status: 200, headers: { etag: '"e"' } });
+    });
+    await probeConditionalWrites(new S3Client(CONFIG), retry, probeKey("vaults/notes"));
+    expect(deleted[0]).toContain("/vaults/notes/meta/capability-probe-");
+  });
+
+  it("two probes never collide, and a trailing slash does not double up", () => {
+    expect(probeKey(undefined)).not.toBe(probeKey(undefined));
+    expect(probeKey("v/")).toMatch(/^v\/meta\/capability-probe-[0-9a-f]{16}$/);
+    expect(probeKey(undefined)).toMatch(/^meta\/capability-probe-[0-9a-f]{16}$/);
   });
 });
 

@@ -426,6 +426,9 @@ export default class SyncryptPlugin extends Plugin {
           accessKeyId: s.s3.accessKeyId,
           secretAccessKey: s.s3.secretAccessKey,
           forcePathStyle: s.s3.forcePathStyle,
+          // So the capability probe writes inside this vault rather than at
+          // the bucket root, where a prefix-scoped key cannot reach (ADR-0056).
+          vaultPrefix: storagePrefixOf(s),
           transport: obsidianTransport,
         });
   }

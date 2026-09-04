@@ -19,7 +19,7 @@ import {
 
 import { S3Client } from "./client.js";
 import { MIN_PART_SIZE_BYTES, S3_DEFAULTS, type S3Config } from "./config.js";
-import { normalizeS3Error, s3ErrorCode } from "./errors.js";
+import { S3RequestError, normalizeS3Error, s3ErrorCode } from "./errors.js";
 import { withRetry, type RetryOptions } from "./retry.js";
 import {
   buildCompleteMultipartUpload,
@@ -63,7 +63,9 @@ export class S3Storage implements StoragePort {
     const client = new S3Client(config);
     const mode = config.conditionalWrites ?? "probe";
     const conditional =
-      mode === "probe" ? await probeConditionalWrites(client, retryOpts) : mode;
+      mode === "probe"
+        ? await probeConditionalWrites(client, retryOpts, probeKey(config.vaultPrefix))
+        : mode;
     const partSize = Math.max(
       config.partSizeBytes ?? S3_DEFAULTS.partSizeBytes,
       MIN_PART_SIZE_BYTES,
@@ -182,8 +184,18 @@ export class S3Storage implements StoragePort {
    * platform flag, we DETECT it: the first transport-level failure of a HEAD
    * switches this storage to a byte-range GET for the rest of the session.
    *
-   * Only transport failures trigger the switch. A 404 stays a 404 and a 403
-   * stays a 403 — those are answers, not broken plumbing.
+   * A 404 stays a 404 and a 403 stays a 403 — those are answers, not broken
+   * plumbing, and they end the call rather than changing its shape.
+   *
+   * What the session REMEMBERS is narrower than what makes it fall through.
+   * Falling through is worth doing on any transient failure: a gateway that
+   * answers 500 once should still get its object stat'd. Remembering is only
+   * honest when the failure was a PERMANENT property of this backend — the
+   * transport unable to issue this shape at all (Android and HEAD), or a 501
+   * "not implemented". Before ADR-0056 every unmapped status, 500s and 400s
+   * included, normalized to StorageTransient and stuck: one blip and the
+   * session used the slower shape until Obsidian restarted — and on Android
+   * that shape is the one whose zero-byte answer carries no etag.
    */
   async stat(key: ObjectKey): Promise<ObjectStat> {
     const strategies: [StatStrategy, (k: ObjectKey) => Promise<ObjectStat>][] = [
@@ -193,19 +205,30 @@ export class S3Storage implements StoragePort {
     ];
     const start = strategies.findIndex(([name]) => name === this.statStrategy);
     let firstError: SyncError | null = null;
+    // True while every shape tried so far failed PERMANENTLY. The session
+    // remembers exactly the leading run of unusable shapes and nothing past it:
+    // one transient failure ends the run, so a 500 blip cannot cost the session
+    // the cheaper request for the rest of the session (ADR-0056).
+    let leadingRun = true;
 
     for (let i = Math.max(start, 0); i < strategies.length; i++) {
       const entry = strategies[i];
       if (entry === undefined) continue;
       const [name, run] = entry;
       try {
-        const stat = await withRetry(() => run(key), this.retryOpts);
-        this.statStrategy = name; // stick with what works for this session
-        return stat;
+        return await withRetry(() => run(key), this.retryOpts);
       } catch (e) {
         // A definitive answer (404, 403, …) is the answer — never a reason to
         // try another shape of request.
         if (!isSyncError(e, "StorageTransient")) throw e;
+        // The memory is an INDEX into the shapes, so it can only say "skip the
+        // first N": it advances only while every failure so far was permanent.
+        const permanent = e instanceof S3RequestError && (e.status === null || e.status === 501);
+        if (leadingRun && permanent) {
+          this.statStrategy = strategies[i + 1]?.[0] ?? name;
+        } else {
+          leadingRun = false;
+        }
         firstError ??= e instanceof SyncError ? e : null;
       }
     }
@@ -239,10 +262,23 @@ export class S3Storage implements StoragePort {
       operation: "stat(range)",
     });
     if (res.status === 416) {
+      // A zero-byte object: a successful stat, not an error. But S3 answers 416
+      // without an ETag, and `ObjectStat.etag` is what conditional writes
+      // compare against — the conformance suite requires it non-empty.
+      // Inventing one is worse than admitting this shape cannot answer here, so
+      // fall through to the next strategy (ADR-0056).
+      const etag = res.header("etag");
+      if (etag === null || etag === "") {
+        throw new S3RequestError(
+          "StorageTransient",
+          `S3 stat(range) "${key}": HTTP 416 carries no ETag for a zero-byte object`,
+          res.status,
+        );
+      }
       return {
         key,
         size: 0,
-        etag: res.header("etag") ?? "",
+        etag,
         lastModified: parseHttpDate(res.header("last-modified")),
       };
     }
@@ -371,8 +407,8 @@ function randomHex(bytes: number): string {
 export async function probeConditionalWrites(
   client: S3Client,
   retryOpts: RetryOptions,
+  key: ObjectKey = probeKey(undefined),
 ): Promise<boolean> {
-  const key = `.syncrypt-capability-probe-${randomHex(8)}`;
   const payload = new TextEncoder().encode("syncrypt capability probe — safe to delete");
   try {
     await withRetry(
@@ -399,6 +435,21 @@ export async function probeConditionalWrites(
       .send({ method: "DELETE", key, operation: "probe-cleanup" })
       .catch(() => undefined);
   }
+}
+
+/**
+ * Where the throwaway probe object goes: inside this vault, under `meta/`.
+ *
+ * `meta/` rather than `objects/` because everything under `objects/` is content
+ * the reclamation planner reasons about, and rather than the bucket root
+ * because that is outside what a prefix-scoped credential may write (ADR-0056).
+ * It is deleted in a `finally`; a process killed mid-probe leaves one behind,
+ * where it is at least obviously ours and obviously disposable.
+ */
+export function probeKey(vaultPrefix: string | undefined): ObjectKey {
+  const prefix = (vaultPrefix ?? "").replace(/\/+$/, "");
+  const relative = `meta/capability-probe-${randomHex(8)}`;
+  return prefix === "" ? relative : `${prefix}/${relative}`;
 }
 
 type StatStrategy = "head" | "range" | "list";

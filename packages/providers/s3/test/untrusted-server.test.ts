@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { isSyncError, SyncError } from "@syncrypt/core";
 
 import { S3Client } from "../src/client.js";
+import { probeKey } from "../src/storage.js";
 import type { S3Config } from "../src/config.js";
 import { S3Storage } from "../src/index.js";
 import type { HttpRequest, HttpResponse, HttpTransport } from "../src/transport.js";
@@ -277,5 +278,68 @@ describe("numbers and keys out of a hostile listing", () => {
         for await (const _ of s.list("objects/")) break;
       })(),
     ).rejects.toSatisfy((e) => e instanceof SyncError && e.code === "StorageRateLimited");
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("the capability probe writes inside the vault it belongs to", () => {
+  it("A CREDENTIAL SCOPED TO THE VAULT PREFIX CAN START THE PROVIDER", async () => {
+    // Exactly the policy the threat model tells users to write: s3:* on
+    // arn:aws:s3:::bucket/vaults/main/* and nothing else. The probe used to
+    // write at the bucket root, so create() threw 403 before any sync could
+    // begin, naming an object the user had never heard of.
+    const touched: string[] = [];
+    const transport: HttpTransport = (req: HttpRequest) => {
+      const path = new URL(req.url).pathname.replace("/b/", "");
+      touched.push(`${req.method} ${decodeURIComponent(path)}`);
+      if (!path.startsWith("vaults/main/")) {
+        return Promise.resolve({
+          status: 403,
+          headers: {},
+          body: new TextEncoder().encode("<Error><Code>AccessDenied</Code></Error>"),
+        });
+      }
+      return Promise.resolve({ status: 200, headers: { etag: '"x"' }, body: new Uint8Array() });
+    };
+
+    const s = await S3Storage.create({
+      ...BASE,
+      conditionalWrites: "probe",
+      vaultPrefix: "vaults/main",
+      transport,
+    });
+
+    expect(s).toBeDefined();
+    expect(touched.every((t) => t.includes("vaults/main/meta/capability-probe-"))).toBe(true);
+  });
+
+  it("the probe object is created and deleted again", async () => {
+    const seen: string[] = [];
+    const transport: HttpTransport = (req: HttpRequest) => {
+      seen.push(req.method);
+      return Promise.resolve({ status: 200, headers: { etag: '"x"' }, body: new Uint8Array() });
+    };
+    await S3Storage.create({
+      ...BASE,
+      conditionalWrites: "probe",
+      vaultPrefix: "vaults/main",
+      transport,
+    });
+    expect(seen).toContain("PUT");
+    expect(seen).toContain("DELETE");
+  });
+
+  it("lands under meta/, never under objects/ and never at the root", () => {
+    // objects/ is content the reclamation planner reasons about; the root is
+    // outside every vault in a shared bucket.
+    expect(probeKey("vaults/main")).toMatch(/^vaults\/main\/meta\/capability-probe-[0-9a-f]{16}$/);
+    expect(probeKey("vaults/main/")).toMatch(/^vaults\/main\/meta\//);
+    expect(probeKey("")).toMatch(/^meta\/capability-probe-/);
+    expect(probeKey(undefined)).toMatch(/^meta\/capability-probe-/);
+    expect(probeKey("vaults/main")).not.toContain("objects/");
+  });
+
+  it("two probes do not collide", () => {
+    expect(probeKey("v")).not.toBe(probeKey("v"));
   });
 });

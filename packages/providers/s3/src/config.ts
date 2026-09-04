@@ -36,6 +36,20 @@ export interface S3Config {
   /** Multipart part size (default 16 MiB; S3 minimum is 5 MiB per part). */
   partSizeBytes?: number;
   /**
+   * This vault's key prefix, used ONLY to place the provider's own throwaway
+   * objects inside it — ordinary keys arrive already prefixed from the engine
+   * and are not touched by this.
+   *
+   * The capability probe (below) writes one object and deletes it. It used to
+   * write it at the BUCKET ROOT, which put it outside the area a
+   * least-privilege credential can reach: a key scoped to
+   * `arn:aws:s3:::bucket/vaults/main/*` — the threat model's own first
+   * recommendation to users — made `create()` fail with 403 before any sync
+   * could start, naming an object the user had never heard of. It also put one
+   * vault's scratch object outside every vault in a shared bucket (ADR-0056).
+   */
+  vaultPrefix?: string;
+  /**
    * Keys requested per ListObjectsV2 call (default 1000, the S3 maximum).
    * Lowering it is how the conformance suite crosses a page boundary without
    * writing a thousand objects: before this, no test in the project ever
