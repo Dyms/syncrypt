@@ -77,6 +77,12 @@ export interface SyncStatus {
   dirtyFiles: number;
   lastReport?: SyncReport;
   locked: boolean; // is a sync in progress
+  /**
+   * Stored copies kept for forgotten entries (ADR-0055). Read from the base,
+   * so it costs nothing — and it is the only way a client can tell the user
+   * why reclaiming freed less than they expected.
+   */
+  forgottenObjects: number;
 }
 
 export interface SyncEngine {
@@ -166,6 +172,20 @@ export interface SyncEngine {
   forgetPaths(paths: VaultPath[], signal?: AbortSignal): Promise<ForgetResult>;
 
   /**
+   * Let go of the objects kept for forgotten entries (ADR-0055).
+   *
+   * Forgetting an entry keeps its ciphertext reachable, because the judgement
+   * behind it — "no device carries this any more" — is one the user makes
+   * without being able to see the other devices. This is the second half, said
+   * out loud: after it, those objects are ordinary garbage and the next
+   * reclamation deletes them, grace window and re-check and all.
+   *
+   * Publishes a generation and nothing else; deleting is still reclamation's
+   * job, so this is undoable right up until that runs.
+   */
+  releaseForgotten(signal?: AbortSignal): Promise<ReleaseResult>;
+
+  /**
    * What reclaiming storage would delete, WITHOUT deleting anything (ADR-0030).
    *
    * Reads every manifest and lists every object, computes reachability over the
@@ -213,6 +233,13 @@ export interface UncarriedEntry {
 export interface ForgetResult {
   /** Paths actually removed (a path already absent is silently skipped). */
   forgotten: VaultPath[];
+  /** The generation published, or null when there was nothing to do. */
+  generation: number | null;
+}
+
+export interface ReleaseResult {
+  /** How many object keys stopped being kept. */
+  released: number;
   /** The generation published, or null when there was nothing to do. */
   generation: number | null;
 }
@@ -451,10 +478,20 @@ class Engine implements SyncEngine {
 
       const files = { ...remote.manifest.files };
       const history = { ...(remote.manifest.history ?? {}) };
+      // The ciphertext of a forgotten path is not garbage. ADR-0027 called
+      // this operation non-destructive on the grounds that a device still
+      // carrying the path re-adds it — true, and it says nothing about a path
+      // NO device carries, which is exactly what this command is pointed at.
+      // Once ADR-0030 could delete unreferenced objects, forgetting became a
+      // delete button for the one case where storage held the only copy. The
+      // keys move here instead; releasing them is its own act (ADR-0055).
+      const kept = new Set<ObjectKey>(remote.manifest.forgotten ?? []);
       for (const path of forgotten) {
+        const entry = files[path];
+        if (entry !== undefined) kept.add(entry.objectKey);
+        // Retained versions go with the entry — and so do their objects.
+        for (const version of history[path] ?? []) kept.add(version.objectKey);
         delete files[path];
-        // Retained versions of a forgotten path are forgotten with it —
-        // otherwise Safe Sync keeps paying for something nothing references.
         delete history[path];
       }
       const generation = remote.generation + 1;
@@ -468,6 +505,11 @@ class Engine implements SyncEngine {
         tombstones: { ...remote.manifest.tombstones },
       };
       if (Object.keys(history).length > 0) next.history = history;
+      if (kept.size > 0) next.forgotten = [...kept].sort();
+      // ADR-0036: this manifest is published by us, so it says so. Building it
+      // by hand here used to skip that, and every peer then reported the vault
+      // as written by a client older than itself.
+      if (this.ctx.clientVersion !== undefined) next.writer = this.ctx.clientVersion;
 
       const published = await publishManifest(this.ctx, next);
       if (!published.ok) {
@@ -482,6 +524,42 @@ class Engine implements SyncEngine {
         generation,
       });
       return { forgotten, generation };
+    });
+  }
+
+  releaseForgotten(signal?: AbortSignal): Promise<ReleaseResult> {
+    return this.exclusive(async () => {
+      await this.loadStateOnce();
+      const remote = await readRemote(this.ctx);
+      // Same three doors as forgetPaths: nothing to act on, a storage that
+      // went backwards (ADR-0041), or a cancelled run.
+      if (remote.manifest === null || this.rolledBack(remote) || signal?.aborted) {
+        return { released: 0, generation: null };
+      }
+      const released = remote.manifest.forgotten?.length ?? 0;
+      if (released === 0) return { released: 0, generation: null };
+
+      const generation = remote.generation + 1;
+      const next: Manifest = {
+        version: 1,
+        generation,
+        device: this.ctx.deviceId,
+        updatedAt: this.ctx.clock.now(),
+        files: { ...remote.manifest.files },
+        tombstones: { ...remote.manifest.tombstones },
+      };
+      if (remote.manifest.history !== undefined) {
+        next.history = { ...remote.manifest.history };
+      }
+      // `forgotten` deliberately absent: that IS the release.
+      if (this.ctx.clientVersion !== undefined) next.writer = this.ctx.clientVersion;
+
+      const published = await publishManifest(this.ctx, next);
+      if (!published.ok) return { released: 0, generation: null };
+      this.adoptBase(next);
+      await this.saveState();
+      this.ctx.log.notice({ code: "forgotten-objects-released", count: released, generation });
+      return { released, generation };
     });
   }
 
@@ -1026,6 +1104,7 @@ class Engine implements SyncEngine {
         dirtyFiles:
           changes.added.length + changes.modified.length + changes.deleted.length,
         locked,
+        forgottenObjects: this.base?.forgotten?.length ?? 0,
       };
       if (this.lastReport !== undefined) status.lastReport = this.lastReport;
       return status;

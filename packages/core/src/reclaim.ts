@@ -123,6 +123,13 @@ export function reachableObjectKeys(manifests: readonly Manifest[]): Set<ObjectK
     for (const versions of Object.values(m.history ?? {})) {
       for (const entry of versions) reachable.add(entry.objectKey);
     }
+    // Forgotten entries are not live, and their ciphertext is not garbage
+    // either: forgetting is a judgement about which device should carry a
+    // file, made by someone who cannot see the other devices' profiles, and
+    // for an entry nobody carries any more this bucket holds the only copy.
+    // ADR-0027 promised the worst case was one wasted generation; keeping
+    // these reachable is what makes that true again (ADR-0055).
+    for (const key of m.forgotten ?? []) reachable.add(key);
   }
   return reachable;
 }

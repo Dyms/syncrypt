@@ -447,6 +447,12 @@ export function buildNextManifest(
     tombstones,
   };
   if (Object.keys(history).length > 0) manifest.history = history;
+  // Carried forward untouched. An ordinary push has no opinion about what was
+  // forgotten, and dropping the list would hand those objects to the next
+  // reclamation (ADR-0055).
+  if (remote?.forgotten !== undefined && remote.forgotten.length > 0) {
+    manifest.forgotten = [...remote.forgotten];
+  }
   if (ctx.clientVersion !== undefined) manifest.writer = ctx.clientVersion;
   return manifest;
 }

@@ -176,6 +176,7 @@ export type EngineNotice =
   | { code: "state-unreadable"; detail: string }
   | { code: "dedup-probe-unavailable"; path: VaultPath; detail: string }
   | { code: "manifest-entries-forgotten"; count: number; generation: number }
+  | { code: "forgotten-objects-released"; count: number; generation: number }
   | { code: "deletions-paced"; discount: PacingDiscount }
   | { code: "tombstones-expired"; count: number; graceSeconds: number }
   | { code: "fork-lost"; generation: number }

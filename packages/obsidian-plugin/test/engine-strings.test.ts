@@ -33,6 +33,11 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     count: 4,
     generation: 12,
   },
+  "forgotten-objects-released": {
+    code: "forgotten-objects-released",
+    count: 9,
+    generation: 13,
+  },
   "deletions-paced": {
     code: "deletions-paced",
     discount: { destructive: 37, effective: 8, paced: 31, spanSeconds: 25_200 },

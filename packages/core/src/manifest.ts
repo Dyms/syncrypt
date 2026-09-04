@@ -94,6 +94,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** A key we are willing to keep and hand back: no empty, "." or ".." segments. */
+function isUsableObjectKey(key: string): boolean {
+  return (
+    key.length > 0 &&
+    key.length <= 512 &&
+    key.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..")
+  );
+}
+
 function isEpochSeconds(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0;
 }
@@ -183,6 +192,22 @@ export function parseManifest(bytes: Uint8Array): Manifest {
   // shown to the user, so a malformed one is dropped rather than fatal.
   if (typeof raw.writer === "string" && raw.writer !== "" && raw.writer.length <= 64) {
     manifest.writer = raw.writer;
+  }
+
+  if (raw.forgotten !== undefined) {
+    if (!Array.isArray(raw.forgotten)) throw corrupt("forgotten is not an array");
+    // These come out of storage like every other name in here, and they are
+    // handed back to the storage layer (ADR-0044). Same segment rule the
+    // providers apply before turning a key into a path.
+    const forgotten = raw.forgotten.map((k, i) => {
+      if (typeof k !== "string" || !isUsableObjectKey(k)) {
+        throw corrupt(`forgotten[${String(i)}] is not a usable object key`);
+      }
+      return k;
+    });
+    // Sorted and deduplicated so two devices that forget the same entry
+    // publish the same bytes.
+    if (forgotten.length > 0) manifest.forgotten = [...new Set(forgotten)].sort();
   }
 
   if (raw.history !== undefined) {

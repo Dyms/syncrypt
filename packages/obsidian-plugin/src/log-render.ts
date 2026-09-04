@@ -59,6 +59,8 @@ export function renderLine(line: LogLine, t: Strings): string {
           n.prunedManifests,
           n.waiting,
         );
+      case "forgotten-objects-released":
+        return t.engine.forgottenObjectsReleased(n.count, n.generation);
       case "paths-not-distinct":
         return t.engine.pathsNotDistinct(n.paths);
       case "deletions-paced":

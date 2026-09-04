@@ -24,6 +24,7 @@ import { AcceptStorageModal } from "./accept-storage-modal.js";
 import { ForgetPathsModal } from "./forget-modal.js";
 import { formatBytes } from "./format-bytes.js";
 import { ReclaimStorageModal } from "./reclaim-modal.js";
+import { ReleaseForgottenModal } from "./release-modal.js";
 import {
   configPaths,
   DEFAULT_CONFIG_DIR,
@@ -185,6 +186,11 @@ export default class SyncryptPlugin extends Plugin {
       id: "review-manifest",
       name: this.strings.commands.reviewManifest,
       callback: () => void this.reviewManifest(),
+    });
+    this.addCommand({
+      id: "release-forgotten",
+      name: this.strings.commands.releaseForgotten,
+      callback: () => void this.releaseForgotten(),
     });
     this.addCommand({
       id: "reclaim-storage",
@@ -883,6 +889,34 @@ export default class SyncryptPlugin extends Plugin {
     await engine.forgetBase();
     new Notice(this.strings.notices.storageAccepted, 8000);
     await this.syncNow("manual");
+  }
+
+  /**
+   * Release the copies kept for forgotten entries (ADR-0055).
+   *
+   * Its own command, deliberately: forgetting is reversible precisely because
+   * this step is separate, and folding it into the reclaim dialog would make
+   * one confirmation stand for two very different decisions.
+   */
+  async releaseForgotten(): Promise<void> {
+    if (this.engine === null) {
+      this.promptUnlock();
+      return;
+    }
+    const engine = this.engine;
+    const kept = (await engine.status()).forgottenObjects;
+    const approved = await new Promise<boolean>((resolve) => {
+      new ReleaseForgottenModal(this.app, kept, resolve, this.strings).open();
+    });
+    if (!approved || kept === 0) return;
+    const result = await engine.releaseForgotten();
+    if (result.generation === null) {
+      new Notice(this.strings.releaseModal.raced, 8000);
+      return;
+    }
+    new Notice(this.strings.releaseModal.done(result.released), 8000);
+    await this.refreshFacts().catch(() => undefined);
+    this.renderStatus();
   }
 
   /**

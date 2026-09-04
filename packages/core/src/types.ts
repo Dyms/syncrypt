@@ -51,4 +51,15 @@ export interface Manifest {
    * that a client predating it is still writing to this vault.
    */
   writer?: string;
+  /**
+   * Object keys kept alive for entries the user FORGOT (ADR-0027, ADR-0055).
+   *
+   * Forgetting removes a path from `files`, which is what makes the manifest
+   * smaller — and used to make its ciphertext unreferenced, so the next
+   * reclamation deleted it. For an entry no device carries any more, storage
+   * was the only copy. These keys are reachable for reclamation exactly so
+   * that is not true: what a forgotten entry costs is a key here, not a file.
+   * Deleting them is `releaseForgotten()`, which is its own deliberate act.
+   */
+  forgotten?: ObjectKey[];
 }

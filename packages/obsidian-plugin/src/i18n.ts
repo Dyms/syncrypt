@@ -191,13 +191,29 @@ const EN = {
     intro: (n: number) =>
       `${String(n)} entr${n === 1 ? "y" : "ies"} are listed in the vault's manifest but fall outside this device's sync profile. Some are alive on another device; some may be left over from a profile nobody uses any more. Only you can tell which.`,
     safety:
-      "Forgetting is not deleting: no file is touched and no deletion is recorded. Any device that still carries a path will simply put it back on its next sync.",
+      "Forgetting is not deleting: no file is touched, no deletion is recorded, and the stored copy is KEPT — so this stays undoable even for an entry no device carries any more. Any device that still carries a path puts it back on its next sync. The kept copies are freed separately, by the \u201crelease\u201d command, and only then can a storage cleanup delete them.",
     empty: "Nothing to review — this device carries everything in the manifest.",
     cancel: "Cancel",
     forget: (n: number) => (n === 0 ? "Forget selected" : `Forget ${String(n)} selected`),
     noneFound: "Syncrypt: this device carries everything in the manifest — nothing to clean up.",
     done: (n: number) =>
       `Syncrypt: ${String(n)} entr${n === 1 ? "y" : "ies"} forgotten. Anything another device still carries will come back on its next sync.`,
+    raced: "Syncrypt: another device published first — nothing was changed. Sync and try again.",
+  },
+
+  releaseModal: {
+    title: "Release the copies kept for forgotten entries",
+    intro: (n: number) =>
+      `${String(n)} stored cop${n === 1 ? "y is" : "ies are"} being kept because you forgot the manifest entr${n === 1 ? "y" : "ies"} that referenced ${n === 1 ? "it" : "them"}. Keeping ${n === 1 ? "it" : "them"} is what made forgetting undoable: if no device carries those files any more, ${n === 1 ? "this copy is" : "these copies are"} the only one left.`,
+    danger:
+      "Releasing does not delete anything by itself, and it is the step that makes deletion possible: afterwards these copies are ordinary garbage, and the next storage cleanup removes them for good. Do this when you are sure those files are gone for a reason.",
+    nothing:
+      "Nothing is being kept — no entry has been forgotten, or the copies were already released.",
+    cancel: "Cancel",
+    confirm: "Release",
+    close: "Close",
+    done: (n: number) =>
+      `Syncrypt: ${String(n)} kept cop${n === 1 ? "y" : "ies"} released. The next storage cleanup can delete ${n === 1 ? "it" : "them"}.`,
     raced: "Syncrypt: another device published first — nothing was changed. Sync and try again.",
   },
 
@@ -222,7 +238,9 @@ const EN = {
     dedupProbeUnavailable: (path: string, detail: string) =>
       `Could not check whether "${path}" is already in storage — uploading it anyway (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
-      `Forgot ${String(count)} manifest entr${count === 1 ? "y" : "ies"} (generation ${String(generation)}). No file was deleted; a device that still carries one will re-add it.`,
+      `Forgot ${String(count)} manifest entr${count === 1 ? "y" : "ies"} (generation ${String(generation)}). No file was deleted, and the stored copies are kept: a device that still carries one will re-add it, and until you release them nothing can collect them.`,
+    forgottenObjectsReleased: (count: number, generation: number) =>
+      `Released ${String(count)} stored cop${count === 1 ? "y" : "ies"} that were kept for forgotten entries (generation ${String(generation)}). They are ordinary garbage now — the next storage cleanup deletes them, after its usual safety window.`,
     vaultWrittenByNewer: (writer: string, self: string) =>
       `This vault was last published by Syncrypt ${writer}, and this device is running ${self}. Update this device before making big changes here: a newer version can write things an older one reads differently.`,
     vaultWrittenByOlder: (writer: string | undefined, self: string) =>
@@ -287,6 +305,7 @@ const EN = {
     addDevice: "Add this device from a ticket",
     rehashVault: "Re-hash the vault (forget cached file hashes)",
     reviewManifest: "Review manifest entries this device does not carry",
+    releaseForgotten: "Release the copies kept for forgotten entries",
     reclaimStorage: "Reclaim storage (delete unreferenced objects)",
     acceptStorage: "Accept the storage as it is (after restoring a backup)",
   },
@@ -624,13 +643,28 @@ const RU: Strings = {
     intro: (n: number) =>
       `В манифесте хранилища есть записи (${String(n)}), не попадающие в профиль синхронизации этого устройства. Часть из них жива на другом устройстве, часть могла остаться от профиля, которым больше никто не пользуется. Отличить может только человек.`,
     safety:
-      "Забыть — не значит удалить: ни один файл не трогается и удаление нигде не записывается. Устройство, которое ещё носит путь, просто вернёт его на следующей синхронизации.",
+      "Забыть — не значит удалить: ни один файл не трогается, удаление нигде не записывается, а копия в хранилище СОХРАНЯЕТСЯ — поэтому действие остаётся обратимым даже для записи, которую больше не носит ни одно устройство. Устройство, которое ещё носит путь, вернёт его на следующей синхронизации. Сохранённые копии освобождаются отдельно, командой «освободить», и только после этого их сможет удалить очистка хранилища.",
     empty: "Разбирать нечего — это устройство носит всё, что есть в манифесте.",
     cancel: "Отмена",
     forget: (n: number) => (n === 0 ? "Забыть отмеченные" : `Забыть отмеченные: ${String(n)}`),
     noneFound: "Syncrypt: это устройство носит весь манифест — чистить нечего.",
     done: (n: number) =>
       `Syncrypt: забыто записей — ${String(n)}. То, что ещё носит другое устройство, вернётся на его следующей синхронизации.`,
+    raced: "Syncrypt: другое устройство опубликовало изменения первым — ничего не изменено. Синхронизируйтесь и повторите.",
+  },
+
+  releaseModal: {
+    title: "Освободить копии, сохранённые ради забытых записей",
+    intro: (n: number) =>
+      `В хранилище держатся копии (${String(n)}) — потому что записи манифеста, которые на них ссылались, вы забыли. Именно это и делало забывание обратимым: если те файлы больше не носит ни одно устройство, эти копии — единственное, что от них осталось.`,
+    danger:
+      "Освобождение само по себе ничего не удаляет — оно делает удаление возможным: после него это обычный мусор, и ближайшая очистка хранилища уберёт его окончательно. Делайте это, когда уверены, что файлы исчезли не по ошибке.",
+    nothing: "Ничего не держится: либо записи не забывали, либо копии уже освобождены.",
+    cancel: "Отмена",
+    confirm: "Освободить",
+    close: "Закрыть",
+    done: (n: number) =>
+      `Syncrypt: освобождено сохранённых копий — ${String(n)}. Ближайшая очистка хранилища сможет их удалить.`,
     raced: "Syncrypt: другое устройство опубликовало изменения первым — ничего не изменено. Синхронизируйтесь и повторите.",
   },
 
@@ -656,7 +690,9 @@ const RU: Strings = {
     dedupProbeUnavailable: (path: string, detail: string) =>
       `Не удалось проверить, есть ли «${path}» в хранилище — загружаю на всякий случай (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
-      `Забыто записей манифеста: ${String(count)} (поколение ${String(generation)}). Ни один файл не удалён; устройство, которое ещё носит запись, вернёт её.`,
+      `Забыто записей манифеста: ${String(count)} (поколение ${String(generation)}). Ни один файл не удалён, копии в хранилище сохранены: устройство, которое ещё носит запись, вернёт её, а до явного освобождения эти копии никто не соберёт.`,
+    forgottenObjectsReleased: (count: number, generation: number) =>
+      `Освобождено копий, которые держались ради забытых записей: ${String(count)} (поколение ${String(generation)}). Теперь это обычный мусор — ближайшая очистка хранилища удалит их, отстояв своё защитное окно.`,
     vaultWrittenByNewer: (writer: string, self: string) =>
       `Это хранилище последним публиковал Syncrypt ${writer}, а на этом устройстве ${self}. Обнови это устройство, прежде чем делать здесь что-то серьёзное: более новая версия пишет то, что старая может прочитать иначе.`,
     vaultWrittenByOlder: (writer: string | undefined, self: string) =>
@@ -723,6 +759,7 @@ const RU: Strings = {
     addDevice: "Добавить это устройство по тикету",
     rehashVault: "Пересчитать хеши хранилища (забыть кэш)",
     reviewManifest: "Разобрать записи манифеста, которых нет на этом устройстве",
+    releaseForgotten: "Освободить копии, сохранённые ради забытых записей",
     reclaimStorage: "Освободить место в хранилище (удалить ненужные объекты)",
     acceptStorage: "Принять хранилище как есть (после восстановления из бэкапа)",
   },
