@@ -16,7 +16,7 @@ import {
 } from "@syncrypt/core";
 
 import { SyncryptCrypto } from "./crypto.js";
-import { base64Encode, validateKdfParams } from "./keys.js";
+import { base64Encode, validateKdfParams, type PassphraseForm } from "./keys.js";
 
 export const KEYFILE_KEY: ObjectKey = "meta/keyfile-params.json";
 const SALT_LENGTH = 16; // 128-bit random salt (RFC-0005)
@@ -120,6 +120,14 @@ export interface OpenVaultCryptoOptions {
    * pass { maxMemoryKiB: 131072 }.
    */
   affordability?: { maxMemoryKiB: number };
+  /**
+   * Which byte form of the passphrase to derive from (ADR-0057). Defaults to
+   * NFC, which is the spec and what every vault created from now on uses. A
+   * caller that can VERIFY the result — `openSyncEngine`, which reads the
+   * published manifest — passes a legacy form to open a vault created before
+   * normalization existed. Nothing else should.
+   */
+  passphraseForm?: PassphraseForm;
 }
 
 /**
@@ -192,7 +200,7 @@ export async function openVaultCrypto(
   // what this device can afford, refuse with an actionable message instead
   // of letting Argon2id OOM the webview.
   assertAffordable(params.memoryKiB, opts.affordability);
-  return SyncryptCrypto.create(opts.passphrase, params);
+  return SyncryptCrypto.create(opts.passphrase, params, opts.passphraseForm ?? "nfc");
 }
 
 /** GET that answers null for "not there" and rethrows everything else. */

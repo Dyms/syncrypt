@@ -43,6 +43,14 @@ ContentKey  = HKDF-SHA256(MasterKey, salt=∅, info="syncrypt/content",  len=32)
 ManifestKey = HKDF-SHA256(MasterKey, salt=∅, info="syncrypt/manifest", len=32)
 ```
 
+The passphrase goes in as **UTF-8 in Unicode NFC**. This matters when it
+contains anything beyond ASCII: "café" can be typed as five code points or as
+six, and Argon2id sees different bytes for each. Normalize to NFC first
+(`str.normalize("NFC")` in JavaScript, `unicodedata.normalize("NFC", s)` in
+Python). A vault created before Syncrypt specified this may hold the key of
+another form — if NFC does not decrypt the manifest, try the passphrase exactly
+as typed and then in NFD. `recover.mjs` does all three for you.
+
 The Argon2id `salt` in `keyfile-params.json` is **standard base64** (with
 padding). HKDF uses an empty salt (RFC 5869 default). You do not need the Name
 key for recovery: the decrypted manifest already lists each file's `objectKey`.
@@ -67,7 +75,7 @@ SYNCRYPT_PASSPHRASE='your passphrase' node recover.mjs ./downloaded-prefix ./res
 ```python
 #!/usr/bin/env python3
 # Dependencies: pip install argon2-cffi cryptography
-import base64, json, os, re, sys
+import base64, json, os, re, sys, unicodedata
 from argon2.low_level import hash_secret_raw, Type
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -75,7 +83,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "."      # folder with meta/, manifests/, objects/
 OUT  = sys.argv[2] if len(sys.argv) > 2 else "restored"
-passphrase = os.environ["SYNCRYPT_PASSPHRASE"].encode()  # avoid shell history
+passphrase = unicodedata.normalize("NFC", os.environ["SYNCRYPT_PASSPHRASE"]).encode()
 
 def derive_keys(passphrase, p):
     assert p["kdf"] == "argon2id" and p["version"] == 1, "unsupported keyfile-params"

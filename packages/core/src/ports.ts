@@ -184,6 +184,7 @@ export type EngineNotice =
   | { code: "vault-written-by-newer"; writer: string; self: string }
   | { code: "vault-written-by-older"; writer: string | undefined; self: string }
   | { code: "paths-not-distinct"; paths: VaultPath[] }
+  | { code: "passphrase-legacy-form"; form: "as-typed" | "nfd" }
   | {
       code: "storage-reclaimed";
       deleted: number;

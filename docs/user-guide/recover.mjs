@@ -24,27 +24,35 @@ if (!passphrase) {
 const params = JSON.parse(await readFile(path.join(ROOT, "meta", "keyfile-params.json"), "utf8"));
 if (params.kdf !== "argon2id" || params.version !== 1) throw new Error("unsupported keyfile-params");
 
-const masterKey = await argon2id({
-  password: passphrase,
-  salt: Buffer.from(params.salt, "base64"), // salt is standard base64
-  iterations: params.iterations,
-  memorySize: params.memoryKiB,
-  parallelism: params.parallelism,
-  hashLength: 32,
-  outputType: "binary",
-});
-
-const hkdfKey = await crypto.subtle.importKey("raw", masterKey, "HKDF", false, ["deriveBits"]);
-async function subkey(info) {
-  const bits = await crypto.subtle.deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode(info) },
-    hkdfKey,
-    256,
-  );
-  return crypto.subtle.importKey("raw", new Uint8Array(bits), { name: "AES-GCM" }, false, ["decrypt"]);
+// The passphrase is fed to Argon2id as UTF-8 in Unicode NFC (RFC-0005). Vaults
+// created before that was specified may hold the key of another form of the
+// same characters, so each distinct form is tried until the manifest decrypts.
+const forms = [];
+for (const text of [passphrase.normalize("NFC"), passphrase, passphrase.normalize("NFD")]) {
+  if (!forms.includes(text)) forms.push(text);
 }
-const contentKey = await subkey("syncrypt/content");
-const manifestKey = await subkey("syncrypt/manifest");
+
+async function keysFrom(text) {
+  const masterKey = await argon2id({
+    password: text,
+    salt: Buffer.from(params.salt, "base64"), // salt is standard base64
+    iterations: params.iterations,
+    memorySize: params.memoryKiB,
+    parallelism: params.parallelism,
+    hashLength: 32,
+    outputType: "binary",
+  });
+  const hkdfKey = await crypto.subtle.importKey("raw", masterKey, "HKDF", false, ["deriveBits"]);
+  const subkey = async (info) => {
+    const bits = await crypto.subtle.deriveBits(
+      { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode(info) },
+      hkdfKey,
+      256,
+    );
+    return crypto.subtle.importKey("raw", new Uint8Array(bits), { name: "AES-GCM" }, false, ["decrypt"]);
+  };
+  return { contentKey: await subkey("syncrypt/content"), manifestKey: await subkey("syncrypt/manifest") };
+}
 
 // --- blob v1 (RFC-0005 §File object format) ---------------------------------
 async function decrypt(blob, key) {
@@ -74,9 +82,25 @@ const newest = names
   .filter((r) => r.gen === top)
   .sort((a, b) => (a.device < b.device ? -1 : 1))[0].name;
 
-const manifest = JSON.parse(
-  new TextDecoder().decode(await decrypt(await readFile(path.join(ROOT, "manifests", newest)), manifestKey)),
-);
+// The manifest is the oracle: whichever form decrypts it is the vault's.
+const newestBytes = await readFile(path.join(ROOT, "manifests", newest));
+let keys = null;
+let manifestBytes = null;
+for (const text of forms) {
+  const candidate = await keysFrom(text);
+  try {
+    manifestBytes = await decrypt(newestBytes, candidate.manifestKey);
+    keys = candidate;
+    if (text !== forms[0]) console.warn("note: this vault uses a pre-NFC form of the passphrase");
+    break;
+  } catch {
+    // Wrong key for this form — try the next one.
+  }
+}
+if (keys === null) throw new Error("could not decrypt the manifest — wrong passphrase, or the file is damaged");
+const { contentKey } = keys;
+
+const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
 console.log(`manifest ${newest}: generation ${manifest.generation}, ${Object.keys(manifest.files).length} files`);
 
 // --- restore ------------------------------------------------------------------

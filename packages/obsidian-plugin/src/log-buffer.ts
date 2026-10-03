@@ -36,6 +36,7 @@ const WARNING_NOTICES: ReadonlySet<EngineNotice["code"]> = new Set([
   "confirmation-stale",
   "state-unreadable",
   "dedup-probe-unavailable",
+  "passphrase-legacy-form",
 ]);
 
 export class LogBuffer implements LogPort {

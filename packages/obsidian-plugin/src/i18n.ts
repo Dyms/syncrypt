@@ -257,6 +257,8 @@ const EN = {
       `Sync refused: the storage is at generation ${String(remote)}, and this device already synced against generation ${String(base)} (ADR-0038). Generations only ever go up, so manifests were removed — by a restore from an older backup, by a cleanup, or by someone with write access to the bucket. Applying it would quietly put an older copy of every file back. Nothing was changed. If you restored the storage on purpose, run "Accept the storage as it is" and sync again; if you did not, check who can write to that bucket before syncing anything.`,
     deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
       `${String(paced)} deletions came in from another device, spread over ${spanEn(spanSeconds)} — the pace of someone working, not of something going wrong, so the confirmation for ${String(destructive)} destructive changes was not asked for (ADR-0029). The deleted files are in the sync trash.`,
+    passphraseLegacyForm: (form: string) =>
+      `This vault's passphrase was stored in an older text form (${form}), from before Syncrypt fixed one (ADR-0057). It opened, and syncing works as usual. Unicode lets the same passphrase be typed as different bytes, so a device typing it the standard way could not open this vault — if you ever add a device and it reports a wrong passphrase, that is why. Creating the vault again with the same passphrase would settle it permanently.`,
   },
 
   entryDetail: {
@@ -709,6 +711,8 @@ const RU: Strings = {
       `Синхронизация отклонена: в хранилище поколение ${String(remote)}, а это устройство уже синхронизировалось с поколением ${String(base)} (ADR-0038). Поколения только растут, значит манифесты пропали — восстановление из старого бэкапа, чистка или кто-то с правом записи в хранилище. Применить это означало бы тихо вернуть на место старые копии всех файлов. Ничего не изменено. Если вы восстанавливали хранилище сами — выполните команду «Принять хранилище как есть» и синхронизируйтесь заново; если нет — сначала разберитесь, у кого есть доступ на запись.`,
     deletionsPaced: (paced: number, spanSeconds: number, destructive: number) =>
       `С другого устройства пришло удалений: ${String(paced)}, растянутых на ${spanRu(spanSeconds)} — это темп работы человека, а не сбоя, поэтому подтверждение на ${String(destructive)} разрушающих изменений не запрашивалось (ADR-0029). Удалённые файлы лежат в корзине синхронизации.`,
+    passphraseLegacyForm: (form: string) =>
+      `Парольная фраза этого хранилища сохранена в старой текстовой форме (${form}) — из времён, когда Syncrypt ещё не фиксировал одну (ADR-0057). Хранилище открылось, синхронизация работает как обычно. В Unicode одна и та же фраза набирается разными байтами, поэтому устройство, набравшее её стандартным способом, это хранилище не откроет — если при подключении нового устройства вы увидите «неверная парольная фраза», причина в этом. Пересоздание хранилища с той же фразой закроет вопрос окончательно.`,
   },
 
   entryDetail: {

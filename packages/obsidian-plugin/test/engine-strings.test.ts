@@ -47,6 +47,7 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     code: "paths-not-distinct",
     paths: ["Notes/caf\u00e9.md", "Notes/re\u0301sume\u0301.md"],
   },
+  "passphrase-legacy-form": { code: "passphrase-legacy-form", form: "nfd" },
   "storage-rolled-back": { code: "storage-rolled-back", remote: 17, base: 23 },
   "vault-written-by-newer": {
     code: "vault-written-by-newer",

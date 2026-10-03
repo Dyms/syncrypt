@@ -188,6 +188,11 @@ export async function openConnectionTicket(
   };
   validateKdfParams(params); // ADR-0014 floor + anti-DoS ceiling apply here too
 
+  // Both sides normalize the passphrase to NFC (ADR-0057), so a ticket written
+  // by one spelling of it opens under the other. Tickets get no legacy-form
+  // fallback: one is made and used within minutes, and a ticket from a client
+  // too old to normalize is re-exported from the updated device in seconds. A
+  // vault, which cannot be re-created that cheaply, is where the fallback is.
   const key = await ticketKey(passphrase, params, version);
   const parts = parseBlob(bytes.subarray(HEADER_LENGTH));
   let plaintext: Uint8Array;

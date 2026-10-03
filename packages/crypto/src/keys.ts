@@ -109,15 +109,64 @@ export function validateKdfParams(params: KdfParams): void {
   if (salt.length < 8 || salt.length > 64) throw bad(`salt length ${salt.length}`);
 }
 
-/** Argon2id(passphrase, salt, params) → 32-byte Master Key. */
+/**
+ * Which byte string a passphrase becomes before Argon2id sees it (ADR-0057).
+ *
+ * Unicode lets the same passphrase be typed as different bytes: "café" is one
+ * code point on most keyboards (NFC) and two on some IMEs and pasted text
+ * (NFD). Argon2id sees bytes, so those are different passphrases and produce
+ * different vaults. RFC-0005 now fixes the input as NFC.
+ *
+ * - `nfc` — the spec. Everything Syncrypt WRITES is derived this way.
+ * - `as-typed` — the exact string the user gave, which is what clients before
+ *   ADR-0057 used. Read-only, for opening a vault they created.
+ * - `nfd` — fully decomposed. Read-only, for opening a vault created on a
+ *   device whose input method decomposes.
+ */
+export type LegacyPassphraseForm = "as-typed" | "nfd";
+export type PassphraseForm = "nfc" | LegacyPassphraseForm;
+
+const applyForm = (passphrase: string, form: PassphraseForm): string =>
+  form === "nfc" ? passphrase.normalize("NFC")
+  : form === "nfd" ? passphrase.normalize("NFD")
+  : passphrase;
+
+/**
+ * The legacy forms that produce a DIFFERENT byte string than NFC for this
+ * passphrase — that is, the other keys this passphrase could already have made.
+ *
+ * For ASCII — or any text already in NFC and not decomposable — every form is
+ * the same string and this returns NOTHING: the overwhelmingly common case
+ * derives once, exactly as before, and never asks about legacy forms at all.
+ */
+export function legacyPassphraseForms(passphrase: string): LegacyPassphraseForm[] {
+  const seen = new Set([applyForm(passphrase, "nfc")]);
+  const out: LegacyPassphraseForm[] = [];
+  for (const form of ["as-typed", "nfd"] as const) {
+    const text = applyForm(passphrase, form);
+    if (seen.has(text)) continue;
+    seen.add(text);
+    out.push(form);
+  }
+  return out;
+}
+
+/**
+ * Argon2id(passphrase, salt, params) → 32-byte Master Key.
+ *
+ * The passphrase is normalized to NFC unless a legacy `form` is named
+ * explicitly — only an unlock that has something to verify against may do that
+ * (ADR-0057).
+ */
 export async function deriveMasterKeyBytes(
   passphrase: string,
   params: KdfParams,
+  form: PassphraseForm = "nfc",
 ): Promise<Uint8Array> {
   validateKdfParams(params);
   const salt = base64Decode(params.salt);
   const mk = await argon2id({
-    password: passphrase,
+    password: applyForm(passphrase, form),
     salt,
     iterations: params.iterations,
     memorySize: params.memoryKiB,

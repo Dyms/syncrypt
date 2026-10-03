@@ -63,6 +63,8 @@ export function renderLine(line: LogLine, t: Strings): string {
         return t.engine.forgottenObjectsReleased(n.count, n.generation);
       case "paths-not-distinct":
         return t.engine.pathsNotDistinct(n.paths);
+      case "passphrase-legacy-form":
+        return t.engine.passphraseLegacyForm(n.form);
       case "deletions-paced":
         return t.engine.deletionsPaced(
           n.discount.paced,

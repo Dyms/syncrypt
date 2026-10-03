@@ -27,6 +27,7 @@ import {
   deriveMasterKeyBytes,
   zeroize,
   type KeyRing,
+  type PassphraseForm,
 } from "./keys.js";
 
 const HASH_PREFIX = "b3:";
@@ -35,9 +36,19 @@ const HASH_HEX_RE = /^[0-9a-f]{64}$/;
 export class SyncryptCrypto implements CryptoPort {
   private constructor(private readonly ring: KeyRing) {}
 
-  /** Derive the full key ring from a passphrase + stored KDF params. */
-  static async create(passphrase: string, params: KdfParams): Promise<SyncryptCrypto> {
-    const mk = await deriveMasterKeyBytes(passphrase, params);
+  /**
+   * Derive the full key ring from a passphrase + stored KDF params.
+   *
+   * `form` is NFC — the spec (ADR-0057). A legacy form is for opening a vault
+   * created before normalization existed, and only an unlock with something to
+   * verify against may ask for one.
+   */
+  static async create(
+    passphrase: string,
+    params: KdfParams,
+    form: PassphraseForm = "nfc",
+  ): Promise<SyncryptCrypto> {
+    const mk = await deriveMasterKeyBytes(passphrase, params, form);
     try {
       return new SyncryptCrypto(await deriveKeyRing(mk));
     } finally {
