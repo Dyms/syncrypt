@@ -85,6 +85,28 @@ export interface SyncStatus {
   forgottenObjects: number;
 }
 
+/**
+ * The engine's operations, every one of them cancellable.
+ *
+ * WHAT CANCELLING MEANS, because the answer differs by return type and a
+ * caller cannot guess it (ADR-0059):
+ *
+ * - `pull`, `push`, `sync`, `confirmAndApply` → a `SyncReport` with
+ *   `outcome: "aborted"`. Whatever was already applied is in `entries`;
+ *   nothing is applied after the signal fires.
+ * - `listUncarried`, `forgetPaths`, `releaseForgotten` → a result meaning
+ *   nothing happened, which is what a cancelled run did.
+ * - `dryRun`, `previewReclaim`, `verifyAccess` → they THROW
+ *   `SyncError("Aborted")`. A plan cannot say "cancelled", and a plan built
+ *   from a read that stopped early is not a shorter plan: unscanned paths
+ *   look locally deleted, and objects whose manifests went unread look
+ *   unreachable. Both mistakes point at deletion.
+ * - `reclaimStorage` → the objects it did delete, honestly, with `waiting`
+ *   and `ripeAt` zeroed: a cancelled run has not finished looking.
+ *
+ * Nothing is left half-written in any case: a signal is checked between
+ * operations, never inside one.
+ */
 export interface SyncEngine {
   /** Download remote changes; apply deletions via trash; surface conflicts. */
   pull(signal?: AbortSignal): Promise<SyncReport>;
@@ -95,7 +117,11 @@ export interface SyncEngine {
   /** pull() then push(). The default user action. */
   sync(signal?: AbortSignal): Promise<SyncReport>;
 
-  /** Compute and return the plan WITHOUT touching any file or object (FR-14). */
+  /**
+   * Compute and return the plan WITHOUT touching any file or object (FR-14).
+   *
+   * Throws `SyncError("Aborted")` if cancelled — see the note above.
+   */
   dryRun(signal?: AbortSignal): Promise<SyncPlan>;
 
   /** Re-run a plan that returned requiresConfirmation, now approved by the user. */
@@ -192,6 +218,10 @@ export interface SyncEngine {
    * retained generations, and reports three numbers: what is deletable now,
    * what is still waiting out its grace window, and which manifest generations
    * would be pruned. Publishes nothing and marks nothing.
+   *
+   * Throws `SyncError("Aborted")` if cancelled: an object is unreachable only
+   * relative to the manifests that were READ, so a listing cut short
+   * over-reports what can be deleted — see the note above.
    */
   previewReclaim(signal?: AbortSignal): Promise<ReclaimPlan>;
 
@@ -259,6 +289,22 @@ const noopLog: LogPort = {
 const systemClock: ClockPort = {
   now: () => Math.floor(Date.now() / 1000),
 };
+
+/**
+ * The shape an operation uses when its RETURN TYPE cannot say "cancelled".
+ *
+ * `pull`, `push` and `confirmAndApply` answer with a report whose outcome is
+ * "aborted"; `listUncarried`, `forgetPaths` and `releaseForgotten` answer with
+ * a result that means nothing happened, which is true of a cancelled run. A
+ * plan has neither: it is a list of operations, and a list built from a read
+ * that stopped early is not a shorter plan — it is a different and much more
+ * destructive one (ADR-0059).
+ */
+function throwIfAborted(signal: AbortSignal | undefined, operation: string): void {
+  if (signal?.aborted === true) {
+    throw new SyncError("Aborted", `${operation} was cancelled — no plan was produced`);
+  }
+}
 
 /** A destructive op destroys or replaces existing bytes somewhere (ADR-0010). */
 function destructiveKey(op: Operation): string | null {
@@ -657,6 +703,13 @@ class Engine implements SyncEngine {
       await this.loadStateOnce();
       const plan = await computeReclaimPlan(this.ctx, signal);
       this.refuseReclaimOnRollback(plan, signal);
+      // The same rule as dryRun, pointing the other way (ADR-0059). A
+      // cancelled listing returns the manifests it reached, and every object
+      // the manifests it did NOT reach still point at looks unreachable: the
+      // preview proposes deleting objects that are live. `reclaimStorage`
+      // recomputes, so nothing would be swept on this plan — but the number
+      // on screen is what the user decides by.
+      throwIfAborted(signal, "previewReclaim");
       return plan;
     });
   }
@@ -722,9 +775,15 @@ class Engine implements SyncEngine {
       // NOT written when the run was cancelled: the plan behind it was
       // computed from a listing that stopped early, so persisting it would
       // reset the grace clocks of objects nobody looked at (ADR-0045).
-      if (signal?.aborted !== true) {
-        await writeGcMark(this.ctx, markAfterSweep(plan, deleted)).catch(() => undefined);
+      if (signal?.aborted === true) {
+        // `deleted` and `prunedManifests` are what happened and are reported.
+        // `waiting` and `ripeAt` are read off a plan built from a listing that
+        // stopped early, so this run does not know them and does not say
+        // (ADR-0059) — and the summary line is not written at all, rather
+        // than written with a number nobody measured.
+        return { deleted, bytesFreed, prunedManifests, waiting: 0, ripeAt: null };
       }
+      await writeGcMark(this.ctx, markAfterSweep(plan, deleted)).catch(() => undefined);
 
       this.ctx.log.notice({
         code: "storage-reclaimed",
@@ -980,6 +1039,16 @@ class Engine implements SyncEngine {
       await this.loadStateOnce();
       const remote = await readRemote(this.ctx);
       const { local, planOptions } = await this.scanLocal(signal);
+      // A partial scan must never be mistaken for mass deletion — the same
+      // rule pull, push and confirmAndApply apply two lines after their own
+      // scan, and the one place it was missing (ADR-0059). A scan cut short
+      // has not seen the files it did not reach, and a path a scan did not
+      // see is a path that was DELETED: cancelling after three of eight files
+      // produced a plan with five delete-remote operations and
+      // requiresConfirmation, which is the most frightening screen the
+      // product has. `SyncPlan` has no field for "this is not a real plan",
+      // so this throws rather than hand one back (as verifyAccess does).
+      throwIfAborted(signal, "dryRun");
       return plan(local, this.baseFor(remote), remote.manifest, planOptions);
     });
   }
