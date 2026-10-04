@@ -55,15 +55,7 @@ export interface SyncEngineConfig {
    * nothing and warns about nothing.
    */
   clientVersion?: string;
-  safeSync?: Partial<PlanOptions> & {
-    versionsToKeep?: number;
-    /** Tombstone expiry window in seconds; 0 disables it (ADR-0031). */
-    tombstoneGraceSeconds?: number;
-    /** How long an object must sit unreachable before a sweep (ADR-0030). */
-    reclaimGraceSeconds?: number;
-    /** Manifest generations retained (ADR-0030). */
-    generationsToKeep?: number;
-  };
+  safeSync?: SafeSyncOptions;
   network?: {
     // resource-aware auto-sync (RFC-0004); consumed by clients, not the engine
     wifiOnly?: boolean;
@@ -71,6 +63,28 @@ export interface SyncEngineConfig {
     debounceSec?: number;
   };
 }
+
+/**
+ * Every safe-sync knob the engine accepts, in ONE named type.
+ *
+ * The SDK re-declared this inline as `Partial<PlanOptions> & { versionsToKeep?:
+ * number }` and then stopped being updated: ADR-0030 and ADR-0031 added three
+ * more fields to the engine and none of them to the SDK's copy, so an SDK
+ * caller writing `{ generationsToKeep: 5 }` as a literal did not compile
+ * against a setting the engine has honoured since (ADR-0060). The plugin
+ * passes a variable, so TypeScript's excess-property check never fired and
+ * nobody noticed. Named here, used there.
+ */
+export type SafeSyncOptions = Partial<PlanOptions> & {
+  /** Prior versions of a path retained in the manifest (ADR-0010). */
+  versionsToKeep?: number;
+  /** Tombstone expiry window in seconds; 0 disables it (ADR-0031). */
+  tombstoneGraceSeconds?: number;
+  /** How long an object must sit unreachable before a sweep (ADR-0030). */
+  reclaimGraceSeconds?: number;
+  /** Manifest generations retained (ADR-0030). */
+  generationsToKeep?: number;
+};
 
 export interface SyncStatus {
   baseGeneration: number | null;
@@ -825,7 +839,14 @@ class Engine implements SyncEngine {
     if (outcome !== "applied" && outcome !== "no-op") {
       this.ctx.log.notice({ code: "sync-outcome", outcome });
     }
-    this.lastReport = r;
+    // The caller gets `r`; the journal keeps its OWN copy. Handing out the
+    // same object made `status().lastReport` whatever the client had done to
+    // it since: a client sorting `entries` in place, or clearing them after
+    // rendering, rewrote the record of the last sync (ADR-0060). Arrays are
+    // copied because that is what a client reaches for; the entries inside
+    // are not, and are documented as read-only rather than deep-cloned on
+    // every sync of a large vault.
+    this.lastReport = { ...r, entries: [...entries], conflicts: [...conflicts] };
     return r;
   }
 
@@ -1026,7 +1047,9 @@ class Engine implements SyncEngine {
       outcome,
       conflicts,
     };
-    this.lastReport = merged;
+    // The journal keeps its own copy here too — `sync()` is the default user
+    // action, so this is the site a client actually holds (ADR-0060).
+    this.lastReport = { ...merged, entries: [...entries], conflicts: [...conflicts] };
     return merged;
   }
 

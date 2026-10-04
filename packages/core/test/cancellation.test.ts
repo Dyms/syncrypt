@@ -145,6 +145,53 @@ describe("a cancelled dry run is not a plan", () => {
   });
 });
 
+describe("the journal is not the caller's to edit", () => {
+  it("EMPTYING THE RETURNED REPORT DOES NOT REWRITE THE LAST SYNC", async () => {
+    // ADR-0060. `status().lastReport` was the same object the caller got, so
+    // a client sorting `entries` in place — or clearing them after rendering
+    // them — rewrote the record of what the last sync did.
+    const d = await syncedDevice();
+    const report = await d.engine.status().then((s) => s.lastReport);
+    expect(report?.entries).toHaveLength(8);
+
+    const fresh = await d.engine.sync();
+    fresh.entries.length = 0;
+    fresh.conflicts.push("not a conflict");
+
+    const after = await d.engine.status();
+    expect(after.lastReport?.outcome).toBe("no-op");
+    expect(after.lastReport?.conflicts).toEqual([]);
+  });
+
+  it("AND THE SAME HOLDS FOR pull AND push, WHICH TAKE THE OTHER PATH", async () => {
+    // `sync()` merges two reports and had its own assignment; pull and push
+    // report through `report()`. Both were handing out the journal.
+    const d = await syncedDevice();
+    await d.vault.write("new.md", new TextEncoder().encode("added since"));
+    d.vault.now += 10;
+
+    const pushed = await d.engine.push();
+    expect(pushed.entries).toHaveLength(1);
+    pushed.entries.length = 0;
+    pushed.conflicts.push("not a conflict");
+
+    const after = await d.engine.status();
+    expect(after.lastReport?.entries).toHaveLength(1);
+    expect(after.lastReport?.conflicts).toEqual([]);
+  });
+
+  it("and the entries the caller holds are the ones the journal logged", async () => {
+    // The arrays are copied; the entries inside are shared and documented
+    // read-only. This pins that it IS the same content, so nobody "fixes" the
+    // copy into a deep clone on every sync of a large vault by accident.
+    const d = await syncedDevice();
+    const report = (await d.engine.status()).lastReport;
+    expect(report?.entries.map((e) => e.path).sort()).toEqual(
+      EIGHT.map((n) => `${n}.md`).sort(),
+    );
+  });
+});
+
 describe("a cancelled reclamation preview is not a plan either", () => {
   it("THROWS INSTEAD OF PROPOSING TO DELETE LIVE OBJECTS", async () => {
     const d = await syncedDevice();

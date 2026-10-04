@@ -17,6 +17,8 @@ import {
   type VaultPort,
 } from "@syncrypt/core";
 
+import { isTmpName, tmpPathFor } from "./tmp.js";
+
 export interface FilesystemVaultOptions {
   /** Vault-relative Safe-Sync trash folder (ADR-0010). */
   trashDir?: string;
@@ -57,6 +59,12 @@ export class FilesystemVault implements VaultPort {
       }
       for (const entry of entries) {
         if (entry.name.startsWith(".")) continue; // profiles stand-in; excludes trash
+        // A write that was interrupted leaves one of these behind. It is not a
+        // note: listing it uploads a fragment of a half-finished download to
+        // every device, under a name ending in random characters, for ever
+        // (ADR-0060). The storage adapter in this package has always skipped
+        // them; this one wrote them and then listed them.
+        if (isTmpName(entry.name)) continue;
         const childRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
         if (entry.isDirectory()) await walk(path.join(dir, entry.name), childRel);
         else if (entry.isFile()) found.push(this.fromNative(childRel));
@@ -79,7 +87,7 @@ export class FilesystemVault implements VaultPort {
     const target = this.fullPath(p);
     try {
       await fs.mkdir(path.dirname(target), { recursive: true });
-      const tmp = `${target}.syncrypt-tmp-${Date.now().toString(36)}`;
+      const tmp = tmpPathFor(target);
       await fs.writeFile(tmp, data);
       await fs.rename(tmp, target); // atomic replace
     } catch (e) {

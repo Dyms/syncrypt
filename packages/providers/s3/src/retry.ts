@@ -1,6 +1,15 @@
 // Retry with exponential backoff + full jitter (RFC-0006 §S3 implementation
 // notes). Only Transient and RateLimited are retried — everything else is a
-// definitive answer. All S3 operations we issue are idempotent.
+// definitive answer.
+//
+// NOT "all S3 operations we issue are idempotent", which is what this comment
+// used to claim and what a reader would reasonably rely on. PUT, GET, HEAD,
+// DELETE and LIST are; `POST ?uploads` is not — retrying it after a request
+// the server carried out but failed to answer creates a SECOND multipart
+// upload and orphans the first, whose parts are billed and appear in no
+// object listing. That one request owns its own cleanup, in
+// `S3Storage.multipartPut` (ADR-0060). Anything added here later must say
+// which it is.
 
 import { isSyncError } from "@syncrypt/core";
 

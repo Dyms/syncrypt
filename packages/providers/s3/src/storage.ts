@@ -26,6 +26,7 @@ import {
   embeddedErrorCode,
   parseInitiateMultipartUpload,
   parseListObjectsV2,
+  parseMultipartUploads,
 } from "./xml.js";
 
 export class S3Storage implements StoragePort {
@@ -108,12 +109,26 @@ export class S3Storage implements StoragePort {
     }, this.retryOpts);
   }
 
+  /**
+   * The one request this provider issues that is NOT idempotent.
+   *
+   * `POST ?uploads` carried out by the server and then unanswered — a dropped
+   * socket, a proxy answering 503 after the bucket already created the upload
+   * — leaves an upload whose id we never learned. The retry makes a second
+   * one, the first is never aborted, its parts are billed, and they appear in
+   * no object listing, so reclamation cannot see them either (ADR-0060).
+   *
+   * Not retrying would be worse: one blip and a large attachment never
+   * uploads. So it is retried, and a retry owes the cleanup below.
+   */
   private async multipartPut(
     key: ObjectKey,
     data: Uint8Array,
     contentType?: string,
   ): Promise<PutResult> {
+    let attempts = 0;
     const initiate = await withRetry(async () => {
+      attempts++;
       const res = await this.client.sendOk({
         method: "POST",
         key,
@@ -124,8 +139,13 @@ export class S3Storage implements StoragePort {
       return parseInitiateMultipartUpload(res.text());
     }, this.retryOpts);
     if (initiate === null) {
+      // Every attempt may have created one, and none gave us an id to abort.
+      await this.abortStrayUploads(key, null);
       throw new SyncError("StorageTransient", `S3 multipart-initiate "${key}": no UploadId`);
     }
+    // Only when an attempt was lost. The ordinary path issues no extra
+    // request and cannot touch another device's upload.
+    if (attempts > 1) await this.abortStrayUploads(key, initiate);
 
     try {
       const parts: { partNumber: number; etag: string }[] = [];
@@ -163,10 +183,43 @@ export class S3Storage implements StoragePort {
       }, this.retryOpts);
     } catch (e) {
       // Best-effort abort so incomplete parts do not linger (and bill).
-      await this.client
-        .send({ method: "DELETE", key, query: { uploadId: initiate }, operation: "multipart-abort" })
-        .catch(() => undefined);
+      await this.abortUpload(key, initiate);
       throw e;
+    }
+  }
+
+  /** Best-effort: a cleanup failure must never become a failed upload. */
+  private async abortUpload(key: ObjectKey, uploadId: string): Promise<void> {
+    await this.client
+      .send({ method: "DELETE", key, query: { uploadId }, operation: "multipart-abort" })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Abort every in-progress upload of THIS key except `keep`.
+   *
+   * Called only after an initiate needed more than one attempt, which is the
+   * only circumstance that can leave one behind. It can in principle abort a
+   * concurrent upload of the same key by another device — necessarily of the
+   * same bytes, since keys are content-addressed — and that device sees a
+   * retryable failure and uploads again. The alternative is parts billed for
+   * ever that nothing in the product can even list (ADR-0060).
+   */
+  private async abortStrayUploads(key: ObjectKey, keep: string | null): Promise<void> {
+    try {
+      const res = await this.client.send({
+        method: "GET",
+        key: "",
+        query: { uploads: "", prefix: key, "encoding-type": "url" },
+        operation: "multipart-list",
+      });
+      if (!res.ok) return;
+      for (const id of parseMultipartUploads(res.text(), key)) {
+        if (id === keep) continue;
+        await this.abortUpload(key, id);
+      }
+    } catch {
+      // Best effort, as above.
     }
   }
 

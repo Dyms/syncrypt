@@ -52,6 +52,13 @@ export type SyncOutcome =
   /** Storage holds an OLDER generation than this device already had (ADR-0038). */
   | "rolled-back";
 
+/**
+ * What one run did. The engine keeps its own copy for `status().lastReport`,
+ * so the one handed back is the caller's to sort, filter or empty — but the
+ * ENTRIES inside it are shared with the journal and are read-only: changing a
+ * `reason` or a `path` in place changes what the last sync is recorded as
+ * having done (ADR-0060).
+ */
 export interface SyncReport {
   startedAt: number;
   finishedAt: number;

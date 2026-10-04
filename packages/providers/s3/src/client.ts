@@ -66,9 +66,19 @@ export class S3Client {
     this.transport = config.transport ?? fetchTransport;
     const url = new URL(config.endpoint);
     const pathStyle = config.forcePathStyle ?? S3_DEFAULTS.forcePathStyle;
+    // A PATH in the endpoint is part of the endpoint. `url.origin` drops it,
+    // so "https://gateway.example.com/s3" addressed
+    // "https://gateway.example.com/vault/..." — every request to the wrong
+    // place, with nothing in the message saying the path the user typed had
+    // been thrown away. MinIO or Ceph behind a reverse proxy on a path prefix
+    // is the deployment RFC-0006 names as a target (ADR-0060).
+    //
+    // Virtual-host style puts the bucket in the HOSTNAME, so a path prefix
+    // there is still a prefix: it survives in front of the key.
+    const basePath = url.pathname.replace(/\/+$/, "");
     this.baseUrl = pathStyle
-      ? `${url.origin}/${config.bucket}`
-      : `${url.protocol}//${config.bucket}.${url.host}`;
+      ? `${url.origin}${basePath}/${config.bucket}`
+      : `${url.protocol}//${config.bucket}.${url.host}${basePath}`;
   }
 
   urlFor(key: string, query?: Record<string, string>): string {

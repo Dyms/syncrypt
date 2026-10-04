@@ -12,6 +12,7 @@ import {
   CROSS_DEVICE_KDF_PRESET,
   DESKTOP_KDF_PRESET,
   isSyncError,
+  MOBILE_MEMORY_BUDGET_KIB,
   openSyncEngine,
 } from "@syncrypt/sdk";
 import { S3Storage } from "@syncrypt/provider-s3";
@@ -68,6 +69,7 @@ import {
   type SyncStateView,
 } from "./sync-state.js";
 import { PassphraseModal } from "./unlock.js";
+import { passphraseIsDefinitelyWrong } from "./passphrase-check.js";
 import { ObsidianVault } from "./vault-adapter.js";
 
 /** How many conflicting paths the summary log line names before it counts. */
@@ -434,33 +436,22 @@ export default class SyncryptPlugin extends Plugin {
   }
 
   /**
-   * Does this passphrase NOT open the vault? (ADR-0048)
+   * Does this passphrase NOT open the vault? (ADR-0048, ADR-0060)
    *
-   * For "Share connection": a ticket is encrypted with whatever was typed, so
-   * a typo produced a ticket that opens into settings nobody can unlock —
-   * discovered on the other device, by someone who cannot fix it. Costs one
-   * Argon2id derivation on a button the user presses deliberately.
-   *
-   * `false` on anything that is not a definite "wrong": an unreachable bucket
-   * says nothing about the passphrase, and must not block sharing.
+   * The decision lives in `passphrase-check.ts`, which has no `obsidian`
+   * import and is unit-tested; this supplies the ports.
    */
   async passphraseIsWrong(passphrase: string): Promise<boolean> {
-    try {
-      const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
-      const engine = await openSyncEngine({
-        storage: await this.openStorage(),
-        vault: new ObsidianVault(adapter, this.settings.profile, this.settings.configSync, this.paths),
-        passphrase,
-        deviceId: this.settings.deviceId,
-        storagePrefix: storagePrefixOf(this.settings),
-        log: this.log,
-        ...(Platform.isMobile ? { affordability: { maxMemoryKiB: 131072 } } : {}),
-      });
-      await engine.verifyAccess();
-      return false;
-    } catch (e) {
-      return isSyncError(e, "CryptoAuthError");
-    }
+    const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+    return passphraseIsDefinitelyWrong({
+      storage: await this.openStorage(),
+      vault: new ObsidianVault(adapter, this.settings.profile, this.settings.configSync, this.paths),
+      storagePrefix: storagePrefixOf(this.settings),
+      passphrase,
+      deviceId: this.settings.deviceId,
+      log: this.log,
+      ...(Platform.isMobile ? { affordability: { maxMemoryKiB: MOBILE_MEMORY_BUDGET_KIB } } : {}),
+    });
   }
 
   /** Say how old an accepted ticket is — ADR-0020 promised this and never did. */
@@ -512,7 +503,7 @@ export default class SyncryptPlugin extends Plugin {
         // refuse vaults above their Argon2id memory budget fail-closed.
         kdfDefaults:
           s.kdfProfile === "desktop-only" ? DESKTOP_KDF_PRESET : CROSS_DEVICE_KDF_PRESET,
-        ...(Platform.isMobile ? { affordability: { maxMemoryKiB: 131072 } } : {}),
+        ...(Platform.isMobile ? { affordability: { maxMemoryKiB: MOBILE_MEMORY_BUDGET_KIB } } : {}),
       });
       // Prove the keys actually open this vault BEFORE reporting success:
       // reads and decrypts the published manifest, no local scan (RFC-0007).

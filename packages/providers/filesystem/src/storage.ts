@@ -18,13 +18,15 @@ import {
   type StoragePort,
 } from "@syncrypt/core";
 
+import { isTmpName, tmpPathFor } from "./tmp.js";
+
 export interface FilesystemStorageOptions {
   /** Honor ifMatch/ifNoneMatch (advertised via capabilities). Default true;
    *  set false to exercise the universal LIST-based protocol (ADR-0006). */
   conditionalWrites?: boolean;
 }
 
-const TMP_MARKER = ".syncrypt-tmp-";
+
 
 function keyToRelative(key: ObjectKey): string {
   // The shared rule (ADR-0058), plus one this provider adds: a backslash is a
@@ -103,7 +105,7 @@ export class FilesystemStorage implements StoragePort {
         }
       }
       await fs.mkdir(path.dirname(target), { recursive: true });
-      const tmp = `${target}${TMP_MARKER}${process.pid.toString(36)}${Date.now().toString(36)}`;
+      const tmp = tmpPathFor(target);
       await fs.writeFile(tmp, data);
       await fs.rename(tmp, target); // atomic replace
       return { etag: etagOf(data) };
@@ -155,7 +157,7 @@ export class FilesystemStorage implements StoragePort {
         throw normalizeFsError(e, prefix);
       }
       for (const entry of entries) {
-        if (entry.name.includes(TMP_MARKER)) continue;
+        if (isTmpName(entry.name)) continue;
         const childRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
         if (entry.isDirectory()) await walk(path.join(dir, entry.name), childRel);
         else if (entry.isFile()) keys.push(childRel);

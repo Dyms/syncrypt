@@ -11,7 +11,7 @@ import {
   type ClockPort,
   type DeviceId,
   type LogPort,
-  type PlanOptions,
+  type SafeSyncOptions,
   type StateStorePort,
   type StoragePort,
   type SyncEngine,
@@ -33,7 +33,8 @@ export interface OpenSyncEngineOptions {
   clock?: ClockPort;
   log?: LogPort;
   state?: StateStorePort;
-  safeSync?: Partial<PlanOptions> & { versionsToKeep?: number };
+  /** Every safe-sync knob the engine accepts — one named type (ADR-0060). */
+  safeSync?: SafeSyncOptions;
   /** KDF preset used only when this vault has no keyfile yet (first device). */
   kdfDefaults?: KdfPreset;
   /** Device KDF affordability ceiling (ADR-0018) — mobile clients pass it. */
@@ -123,10 +124,13 @@ function engineWith(
 export * from "@syncrypt/core";
 export {
   CROSS_DEVICE_KDF_PRESET,
+  MOBILE_MEMORY_BUDGET_KIB,
   DESKTOP_KDF_PRESET,
   MOBILE_KDF_PRESET,
   SyncryptCrypto,
   openVaultCrypto,
+  keyfilePathFor,
+  vaultHasKeyfile,
   legacyPassphraseForms,
   type KdfPreset,
   type LegacyPassphraseForm,

@@ -55,6 +55,19 @@ export const DESKTOP_KDF_PRESET: KdfPreset = {
   parallelism: 1,
 };
 
+/**
+ * What a phone may spend on one Argon2id derivation, in KiB (ADR-0018 §3).
+ *
+ * It MUST be strictly below `DESKTOP_KDF_PRESET.memoryKiB`, or ADR-0018 §2 —
+ * "mobile devices will refuse to join such a vault" — is not true: the
+ * affordability check refuses what exceeds the budget, and 128 MiB does not
+ * exceed 128 MiB. The ADR shipped with those two numbers equal, so an Android
+ * webview was handed the heavy profile instead of a clear refusal (ADR-0060).
+ * The invariant is pinned by a test, which is where an invariant between two
+ * constants belongs.
+ */
+export const MOBILE_MEMORY_BUDGET_KIB = 65536; // 64 MiB
+
 /** Fresh params: preset + a new random 128-bit salt. */
 export function generateKdfParams(preset: KdfPreset = CROSS_DEVICE_KDF_PRESET): KdfParams {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
@@ -106,6 +119,30 @@ export function parseKdfParams(bytes: Uint8Array): KdfParams {
   return params;
 }
 
+/** Where this vault's keyfile lives, given the engine's storage prefix. */
+export function keyfilePathFor(storagePrefix: string): ObjectKey {
+  const prefix = storagePrefix.replace(/\/+$/, "");
+  return prefix === "" ? KEYFILE_KEY : `${prefix}/${KEYFILE_KEY}`;
+}
+
+/**
+ * Does this vault already have a keyfile?
+ *
+ * For callers that must NOT create one. `openVaultCrypto` is "load or
+ * create", and creating is the half that cannot be undone — a client that
+ * only wants to check a passphrase has no business taking that path, because
+ * a vault with no keyfile has no passphrase to check (ADR-0060).
+ *
+ * A storage that cannot answer propagates its error: "I could not look" is
+ * not "there is none".
+ */
+export async function vaultHasKeyfile(
+  storage: StoragePort,
+  storagePrefix: string,
+): Promise<boolean> {
+  return (await tryGet(storage, keyfilePathFor(storagePrefix))) !== null;
+}
+
 export interface OpenVaultCryptoOptions {
   storage: StoragePort;
   /** Same prefix the SyncEngine is configured with. */
@@ -152,7 +189,7 @@ export async function openVaultCrypto(
   opts: OpenVaultCryptoOptions,
 ): Promise<SyncryptCrypto> {
   const prefix = opts.storagePrefix.replace(/\/+$/, "");
-  const key = prefix === "" ? KEYFILE_KEY : `${prefix}/${KEYFILE_KEY}`;
+  const key = keyfilePathFor(prefix);
   const { storage } = opts;
 
   let stored: Uint8Array | null = null;

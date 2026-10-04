@@ -111,6 +111,30 @@ export function buildCompleteMultipartUpload(
   return `<CompleteMultipartUpload>${body}</CompleteMultipartUpload>`;
 }
 
+/**
+ * In-progress multipart uploads from a ListMultipartUploads response.
+ *
+ * Only uploads for `wantedKey` are returned: the request filters by prefix,
+ * and a prefix match is not an exact one — a longer key starting with ours
+ * would come back too, and aborting someone else's upload of a different
+ * object is not a cleanup (ADR-0060). Keys arrive URL-encoded like every
+ * other listing; a row that will not decode is skipped rather than guessed
+ * at, exactly as in `parseListObjectsV2`.
+ */
+export function parseMultipartUploads(xml: string, wantedKey: string): string[] {
+  const out: string[] = [];
+  for (const m of xml.matchAll(/<Upload>([\s\S]*?)<\/Upload>/g)) {
+    const block = m[1] ?? "";
+    const rawKey = tagValue(block, "Key");
+    const id = tagValue(block, "UploadId");
+    if (rawKey === null || id === null || id === "") continue;
+    const key = decodeKey(xmlUnescape(rawKey));
+    if (key !== wantedKey) continue;
+    out.push(xmlUnescape(id));
+  }
+  return out;
+}
+
 /** CompleteMultipartUpload can return HTTP 200 with an embedded <Error>. */
 export function embeddedErrorCode(xml: string): string | null {
   return /<Error>[\s\S]*?<\/Error>/.test(xml) ? (tagValue(xml, "Code") ?? "InternalError") : null;
