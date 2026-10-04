@@ -7,6 +7,8 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
 import {
+  isSyncError,
+  isUsableObjectKey,
   SyncError,
   type ObjectKey,
   type ObjectStat,
@@ -25,11 +27,12 @@ export interface FilesystemStorageOptions {
 const TMP_MARKER = ".syncrypt-tmp-";
 
 function keyToRelative(key: ObjectKey): string {
-  if (key.length === 0) throw badKey(key);
+  // The shared rule (ADR-0058), plus one this provider adds: a backslash is a
+  // path separator where this one writes, so a key carrying one would escape
+  // the root on Windows exactly as ".." would.
+  if (!isUsableObjectKey(key)) throw badKey(key);
   const segments = key.split("/");
-  for (const s of segments) {
-    if (s === "" || s === "." || s === ".." || s.includes("\\")) throw badKey(key);
-  }
+  for (const s of segments) if (s.includes("\\")) throw badKey(key);
   return segments.join(path.sep);
 }
 
@@ -160,7 +163,20 @@ export class FilesystemStorage implements StoragePort {
     };
     await walk(this.root, "");
     for (const key of keys.filter((k) => k.startsWith(prefix)).sort()) {
-      yield await this.stat(key);
+      // The walk collected names; stat reads them one at a time, and between
+      // the two another device's reclamation can delete one. RFC-0006 gives
+      // `list` no way to say NotFound (ADR-0058): a file that is gone is not
+      // in the listing, and the walk goes on. Every other failure — a
+      // permission error, a disk giving up — is an answer ABOUT a file that
+      // exists and still ends the walk.
+      let stat: ObjectStat;
+      try {
+        stat = await this.stat(key);
+      } catch (e) {
+        if (isSyncError(e, "StorageNotFound")) continue;
+        throw e;
+      }
+      yield stat;
     }
   }
 

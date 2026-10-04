@@ -17,6 +17,10 @@ import { externalDavFromEnv, randomPrefixKeyed, startLocalDav, type LiveDav } fr
 const running = new WeakMap<StoragePort, LiveDav>();
 
 describeStorageConformance("webdav (in-process server, no conditional writes)", {
+  // PROPFIND Depth: infinity answers in one response — there is no page to
+  // cross. A modest number keeps the pagination test honest about that
+  // without writing a thousand files over a loopback socket.
+  listPageSize: 8,
   async create(): Promise<StoragePort> {
     const dav = await startLocalDav();
     const storage = new WebDavStorage(dav.config);
@@ -52,6 +56,7 @@ if (external === null) {
 } else {
   const base = external;
   describeStorageConformance("webdav (external server)", {
+    listPageSize: 8,
     async create(): Promise<StoragePort> {
       const config = randomPrefixKeyed(base);
       // The per-run collection must exist before first use.

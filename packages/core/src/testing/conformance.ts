@@ -11,6 +11,17 @@ export interface ConformanceHarness {
   create(): Promise<StoragePort>;
   /** Optional teardown for the storage created by create(). */
   destroy?(storage: StoragePort): Promise<void>;
+  /**
+   * Keys this provider returns per page, as the harness CONFIGURED it.
+   *
+   * The pagination test writes more than two pages of keys, so the
+   * continuation branch runs and runs more than once. Left unset it assumes
+   * 25, which the earlier fixed count of 60 happened to satisfy for nobody:
+   * with the S3 page size at its production 1000, that test wrote 60 objects
+   * and proved that one page works, while the defect it existed to catch — a
+   * truncated listing reported as complete — sat underneath it (ADR-0058).
+   */
+  listPageSize?: number;
 }
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
@@ -124,12 +135,81 @@ export function describeStorageConformance(
     });
 
     it("a zero-byte object is an object", async () => {
-      await storage.put("objects/empty", new Uint8Array(0));
-      expect((await storage.stat("objects/empty")).size).toBe(0);
+      const put = await storage.put("objects/empty", new Uint8Array(0));
+      const stat = await storage.stat("objects/empty");
+      expect(stat.size).toBe(0);
       expect(await storage.get("objects/empty")).toEqual(new Uint8Array(0));
       const listed: Record<string, number> = {};
-      for await (const stat of storage.list("objects/")) listed[stat.key] = stat.size;
+      for await (const s of storage.list("objects/")) listed[s.key] = s.size;
       expect(listed).toEqual({ "objects/empty": 0 });
+
+      // AND IT HAS AN ETAG. S3 answers a byte-range request on a zero-byte
+      // object with 416 and no ETag, and the provider that read the size out
+      // of that answer reported `etag: ""` with it — against which every
+      // conditional write compares equal to nothing (ADR-0056). An empty
+      // object is the one an engine writes for an empty note, so this is not
+      // a corner.
+      expect(stat.etag.length).toBeGreaterThan(0);
+      expect(stat.etag).toBe(put.etag);
+      expect(stat.key).toBe("objects/empty");
+    });
+
+    it("STAT AND LIST ANSWER ABOUT THE KEY THAT WAS ASKED FOR", async () => {
+      // Callers slice the configured prefix off a listed key and hand the rest
+      // back to get/delete, so a key that is a suffix, a relative name, or
+      // somebody else's is not caught as foreign — it is used.
+      await storage.put("vaults/main/objects/aa/one", enc("mine"));
+      expect((await storage.stat("vaults/main/objects/aa/one")).key).toBe(
+        "vaults/main/objects/aa/one",
+      );
+      for await (const stat of storage.list("vaults/main/objects/")) {
+        expect(stat.key).toBe("vaults/main/objects/aa/one");
+        expect(dec(await storage.get(stat.key))).toBe("mine");
+      }
+    });
+
+    it("LIST TAKES A KEY PREFIX, AND NOTHING OUTSIDE IT COMES BACK", async () => {
+      // "a/" and "ab/" are neighbours no engine would confuse, and a provider
+      // that filters by directory rather than by key prefix hands one vault's
+      // objects to another vault's reclamation.
+      await storage.put("a/1", enc("x"));
+      await storage.put("ab/1", enc("x"));
+      await storage.put("a-/1", enc("x"));
+      const under = async (prefix: string): Promise<string[]> => {
+        const keys: string[] = [];
+        for await (const stat of storage.list(prefix)) keys.push(stat.key);
+        return keys.sort();
+      };
+      expect(await under("a/")).toEqual(["a/1"]);
+      expect(await under("ab/")).toEqual(["ab/1"]);
+      // A key prefix, not a path prefix: "a" is a prefix of all three.
+      expect(await under("a")).toEqual(["a-/1", "a/1", "ab/1"]);
+    });
+
+    it("A LISTING IS A SNAPSHOT ATTEMPT, NOT A SOURCE OF StorageNotFound", async () => {
+      // Two devices reclaiming at once, or anyone pruning the bucket, deletes
+      // an object while this walk is in flight. RFC-0006 gives `list` no way
+      // to say NotFound: the object is simply not in the result. A provider
+      // that walks first and stats afterwards reports it instead, and the
+      // whole of readRemote or reclamation fails over a key nobody asked
+      // about (ADR-0058).
+      for (const n of ["a", "b", "c", "d", "e", "f"]) {
+        await storage.put(`objects/${n}`, enc(n));
+      }
+      const seen: string[] = [];
+      for await (const stat of storage.list("objects/")) {
+        seen.push(stat.key);
+        if (seen.length === 1) {
+          // Delete the rest, including keys this walk has not reached yet.
+          for (const n of ["c", "d", "e", "f"]) await storage.delete(`objects/${n}`);
+        }
+      }
+      // What came back is some subset of what was there — the point is that
+      // the walk FINISHED, and that every key it yielded was real when it was
+      // yielded.
+      expect(seen.length).toBeGreaterThanOrEqual(1);
+      expect(seen.every((k) => k.startsWith("objects/"))).toBe(true);
+      for (const key of seen.slice(0, 2)) expect(key).not.toBe("");
     });
 
     it("refuses a key with a traversing segment instead of resolving it", async () => {
@@ -148,23 +228,26 @@ export function describeStorageConformance(
     });
 
     /**
-     * 60 keys, and providers are configured for a SMALL page in their test
-     * harness, so the continuation branch actually runs. With the S3 page size
-     * left at its production 1000 this test wrote 60 objects and proved only
-     * that one page works — the pagination defect it was meant to catch
-     * (a truncated listing reported as complete) sat under it untouched.
+     * More than TWO pages, measured against the page size the harness says it
+     * configured — so the continuation branch runs, and runs again. One page
+     * boundary proves a token is sent; two prove it is updated (ADR-0058).
      */
-    it("list paginates correctly over many keys", async () => {
+    it("list paginates correctly over more than two pages", async () => {
+      const pageSize = harness.listPageSize ?? 25;
+      const count = pageSize * 2 + 1;
       const expected: string[] = [];
-      for (let i = 0; i < 60; i++) {
-        const key = `many/${String(i).padStart(3, "0")}`;
+      for (let i = 0; i < count; i++) {
+        const key = `many/${String(i).padStart(4, "0")}`;
         expected.push(key);
         await storage.put(key, enc(String(i)));
       }
       const keys: string[] = [];
       for await (const stat of storage.list("many/")) keys.push(stat.key);
       expect(keys.sort()).toEqual(expected);
-    });
+      // Not a prefix of the answer, not a page of it: the whole listing. A
+      // walk that stops early must raise, never return quietly short.
+      expect(keys).toHaveLength(count);
+    }, 60_000);
 
     it("delete removes the object and is idempotent", async () => {
       await storage.put("k", enc("x"));

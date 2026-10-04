@@ -2,7 +2,12 @@
 // (RFC-0006 §Injectable transport) + error normalization to the RFC-0007
 // taxonomy. Credentials appear ONLY in the Authorization header.
 
-import { SyncError, type HttpTransport, type SyncErrorCode } from "@syncrypt/core";
+import {
+  isUsableObjectKey,
+  SyncError,
+  type HttpTransport,
+  type SyncErrorCode,
+} from "@syncrypt/core";
 
 import type { WebDavConfig } from "./config.js";
 import { decodePath } from "./xml.js";
@@ -172,8 +177,6 @@ export class WebDavClient {
   }
 }
 
-/** No empty, "." or ".." segments — the shapes that escape the base collection. */
-function safeKey(key: string): boolean {
-  if (key === "") return false;
-  return key.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
-}
+/** No empty, "." or ".." segments — the shapes that escape the base
+ *  collection. ADR-0058: one definition, in core. */
+const safeKey = isUsableObjectKey;

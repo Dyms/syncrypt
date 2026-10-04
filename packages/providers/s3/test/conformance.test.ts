@@ -8,7 +8,8 @@ import { describe, expect, it } from "vitest";
 import type { StoragePort } from "@syncrypt/core";
 import { describeStorageConformance } from "@syncrypt/core/testing/conformance";
 
-import { S3Storage } from "../src/index.js";
+import { fetchTransport, S3Storage } from "../src/index.js";
+import type { HttpTransport } from "../src/transport.js";
 import type { S3Config } from "../src/config.js";
 import { createBucket, deleteBucketRecursive } from "../src/testing.js";
 import { bucketConfig, liveS3FromEnv, warnSkipped } from "./live.js";
@@ -23,7 +24,13 @@ if (live === null) {
 } else {
   const configs = new WeakMap<StoragePort, S3Config>();
 
+  const PAGE_SIZE = 10;
+
   const harness = (overrides: Partial<S3Config>) => ({
+    // What the suite writes more than two pages of (ADR-0058). Declared here
+    // rather than guessed, so the continuation branch is exercised whatever
+    // the production default is.
+    listPageSize: PAGE_SIZE,
     async create(): Promise<StoragePort> {
       const config = bucketConfig(live, overrides);
       await createBucket(config);
@@ -37,12 +44,37 @@ if (live === null) {
     },
   });
 
+  /**
+   * Obsidian's `requestUrl()` on Android cannot issue a HEAD — it fails with
+   * "IOException Stream closed". stat() detects that and degrades to a
+   * byte-range GET for the rest of the session, which means a whole shape of
+   * request has always been the NORMAL one on a real platform and was never
+   * under conformance. The empty-ETag answer on a zero-byte object (B2,
+   * ADR-0056) lived in exactly that shape.
+   *
+   * So the suite runs again over a transport that behaves like Android's
+   * (ADR-0058). No production code knows about this: a transport that refuses
+   * HEAD is a condition, not a mode.
+   */
+  const headlessTransport: HttpTransport = (req) =>
+    req.method === "HEAD"
+      ? Promise.reject(new Error("Request Failed. IOException Stream closed"))
+      : fetchTransport(req);
+
   // A small page size so the continuation-token branch is exercised by the
-  // 60-key pagination test rather than sitting unreached behind max-keys=1000.
-  describeStorageConformance("s3/MinIO (probed capabilities)", harness({ listPageSize: 10 }));
+  // pagination test rather than sitting unreached behind max-keys=1000.
+  describeStorageConformance(
+    "s3/MinIO (probed capabilities)",
+    harness({ listPageSize: PAGE_SIZE }),
+  );
   describeStorageConformance(
     "s3/MinIO (universal subset only)",
-    harness({ conditionalWrites: false, listPageSize: 10 }),
+    harness({ conditionalWrites: false, listPageSize: PAGE_SIZE }),
+  );
+
+  describeStorageConformance(
+    "s3/MinIO (no HEAD — the Android request shape)",
+    harness({ listPageSize: PAGE_SIZE, transport: headlessTransport }),
   );
 
   describe("capability probe against the live backend", () => {

@@ -94,8 +94,21 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** A key we are willing to keep and hand back: no empty, "." or ".." segments. */
-function isUsableObjectKey(key: string): boolean {
+/**
+ * A key we are willing to keep and hand back: no empty, "." or ".." segments.
+ *
+ * THE one definition (ADR-0058). Three providers and the manifest parser each
+ * had their own copy of this predicate, which is how a rule the threat model
+ * states plainly — "never with `.`/`..` segments" — was missing from one of
+ * them (A7, ADR-0052) while the other two had it. A caller may add its own
+ * rules on top (the filesystem provider refuses a backslash, which is a path
+ * separator where it writes); none may be laxer than this.
+ *
+ * The 512-byte cap is the manifest parser's: a key longer than that cannot
+ * round-trip through a manifest, so a provider accepting one only defers the
+ * refusal to a place with less context.
+ */
+export function isUsableObjectKey(key: string): boolean {
   return (
     key.length > 0 &&
     key.length <= 512 &&

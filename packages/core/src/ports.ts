@@ -46,10 +46,43 @@ export interface StoragePort {
   /** Download bytes. Rejects with SyncError("StorageNotFound") if absent. */
   get(key: ObjectKey): Promise<Uint8Array>;
 
-  /** Metadata without downloading the body. Rejects StorageNotFound if absent. */
+  /**
+   * Metadata without downloading the body. Rejects StorageNotFound if absent.
+   *
+   * `key` of the result is the key that was asked for, and `etag` is NEVER
+   * empty — a zero-byte object has one like any other, because conditional
+   * writes compare against it (ADR-0056).
+   */
   stat(key: ObjectKey): Promise<ObjectStat>;
 
-  /** List keys under a prefix (paginated by the provider). */
+  /**
+   * List keys under a prefix, paginated by the provider — a KEY prefix, not a
+   * path prefix: `list("a")` includes `ab/1`, `list("a/")` does not.
+   *
+   * The contract, because callers depend on all four and a provider that
+   * breaks one is not visibly broken (RFC-0006 §Conformance, ADR-0058):
+   *
+   * 1. **Only keys under `prefix`.** Callers slice the prefix off what they
+   *    get (`listObjects`), so a key from somewhere else does not arrive as a
+   *    foreign key — it arrives as a plausible one, pointing at an object that
+   *    is not there. A backend that answers with more than it was asked for is
+   *    the server talking (ADR-0039, ADR-0052): the provider drops it.
+   * 2. **Every key is complete and validated.** `stat.key` is the whole key,
+   *    not a suffix, and it has been through the same check as a key being
+   *    written: no `.`/`..` segment, no empty segment, no leading slash
+   *    (ADR-0044). It goes straight back into `get`/`stat`/`delete`.
+   * 3. **The whole listing, or an error.** A provider may not end a paginated
+   *    walk early and have it look complete; a truncated page with no
+   *    continuation is a protocol violation, not an empty remainder
+   *    (ADR-0052). An under-reported `manifests/` listing reads as a LOWER
+   *    generation, which is an ADR-0038 refusal for ever on a device with a
+   *    base and an empty vault on one without.
+   * 4. **Never StorageNotFound.** A walk is a snapshot attempt. Another
+   *    device deleting an object while this one lists is ordinary, and the
+   *    object is simply not in the result — reporting "not found" for the
+   *    listing fails `readRemote` and reclamation over a key nobody asked
+   *    about. Every other Storage* error still propagates.
+   */
   list(prefix: string): AsyncIterable<ObjectStat>;
 
   /** Delete an object. Idempotent: deleting a missing key is not an error. */

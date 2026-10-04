@@ -13,6 +13,10 @@ const roots = new WeakMap<StoragePort, string>();
 
 function harness(conditionalWrites: boolean) {
   return {
+    // A full recursive walk, so there is no page boundary to cross — but the
+    // suite still writes more than two "pages" of keys, which is the number
+    // that catches a walk that stops early (ADR-0058).
+    listPageSize: 8,
     async create(): Promise<StoragePort> {
       const root = await mkdtemp(path.join(tmpdir(), "syncrypt-conformance-"));
       const storage = new FilesystemStorage(root, { conditionalWrites });

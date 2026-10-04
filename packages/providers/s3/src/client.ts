@@ -5,7 +5,7 @@
 
 import { AwsV4Signer } from "aws4fetch";
 
-import { SyncError } from "@syncrypt/core";
+import { isUsableObjectKey, SyncError } from "@syncrypt/core";
 
 import { S3_DEFAULTS, type S3Config } from "./config.js";
 import { normalizeNetworkError, normalizeS3Error, s3ErrorCode } from "./errors.js";
@@ -139,9 +139,7 @@ export class S3Client {
 }
 
 /** A key we are willing to turn into a URL: no empty, "." or ".." segments. */
-function safeKey(key: string): boolean {
-  return key.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
-}
+const safeKey = isUsableObjectKey; // ADR-0058: one definition, in core
 
 /**
  * RFC-3986 percent-encoding, which is what SigV4 canonicalizes a query with

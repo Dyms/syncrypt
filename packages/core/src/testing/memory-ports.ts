@@ -1,6 +1,7 @@
 // Deterministic in-memory ports for engine tests (RFC-0004 §Determinism).
 
 import { SyncError } from "../errors.js";
+import { isUsableObjectKey } from "../manifest.js";
 import type {
   ClockPort,
   EngineNotice,
@@ -43,7 +44,21 @@ export class MemoryStorage implements StoragePort {
     this.conditional = opts.conditionalWrites ?? true;
   }
 
+  /**
+   * The same key rule a provider applies (ADR-0058). A double that accepts
+   * `objects/../manifests/000000009-devA.json` lets every engine test pass
+   * over the one thing a real backend does with that key: resolve it, and act
+   * on an object nobody named.
+   */
+  private badKey(key: ObjectKey): SyncError | null {
+    return isUsableObjectKey(key)
+      ? null
+      : new SyncError("StorageNotFound", `invalid object key: "${key}"`);
+  }
+
   put(key: ObjectKey, data: Uint8Array, opts?: PutOptions): Promise<PutResult> {
+    const bad = this.badKey(key);
+    if (bad !== null) return Promise.reject(bad);
     const existing = this.objects.get(key);
     if (this.conditional && opts) {
       if (opts.ifNoneMatch === "*" && existing !== undefined) {
@@ -67,6 +82,8 @@ export class MemoryStorage implements StoragePort {
   }
 
   get(key: ObjectKey): Promise<Uint8Array> {
+    const bad = this.badKey(key);
+    if (bad !== null) return Promise.reject(bad);
     const obj = this.objects.get(key);
     if (obj === undefined) {
       return Promise.reject(new SyncError("StorageNotFound", `not found: ${key}`));
@@ -75,6 +92,8 @@ export class MemoryStorage implements StoragePort {
   }
 
   stat(key: ObjectKey): Promise<ObjectStat> {
+    const bad = this.badKey(key);
+    if (bad !== null) return Promise.reject(bad);
     const obj = this.objects.get(key);
     if (obj === undefined) {
       return Promise.reject(new SyncError("StorageNotFound", `not found: ${key}`));
@@ -87,14 +106,24 @@ export class MemoryStorage implements StoragePort {
     });
   }
 
+  // An async generator is the port's shape; this one has nothing to await.
+  // eslint-disable-next-line @typescript-eslint/require-await
   async *list(prefix: string): AsyncIterable<ObjectStat> {
     const keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
     for (const key of keys) {
-      yield await this.stat(key);
+      // Snapshot first, then yield: a caller deleting during the walk — which
+      // is what two devices reclaiming at once looks like — must not turn the
+      // listing into a StorageNotFound (ADR-0058). The double is held to the
+      // same contract as a provider, because every engine test believes it.
+      const obj = this.objects.get(key);
+      if (obj === undefined) continue;
+      yield { key, size: obj.data.length, etag: obj.etag, lastModified: obj.lastModified };
     }
   }
 
   delete(key: ObjectKey): Promise<void> {
+    const bad = this.badKey(key);
+    if (bad !== null) return Promise.reject(bad);
     this.objects.delete(key); // idempotent
     return Promise.resolve();
   }
