@@ -224,6 +224,7 @@ export type EngineNotice =
   | { code: "vault-written-by-older"; writer: string | undefined; self: string }
   | { code: "paths-not-distinct"; paths: VaultPath[] }
   | { code: "paths-unreadable"; paths: VaultPath[] }
+  | { code: "paths-changed-during-sync"; paths: VaultPath[] }
   | { code: "passphrase-legacy-form"; form: "as-typed" | "nfd" }
   | {
       code: "storage-reclaimed";

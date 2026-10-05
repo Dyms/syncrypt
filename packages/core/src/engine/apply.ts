@@ -21,6 +21,12 @@ import type { EngineContext } from "./context.js";
 export interface PullApplyResult {
   entries: SyncReportEntry[];
   conflicts: VaultPath[];
+  /**
+   * Paths whose file changed after the scan, so the op planned for them was
+   * not applied (ADR-0064). The caller keeps their previous base entry: this
+   * run did not sync them, and the next scan plans them from what is there.
+   */
+  held: VaultPath[];
   aborted: boolean;
 }
 
@@ -96,6 +102,35 @@ async function freeCopyPath(
 }
 
 /**
+ * Is the file still the one the scan hashed? (ADR-0064)
+ *
+ * The plan was made from a scan, and a long pull applies it minutes later
+ * while the user keeps typing. An op decided against `op.localHash` must not
+ * land on a file that no longer has it: an update would overwrite the edit in
+ * place, a delete would send it to the trash as if it were the old version.
+ *
+ * The hash cache answers for an untouched file without a read; anything the
+ * cache cannot vouch for is re-read and re-hashed. A file that cannot be read
+ * counts as changed — the cautious answer, and the op waits a run.
+ */
+async function stillAsScanned(
+  ctx: EngineContext,
+  path: VaultPath,
+  stat: { size: number; mtime: number },
+  expected: Hash,
+): Promise<boolean> {
+  const cached = ctx.hashCache?.get(path);
+  if (cached?.size === stat.size && cached.mtime === stat.mtime) {
+    return cached.hash === expected;
+  }
+  try {
+    return (await ctx.crypto.hash(await ctx.vault.read(path))) === expected;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Write a file we just fetched and remember its hash (ADR-0023).
  *
  * We already know what these bytes hash to — it is what we verified the
@@ -129,6 +164,7 @@ export async function applyPullOps(
 ): Promise<PullApplyResult> {
   const entries: SyncReportEntry[] = [];
   const conflicts: VaultPath[] = [];
+  const held: VaultPath[] = [];
   let aborted = false;
 
   for (const op of operations) {
@@ -169,12 +205,34 @@ export async function applyPullOps(
           );
           break;
         }
+        // An UPDATE was decided against the content the scan saw. If the user
+        // has saved since — or deleted the file — writing now overwrites
+        // their edit in place, the one thing this engine exists not to do
+        // (ADR-0064; ADR-0053 closed the same window for creations only).
+        if (op.localHash !== undefined) {
+          const now = await ctx.vault.stat(op.path);
+          if (now === null || !(await stillAsScanned(ctx, op.path, now, op.localHash))) {
+            held.push(op.path);
+            break;
+          }
+        }
         const data = await fetchVerified(ctx, op.path, entry);
         await writeAndRemember(ctx, op.path, data, entry.hash);
         entries.push(reportEntry(op, { bytes: data.length }));
         break;
       }
       case "delete-local": {
+        // The remote deletion was planned against the version the scan saw;
+        // a newer local edit is "edited here, deleted there" — a conflict the
+        // next run plans properly — not something to file in the trash as if
+        // it were the old version (ADR-0064). Gone already: nothing to do.
+        if (op.localHash !== undefined) {
+          const now = await ctx.vault.stat(op.path);
+          if (now !== null && !(await stillAsScanned(ctx, op.path, now, op.localHash))) {
+            held.push(op.path);
+            break;
+          }
+        }
         // ADR-0010 §1: through trash, never a hard delete.
         await ctx.vault.trash(op.path);
         ctx.hashCache?.delete(op.path);
@@ -243,7 +301,7 @@ export async function applyPullOps(
         break; // push side / nothing to do
     }
   }
-  return { entries, conflicts, aborted };
+  return { entries, conflicts, held, aborted };
 }
 
 /**

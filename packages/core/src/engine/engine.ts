@@ -732,6 +732,17 @@ class Engine implements SyncEngine {
     return null;
   }
 
+  /**
+   * Files the user changed while the pull was applying were left alone
+   * (ADR-0064). They join the paths the scan held, so the base keeps what this
+   * device last synced for them and the next run plans from what is there.
+   */
+  private holdChangedDuringApply(paths: readonly VaultPath[]): void {
+    if (paths.length === 0) return;
+    this.held = new Set([...this.held, ...paths]);
+    this.ctx.log.notice({ code: "paths-changed-during-sync", paths: [...paths].sort() });
+  }
+
   // -- storage reclamation (ADR-0030) -----------------------------------------
 
   previewReclaim(signal?: AbortSignal): Promise<ReclaimPlan> {
@@ -957,6 +968,7 @@ class Engine implements SyncEngine {
     }
 
     const res = await applyPullOps(this.ctx, p.operations, remote.manifest, signal);
+    this.holdChangedDuringApply(res.held);
     if (!res.aborted) {
       // The base advances to what we synced against — including conflict paths
       // (their local resolution is carried forward by the next push, ADR-0012).
@@ -1169,6 +1181,7 @@ class Engine implements SyncEngine {
 
     if (remote.manifest !== null) {
       const pullRes = await applyPullOps(this.ctx, p.operations, remote.manifest, signal);
+      this.holdChangedDuringApply(pullRes.held);
       entries = pullRes.entries;
       conflicts = pullRes.conflicts;
       if (pullRes.aborted) {

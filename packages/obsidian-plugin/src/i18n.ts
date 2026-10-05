@@ -260,6 +260,8 @@ const EN = {
       `Two devices published generation ${String(generation)} at the same moment, and this one did not win (ADR-0006 §4). Its own view of that generation is not what the others will read, so this sync compares against the published version instead of it. Files that differ come back as conflicts with both versions kept — nothing is overwritten, and nothing you deleted around then stays deleted.`,
     pathsNotDistinct: (paths: string[]) =>
       `${String(paths.length)} vault path${paths.length === 1 ? " is" : "s are"} the name of two different local files once names are normalized the same way (ADR-0007), and the vault index has room for one of them: ${paths.join(", ")}. Nothing was lost and nothing was uploaded for ${paths.length === 1 ? "it" : "them"} — rename one file of each pair and both will sync.`,
+    pathsChangedDuringSync: (paths: string[]) =>
+      `${String(paths.length)} file${paths.length === 1 ? " was" : "s were"} saved on this device while the sync was applying changes to ${paths.length === 1 ? "it" : "them"}: ${paths.join(", ")}. Your version was left exactly as you saved it — nothing was written over it or moved to the trash. The next sync compares it with the other devices' version; if both changed, both are kept.`,
     pathsUnreadable: (paths: string[]) =>
       `${String(paths.length)} file${paths.length === 1 ? " is" : "s are"} on this device but could not be read right now — a cloud file that is not downloaded, a file another program holds open, or a permission: ${paths.join(", ")}. ${paths.length === 1 ? "It was" : "They were"} left out of this sync: not uploaded, not overwritten and not deleted anywhere. The next sync tries again.`,
     tombstonesExpired: (count: number, days: number) =>
@@ -723,6 +725,8 @@ const RU: Strings = {
       `Два устройства опубликовали поколение ${String(generation)} в один момент, и это устройство не выиграло (ADR-0006 §4). Его собственная версия этого поколения — не та, которую прочитают остальные, поэтому синхронизация сверяется с опубликованной, а не с ней. Расходящиеся файлы вернутся конфликтами, обе версии сохранятся; ничего не перезаписывается, но и удаления, сделанные примерно тогда же, могут вернуться.`,
     pathsNotDistinct: (paths: string[]) =>
       `После одинаковой нормализации имён (ADR-0007) на один и тот же путь хранилища претендуют по два разных локальных файла, а место в индексе есть только для одного. Таких путей: ${String(paths.length)} — ${paths.join(", ")}. Ничего не потеряно и ничего не выгружено: переименуйте по одному файлу из каждой пары, и синхронизироваться будут оба.`,
+    pathsChangedDuringSync: (paths: string[]) =>
+      `Пока синхронизация применяла изменения, эти файлы были сохранены на этом устройстве: ${paths.join(", ")} (всего ${String(paths.length)}). Ваша версия осталась ровно такой, какой вы её сохранили: поверх неё ничего не записано, в корзину она не перемещена. Следующая синхронизация сравнит её с версией других устройств; если изменились обе, сохранятся обе.`,
     pathsUnreadable: (paths: string[]) =>
       `Файлы есть на этом устройстве, но прочитать их сейчас не удалось — облачный файл не скачан, файл держит открытым другая программа или не хватает прав. Таких файлов: ${String(paths.length)} — ${paths.join(", ")}. В этой синхронизации они не участвовали: не выгружены, не перезаписаны и нигде не удалены. Следующая синхронизация попробует снова.`,
     tombstonesExpired: (count: number, days: number) =>

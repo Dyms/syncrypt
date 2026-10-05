@@ -48,6 +48,7 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
     paths: ["Notes/caf\u00e9.md", "Notes/re\u0301sume\u0301.md"],
   },
   "paths-unreadable": { code: "paths-unreadable", paths: ["Attachments/budget.xlsx"] },
+  "paths-changed-during-sync": { code: "paths-changed-during-sync", paths: ["Daily/today.md"] },
   "passphrase-legacy-form": { code: "passphrase-legacy-form", form: "nfd" },
   "storage-rolled-back": { code: "storage-rolled-back", remote: 17, base: 23 },
   "vault-written-by-newer": {
