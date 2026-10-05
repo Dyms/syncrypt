@@ -93,11 +93,35 @@ export class ObsidianVault implements VaultPort {
     return this.matcher.matches(path);
   }
 
+  /**
+   * "Not found" is a claim the scan acts on: it turns the path into a local
+   * deletion and a tombstone for every device. So it is made only when the
+   * file is confirmed absent. A read that fails on a file that IS there — a
+   * cloud placeholder with no network, a permission, a lock held by another
+   * program — is a failed read, and fails the sync instead (ADR-0062).
+   *
+   * Absence is asked of the adapter rather than read off the error: desktop
+   * Obsidian passes Node's `code` through, mobile does not, and a rule that
+   * only works where `code` exists would be this defect again on a phone.
+   */
   async read(path: VaultPath): Promise<Uint8Array> {
+    const native = this.toNative(path);
     try {
-      return new Uint8Array(await this.adapter.readBinary(this.toNative(path)));
+      return new Uint8Array(await this.adapter.readBinary(native));
     } catch (e) {
-      throw new SyncError("VaultFileNotFound", `not found: ${path}`, e);
+      if (await this.confirmedAbsent(native)) {
+        throw new SyncError("VaultFileNotFound", `not found: ${path}`, e);
+      }
+      throw new SyncError("VaultWriteFailed", `cannot read ${path}: ${String(e)}`, e);
+    }
+  }
+
+  /** True only on a definite "no file here"; any doubt answers false. */
+  private async confirmedAbsent(native: string): Promise<boolean> {
+    try {
+      return !(await this.adapter.exists(native));
+    } catch {
+      return false;
     }
   }
 

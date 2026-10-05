@@ -187,3 +187,35 @@ describe("the engine excludes an ambiguous path instead of deleting it", () => {
     expect(report.entries.map((e) => e.path)).toEqual([NFC]);
   });
 });
+
+describe("a held path keeps what this device last synced (ADR-0062)", () => {
+  it("another device's edit made while the path was ambiguous here is not overwritten", async () => {
+    const storage = new MemoryStorage();
+    const first = device(storage, "first", new MemoryVault());
+    first.vault.setFile(NFC, "v1");
+    await first.engine.sync();
+
+    const second = device(storage, "second", new MemoryVault());
+    await second.engine.sync();
+    expect(second.vault.getText(NFC)).toBe("v1");
+
+    // Here the path goes ambiguous; there it is edited.
+    second.vault.now += 10;
+    second.vault.setFile(NFD, "a stray decomposed twin");
+    first.vault.now += 10;
+    first.vault.setFile(NFC, "v2 edited on the first device");
+    await first.engine.sync();
+    await second.engine.sync(); // holds the path: neither side touched
+
+    // The twin goes; this device's file is still the v1 it last synced.
+    await second.vault.delete(NFD);
+    await second.engine.sync();
+
+    // v1 is not an edit against v2 — it is what v2 replaced. Taking the
+    // manifest's entry as base during the held run made it look like one,
+    // and v1 went up over v2 on every device.
+    expect(second.vault.getText(NFC)).toBe("v2 edited on the first device");
+    await first.engine.sync();
+    expect(first.vault.getText(NFC)).toBe("v2 edited on the first device");
+  });
+});

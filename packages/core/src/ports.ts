@@ -111,7 +111,13 @@ export interface VaultPort {
    */
   list(): AsyncIterable<VaultPath>;
 
-  /** Read plaintext bytes of a file. Rejects VaultFileNotFound if missing. */
+  /**
+   * Read plaintext bytes of a file. Rejects VaultFileNotFound if — and ONLY
+   * if — the file is not there: the scan turns that answer into a deletion
+   * for every device. Any other failure (permission, lock, I/O, a cloud
+   * placeholder that cannot be fetched) must reject with another code, so the
+   * sync fails instead of publishing a tombstone (ADR-0054 §4, ADR-0062).
+   */
   read(path: VaultPath): Promise<Uint8Array>;
 
   /** Create/overwrite a file atomically (temp + rename where possible). */
@@ -217,6 +223,7 @@ export type EngineNotice =
   | { code: "vault-written-by-newer"; writer: string; self: string }
   | { code: "vault-written-by-older"; writer: string | undefined; self: string }
   | { code: "paths-not-distinct"; paths: VaultPath[] }
+  | { code: "paths-unreadable"; paths: VaultPath[] }
   | { code: "passphrase-legacy-form"; form: "as-typed" | "nfd" }
   | {
       code: "storage-reclaimed";

@@ -34,6 +34,11 @@ export type HashCache = Map<VaultPath, HashCacheEntry>;
  * `ambiguous`, when given, collects paths that TWO listed files canonicalize
  * to. Those are left out of the result and are the caller's to exclude from
  * the plan — see the note at the collision check below.
+ *
+ * `unreadable`, when given, collects paths whose file is there but could not
+ * be read (ADR-0062). Same treatment, same reason: left out of the result and
+ * excluded from the plan, never reported as absent. Without the set, such a
+ * read fails the scan, as it always did.
  */
 export async function scanVault(
   vault: VaultPort,
@@ -41,6 +46,7 @@ export async function scanVault(
   cache?: HashCache,
   signal?: AbortSignal,
   ambiguous?: Set<VaultPath>,
+  unreadable?: Set<VaultPath>,
 ): Promise<FileDescriptor[]> {
   const found = new Map<VaultPath, FileDescriptor>();
   const collided = new Set<VaultPath>();
@@ -81,7 +87,17 @@ export async function scanVault(
       // ONLY "it is not there": anything else (a permission, a locked file, a
       // disk error) is a real answer about a file that does exist, and
       // pretending it vanished would tombstone it for every device.
-      const data = await readIfStillThere(vault, path);
+      let data: Uint8Array | null;
+      try {
+        data = await readIfStillThere(vault, path);
+      } catch (e) {
+        // There, and unreadable right now: a cloud placeholder offline, a
+        // lock, a permission. Not absent — absent would tombstone it — and
+        // not a reason to stop syncing the rest of the vault (ADR-0062).
+        if (unreadable === undefined) throw e;
+        unreadable.add(path);
+        continue;
+      }
       if (data === null) {
         seen.delete(path);
         continue;

@@ -109,6 +109,31 @@ describe("ObsidianVault (VaultPort over DataAdapter)", () => {
     });
   });
 
+  it("a file that is there but unreadable is NOT reported missing (ADR-0062)", async () => {
+    class Unreadable extends MockDataAdapter {
+      override readBinary(): Promise<ArrayBuffer> {
+        return Promise.reject(new Error("EACCES: permission denied"));
+      }
+    }
+    const adapter = new Unreadable();
+    adapter.setFile("locked.md", "x");
+    const vault = new ObsidianVault(adapter, DEFAULT_PROFILE);
+    await expect(vault.read("locked.md")).rejects.toMatchObject({ code: "VaultWriteFailed" });
+  });
+
+  it("when even existence cannot be answered, the answer is not 'missing'", async () => {
+    class Blind extends MockDataAdapter {
+      override readBinary(): Promise<ArrayBuffer> {
+        return Promise.reject(new Error("I/O error"));
+      }
+      override exists(): Promise<boolean> {
+        return Promise.reject(new Error("I/O error"));
+      }
+    }
+    const vault = new ObsidianVault(new Blind(), DEFAULT_PROFILE);
+    await expect(vault.read("whatever.md")).rejects.toMatchObject({ code: "VaultWriteFailed" });
+  });
+
   it("write verifies the read-back and fails LOUD on corruption (ADR-0017)", async () => {
     const adapter = new MockDataAdapter();
     // A byzantine adapter that truncates every write.

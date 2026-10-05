@@ -344,6 +344,8 @@ class Engine implements SyncEngine {
   private readonly ctx: EngineContext;
   private readonly statePort: StateStorePort | undefined;
   private base: Manifest | null = null;
+  /** Paths the last scan saw and could not sync this run (ADR-0062). */
+  private held: ReadonlySet<VaultPath> = new Set();
   private readonly cache: HashCache = new Map();
   private lastReport: SyncReport | undefined;
   /** Last blob handed to the state port, to skip writing the same bytes twice. */
@@ -428,16 +430,30 @@ class Engine implements SyncEngine {
    *
    * Tombstones and history are kept as they are: they carry no claim about
    * what this device holds.
+   *
+   * Paths the last scan HELD — there, but unreadable, or two local files on
+   * one key — keep their previous base entry, whatever the manifest says
+   * (ADR-0062). This run did not sync them, so "what this device last synced"
+   * is still the old entry. Taking the manifest's instead claimed a sync that
+   * never happened: when the path came back, the device's own version looked
+   * like an edit against the OTHER device's, and was uploaded over it.
    */
   private adoptBase(manifest: Manifest): void {
     const syncable = this.ctx.planOptions.syncable;
-    if (syncable === undefined) {
+    const held = this.held;
+    if (syncable === undefined && held.size === 0) {
       this.base = manifest;
       return;
     }
+    const previous = this.base?.files ?? {};
     const files: Record<VaultPath, ManifestEntry> = {};
     for (const [path, entry] of Object.entries(manifest.files)) {
-      if (syncable(path)) files[path] = entry;
+      if (held.has(path)) continue;
+      if (syncable === undefined || syncable(path)) files[path] = entry;
+    }
+    for (const path of held) {
+      const kept = previous[path];
+      if (kept !== undefined) files[path] = kept;
     }
     this.base = { ...manifest, files };
   }
@@ -875,21 +891,34 @@ class Engine implements SyncEngine {
     signal?: AbortSignal,
   ): Promise<{ local: FileDescriptor[]; planOptions: PlanOptions }> {
     const ambiguous = new Set<VaultPath>();
+    const unreadable = new Set<VaultPath>();
     const local = await scanVault(
       this.ctx.vault,
       this.ctx.crypto,
       this.cache,
       signal,
       ambiguous,
+      unreadable,
     );
-    if (ambiguous.size === 0) return { local, planOptions: this.ctx.planOptions };
-    this.ctx.log.notice({ code: "paths-not-distinct", paths: [...ambiguous].sort() });
+    this.held = new Set([...ambiguous, ...unreadable]);
+    if (ambiguous.size === 0 && unreadable.size === 0) {
+      return { local, planOptions: this.ctx.planOptions };
+    }
+    if (ambiguous.size > 0) {
+      this.ctx.log.notice({ code: "paths-not-distinct", paths: [...ambiguous].sort() });
+    }
+    // ADR-0062: a file that is there and could not be read sits this sync
+    // out — not uploaded, not downloaded over, and above all not deleted.
+    if (unreadable.size > 0) {
+      this.ctx.log.notice({ code: "paths-unreadable", paths: [...unreadable].sort() });
+    }
     const carried = this.ctx.planOptions.syncable ?? ((): boolean => true);
     return {
       local,
       planOptions: {
         ...this.ctx.planOptions,
-        syncable: (path: VaultPath): boolean => !ambiguous.has(path) && carried(path),
+        syncable: (path: VaultPath): boolean =>
+          !ambiguous.has(path) && !unreadable.has(path) && carried(path),
       },
     };
   }
