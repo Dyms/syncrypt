@@ -90,9 +90,12 @@ describe("classifyCounts", () => {
 });
 
 describe("the last-sync fact carries a date once it is not today", () => {
-  const at = Date.parse("2026-09-01T12:49:13Z");
-  const sameDay = Date.parse("2026-09-01T23:59:00Z");
-  const nextDay = Date.parse("2026-09-02T00:01:00Z");
+  // "Today" is the user's local day, so the fixture is built in local time. UTC strings
+  // made these pass only where UTC midnight is local midnight — i.e. on CI, not on a
+  // developer's machine east or west of Greenwich.
+  const at = new Date(2026, 8, 1, 12, 49, 13).getTime();
+  const sameDay = new Date(2026, 8, 1, 23, 59, 0).getTime();
+  const nextDay = new Date(2026, 8, 2, 0, 1, 0).getTime();
 
   it("today shows the time alone — the date would be noise", () => {
     expect(formatSyncTime(at, sameDay)).toBe(new Date(at).toLocaleTimeString());
@@ -102,6 +105,29 @@ describe("the last-sync fact carries a date once it is not today", () => {
     const shown = formatSyncTime(at, nextDay);
     expect(shown).not.toBe(new Date(at).toLocaleTimeString());
     expect(shown).toContain(new Date(at).toLocaleDateString());
+  });
+
+  it("the same day of another month or year is not today", () => {
+    const monthLater = new Date(2026, 9, 1, 12, 0, 0).getTime();
+    const yearLater = new Date(2027, 8, 1, 12, 0, 0).getTime();
+    expect(formatSyncTime(at, monthLater)).toContain(new Date(at).toLocaleDateString());
+    expect(formatSyncTime(at, yearLater)).toContain(new Date(at).toLocaleDateString());
+  });
+
+  it("the day is the local one even where UTC disagrees", () => {
+    // CI runs in UTC, where a UTC-day comparison is indistinguishable from a local one.
+    // UTC+14: local 09:00 on Sep 1 is 19:00 UTC on Aug 31; local 23:00 is 09:00 UTC Sep 1.
+    const saved = process.env.TZ;
+    process.env.TZ = "Pacific/Kiritimati";
+    try {
+      const morning = new Date(2026, 8, 1, 9, 0, 0).getTime();
+      const evening = new Date(2026, 8, 1, 23, 0, 0).getTime();
+      expect(new Date(morning).getUTCDate()).not.toBe(new Date(evening).getUTCDate());
+      expect(formatSyncTime(morning, evening)).toBe(new Date(morning).toLocaleTimeString());
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
   });
 
   it("the tooltip uses it, so a stale sync reads as stale", () => {
