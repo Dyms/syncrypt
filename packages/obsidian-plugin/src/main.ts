@@ -112,6 +112,13 @@ export default class SyncryptPlugin extends Plugin {
   private running: { abort: AbortController; done: Promise<void> } | null = null;
   /** Dialogs waiting on a decision; `lock()` closes them as "no" (ADR-0066). */
   private readonly openModals = new Set<{ close(): void }>();
+  /**
+   * A sync that started with config sync ON has completed its pull in this
+   * session. Only then does "no shared profile on disk" mean "the vault has
+   * none" (ADR-0068): after a failed, cancelled or declined pull it means
+   * nothing, and publishing then put this device's defaults over the vault's.
+   */
+  private configPulled = false;
   /** The one passphrase dialog, so a second cannot race the first (B11). */
   private unlockModal: PassphraseModal | null = null;
   private vaultEvents: EventRef[] = [];
@@ -638,6 +645,7 @@ export default class SyncryptPlugin extends Plugin {
     // (ADR-0066).
     this.session++;
     this.syncing = false;
+    this.configPulled = false;
     this.renderStatus();
     this.log.info(this.strings.log.locked);
   }
@@ -704,6 +712,10 @@ export default class SyncryptPlugin extends Plugin {
     }
     const session = this.session;
     const engine = this.engine;
+    // Read at the start: what this pull could bring is decided by what was
+    // syncable when it scanned, not by a toggle flipped while it ran.
+    const configOn = this.settings.configSync.enabled;
+    if (!configOn) this.configPulled = false;
     const abort = new AbortController();
     let stopped = (): void => undefined;
     const run = { abort, done: new Promise<void>((r) => (stopped = r)) };
@@ -719,6 +731,7 @@ export default class SyncryptPlugin extends Plugin {
       }
       if (session === this.session) {
         this.lastError = null;
+        if (configOn && pullCompleted(report.outcome)) this.configPulled = true;
         this.finishReport(report, origin);
       }
     } catch (e) {
@@ -820,6 +833,13 @@ export default class SyncryptPlugin extends Plugin {
           await adapter.readBinary(this.paths.sharedProfile),
         );
         if (current === text) return;
+      } else if (!this.configPulled) {
+        // No file here, and no completed pull to say the vault has none. It
+        // may well have one this device has not fetched yet; writing ours now
+        // would become a conflict that keeps ours at the path and pushes it
+        // over the vault's (ADR-0068). The next completed sync decides.
+        this.log.info(this.strings.log.configSyncDeferred);
+        return;
       }
       const bytes = new TextEncoder().encode(text);
       const buffer = new ArrayBuffer(bytes.byteLength);
@@ -1153,4 +1173,13 @@ export default class SyncryptPlugin extends Plugin {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see settings-tab.ts
     this.settingTab?.display();
   }
+}
+
+/**
+ * A sync whose pull ran to the end: what is on disk now includes everything
+ * the vault had that this device syncs. `pull-first`, `rolled-back`,
+ * `needs-confirmation` (a declined bulk change) and `aborted` stopped short.
+ */
+function pullCompleted(outcome: SyncOutcome): boolean {
+  return outcome === "applied" || outcome === "no-op" || outcome === "conflicts";
 }

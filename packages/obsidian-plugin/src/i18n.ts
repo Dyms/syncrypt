@@ -146,6 +146,8 @@ const EN = {
       `Connection ticket accepted. Created ${when} (${String(days)} days ago) — delete the copy you transferred.`,
     configSyncPublished:
       "Obsidian-settings sync: published this device's profile for the other devices.",
+    configSyncDeferred:
+      "Obsidian-settings sync: this device's profile is not published yet — first a sync has to confirm the vault has no shared one, or bring it here.",
     configSyncUnreadable:
       "Obsidian-settings sync: the shared profile file could not be read — keeping this device's own settings.",
     configSyncConflicted: (sharedPath: string, copyPath: string | undefined) =>
@@ -631,6 +633,8 @@ const RU: Strings = {
       `Тикет подключения принят. Создан ${when} (${String(days)} дн. назад) — удали переданную копию.`,
     configSyncPublished:
       "Синхронизация настроек Obsidian: профиль этого устройства опубликован для остальных.",
+    configSyncDeferred:
+      "Синхронизация настроек Obsidian: профиль этого устройства пока не опубликован — сначала синхронизация должна подтвердить, что общего профиля в хранилище нет, или принести его сюда.",
     configSyncUnreadable:
       "Синхронизация настроек Obsidian: файл общего профиля прочитать не удалось — оставляю настройки этого устройства.",
     configSyncConflicted: (sharedPath: string, copyPath: string | undefined) =>
