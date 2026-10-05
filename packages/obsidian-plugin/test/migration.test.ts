@@ -126,4 +126,44 @@ describe("the preflight is a warning mechanism, not a gate", () => {
       migrationPreflight(adapter, EN_STRINGS).catch(() => []),
     ).resolves.toEqual([]);
   });
+
+  describe("Obsidian's own Sync, a core plugin (ADR-0076)", () => {
+    const vault = (coreJson: string, dir = ".obsidian"): MockDataAdapter => {
+      const adapter = new MockDataAdapter();
+      adapter.folders.add(dir);
+      adapter.setFile(`${dir}/core-plugins.json`, coreJson);
+      return adapter;
+    };
+    const codes = async (a: MockDataAdapter, dir?: string): Promise<string[]> =>
+      (await migrationPreflight(a, EN_STRINGS, dir === undefined ? undefined : configPaths(dir))).map(
+        (w) => w.code,
+      );
+
+    it("enabled, object form", async () => {
+      expect(await codes(vault('{"file-explorer":true,"sync":true}'))).toEqual([
+        "obsidian-sync:enabled",
+      ]);
+    });
+    it("enabled, legacy array form", async () => {
+      expect(await codes(vault('["file-explorer","sync"]'))).toEqual(["obsidian-sync:enabled"]);
+    });
+    it("present but off", async () => {
+      expect(await codes(vault('{"sync":false}'))).toEqual([]);
+      expect(await codes(vault('["file-explorer"]'))).toEqual([]);
+    });
+    it("in a renamed config folder", async () => {
+      expect(await codes(vault('{"sync":true}', ".config"), ".config")).toEqual([
+        "obsidian-sync:enabled",
+      ]);
+    });
+    it("warned once even when both folders say so", async () => {
+      const a = vault('{"sync":true}', ".config");
+      a.folders.add(".obsidian");
+      a.setFile(".obsidian/core-plugins.json", '{"sync":true}');
+      expect(await codes(a, ".config")).toEqual(["obsidian-sync:enabled"]);
+    });
+    it("unreadable: not judged", async () => {
+      expect(await codes(vault("{not json"))).toEqual([]);
+    });
+  });
 });

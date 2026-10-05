@@ -77,10 +77,15 @@ export class AutoSyncScheduler {
   armPeriodic(): void {
     if (this.disposed || this.opts.periodicMs <= 0) return;
     if (this.periodic !== null) this.host.clear(this.periodic);
+    // Never sooner than the minimum interval allows: RFC-0004 says "at most
+    // one auto-sync every M seconds", and a periodic pull is an auto-sync. A
+    // 5 s period under a 120 s minimum (the phone default) used to pull 24
+    // times in two minutes (audit №4, A7; ADR-0076). Re-armed at every sync
+    // start, so the minimum counts from the last sync, as the debounce's does.
     this.periodic = this.host.set(() => {
       this.periodic = null;
       this.trigger();
-    }, this.opts.periodicMs);
+    }, Math.max(this.opts.periodicMs, this.opts.minIntervalMs));
   }
 
   private schedule(delayMs: number): void {

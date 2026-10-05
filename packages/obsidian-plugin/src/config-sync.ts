@@ -237,7 +237,10 @@ export function configPaths(dir: string, ownPluginDir?: string): ConfigPaths {
  */
 export function pluginFolderIsOurs(folderId: string, manifestId: string): boolean {
   if (manifestId !== "") return manifestId === SYNCRYPT_PLUGIN_ID;
-  return folderId.startsWith(SYNCRYPT_PLUGIN_ID);
+  // Any case: a leftover copy renamed "Syncrypt-old", or a folder on a
+  // case-insensitive disk, is still ours and still holds keys (audit №4, C7;
+  // ADR-0076). Failing closed means erring towards "ours".
+  return folderId.toLowerCase().startsWith(SYNCRYPT_PLUGIN_ID);
 }
 
 /**

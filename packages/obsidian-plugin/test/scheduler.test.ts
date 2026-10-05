@@ -239,3 +239,38 @@ describe("setOptions keeps what is pending (ADR-0072)", () => {
     expect(fired).toBe(0);
   });
 });
+
+describe("the periodic pull respects the minimum interval (ADR-0076)", () => {
+  it("a 5 s period under a 120 s minimum pulls at most once per 120 s", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const opts = { ...OPTS, periodicMs: 5_000, minIntervalMs: 120_000 };
+    const s = new AutoSyncScheduler(
+      () => {
+        fired++;
+        s.noteSyncStarted(); // what the plugin does when the trigger runs a sync
+      },
+      opts,
+      timers,
+    );
+    s.armPeriodic();
+    timers.advance(119_999);
+    expect(fired).toBe(0);
+    timers.advance(1);
+    expect(fired).toBe(1);
+    timers.advance(120_000);
+    expect(fired).toBe(2);
+  });
+
+  it("a period longer than the minimum is unchanged", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, { ...OPTS, periodicMs: 600_000 }, timers);
+    s.armPeriodic();
+    timers.advance(599_999);
+    expect(fired).toBe(0);
+    timers.advance(1);
+    expect(fired).toBe(1);
+  });
+});
+
