@@ -254,8 +254,20 @@ export interface SyncEngine {
    * `objects/` and never deletes an object that any retained manifest still
    * references — re-checked at the moment of deletion, which is what makes the
    * deduplication probe in `applyPushOps` safe against it.
+   *
+   * `approved`, when given, is a CEILING (ADR-0067): only objects and
+   * manifests in it are deleted, however many more the recomputed plan finds
+   * ripe by now. The recomputation can only shrink what was shown, never grow
+   * it. `{ sweep: [], prunedManifests: [] }` deletes nothing and records the
+   * mark — what "I only looked" means.
    */
-  reclaimStorage(signal?: AbortSignal): Promise<ReclaimResult>;
+  reclaimStorage(signal?: AbortSignal, approved?: ReclaimApproval): Promise<ReclaimResult>;
+}
+
+/** What the person saw and agreed to delete (ADR-0067). */
+export interface ReclaimApproval {
+  sweep: readonly ObjectKey[];
+  prunedManifests: readonly ObjectKey[];
 }
 
 export interface ReclaimResult {
@@ -787,15 +799,39 @@ class Engine implements SyncEngine {
     );
   }
 
-  reclaimStorage(signal?: AbortSignal): Promise<ReclaimResult> {
+  reclaimStorage(signal?: AbortSignal, approved?: ReclaimApproval): Promise<ReclaimResult> {
     return this.exclusive(async () => {
       // Recomputed here, not taken from the caller's preview: between a
       // preview and a click another device can publish a generation that
       // adopts one of these objects (the dedup probe in applyPushOps). The
       // re-check IS the safety property — never sweep a stale plan.
       await this.loadStateOnce();
-      const plan = await computeReclaimPlan(this.ctx, signal);
-      this.refuseReclaimOnRollback(plan, signal);
+      const computed = await computeReclaimPlan(this.ctx, signal);
+      this.refuseReclaimOnRollback(computed, signal);
+      // ...and the recomputation must not outgrow what was shown: objects that
+      // ripened while the dialog was open, or generations a sync published in
+      // the meantime, were not in the decision (ADR-0067). They stay marked
+      // and go on the next run, with their own preview.
+      let plan = computed;
+      if (approved !== undefined) {
+        const sweepable = new Set(approved.sweep);
+        const prunable = new Set(approved.prunedManifests);
+        const sweep = computed.sweep.filter((k) => sweepable.has(k));
+        // Held back, not forgotten: they keep their mark (markAfterSweep only
+        // drops what was deleted) and are still waiting — ripe already, so
+        // the next run can offer them at once.
+        const held = computed.sweep.length - sweep.length;
+        plan = {
+          ...computed,
+          sweep,
+          prunedManifests: computed.prunedManifests.filter((k) => prunable.has(k)),
+          waiting: computed.waiting + held,
+          ripeAt:
+            held > 0
+              ? Math.min(computed.ripeAt ?? Number.POSITIVE_INFINITY, this.ctx.clock.now())
+              : computed.ripeAt,
+        };
+      }
       const deleted: ObjectKey[] = [];
       let bytesFreed = 0;
       const sizes = new Map(

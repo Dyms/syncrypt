@@ -1071,12 +1071,18 @@ export default class SyncryptPlugin extends Plugin {
     // Nothing ripe and nothing to prune is the NORMAL first outcome: there was
     // no decision to make, so closing the dialog is not a "no". Persist the
     // mark, or the grace window would never start for a user who only looks.
-    // When there WAS something to approve, cancel means cancel — running the
-    // operation anyway would prune the generations they just declined.
+    // When there WAS something to approve, cancel means cancel.
+    //
+    // Either way the engine is told what was SHOWN, as a ceiling: it
+    // recomputes (ADR-0030 — never sweep a stale plan), and the recomputation
+    // may find more ripe by now, or a generation published while the dialog
+    // was open. Closing used to run the full operation and delete exactly
+    // that, under a notice saying "nothing is deletable yet"; Reclaim used to
+    // delete more than the dialog listed (ADR-0067).
     const actionable = plan.sweep.length > 0 || plan.prunedManifests.length > 0;
     if (!approved) {
       if (!actionable && plan.waiting > 0 && plan.ripeAt !== null) {
-        await engine.reclaimStorage();
+        await engine.reclaimStorage(undefined, { sweep: [], prunedManifests: [] });
         new Notice(
           this.strings.reclaimModal.noneYet(new Date(plan.ripeAt * 1000).toLocaleString()),
           8000,
@@ -1084,7 +1090,10 @@ export default class SyncryptPlugin extends Plugin {
       }
       return;
     }
-    const result = await engine.reclaimStorage();
+    const result = await engine.reclaimStorage(undefined, {
+      sweep: plan.sweep,
+      prunedManifests: plan.prunedManifests,
+    });
     new Notice(
       this.strings.reclaimModal.done(result.deleted.length, formatBytes(result.bytesFreed)),
       8000,
