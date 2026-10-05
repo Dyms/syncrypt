@@ -57,5 +57,3 @@ describe("the release dialog (ADR-0070)", () => {
     expect(Notice.shown).not.toContain(EN_STRINGS.releaseModal.raced);
   });
 });
-
-

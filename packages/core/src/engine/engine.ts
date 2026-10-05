@@ -196,6 +196,18 @@ export interface SyncEngine {
   forgetBase(): Promise<void>;
 
   /**
+   * `forgetBase()`, but only if the storage is behind this device's base at
+   * THIS moment (ADR-0071). Returns whether it was. The check and the forget
+   * run as one queued operation, so no sync can slip between them.
+   *
+   * What "Accept the storage as it is" calls. Checking before the dialog and
+   * forgetting after it accepted a storage that had caught up while the dialog
+   * was open (an eventually-consistent LIST, ADR-0038's own example): with no
+   * base, files deleted here came back and edits became conflict copies.
+   */
+  acceptRolledBack(signal?: AbortSignal): Promise<boolean>;
+
+  /**
    * Manifest entries this device does NOT carry (ADR-0027).
    *
    * Candidates for review, never a verdict: a device cannot see other devices'
@@ -547,6 +559,18 @@ class Engine implements SyncEngine {
       await this.loadStateOnce();
       this.base = null;
       await this.saveState();
+    });
+  }
+
+  acceptRolledBack(signal?: AbortSignal): Promise<boolean> {
+    return this.exclusive(async () => {
+      await this.loadStateOnce();
+      const remote = await readRemote(this.ctx);
+      throwIfAborted(signal, "acceptRolledBack");
+      if (!this.rolledBack(remote)) return false;
+      this.base = null;
+      await this.saveState();
+      return true;
     });
   }
 

@@ -1055,7 +1055,14 @@ export default class SyncryptPlugin extends Plugin {
         this.lockedMeanwhile();
         return;
       }
-      await engine.forgetBase();
+      // Checked again at the moment of acceptance, in the same queued step as
+      // the forget: the storage may have caught up while the dialog was open,
+      // and forgetting the base against a storage that is no longer behind
+      // brings deleted files back (ADR-0071).
+      if (!(await engine.acceptRolledBack())) {
+        new Notice(this.strings.notices.notRolledBack, 6000);
+        return;
+      }
       new Notice(this.strings.notices.storageAccepted, 8000);
       await this.syncNow("manual");
     });

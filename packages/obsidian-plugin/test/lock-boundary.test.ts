@@ -394,7 +394,7 @@ describe("an answer that a lock overtakes acts on nothing (B3)", () => {
     const real = await engine.status();
     vi.spyOn(engine, "status").mockResolvedValue({ ...real, baseGeneration: 5 });
     vi.spyOn(engine, "verifyAccess").mockResolvedValue({ generation: 1 } as never);
-    const forget = vi.spyOn(engine, "forgetBase");
+    const forget = vi.spyOn(engine, "acceptRolledBack");
     answerThenLock(me, true);
     await me.plugin.acceptStorage();
     expect(forget).not.toHaveBeenCalled();
