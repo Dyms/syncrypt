@@ -93,6 +93,15 @@ export interface ConfigPaths {
    * reinstall would adopt a stranger's base manifest (ADR-0046).
    */
   readonly stateFile: string;
+  /**
+   * The base cache for ONE storage location (ADR-0065). One file per vault
+   * folder used to mean one base for every storage this folder was ever
+   * pointed at: a ticket for another vault, or a bucket edited in Settings,
+   * opened the new storage with the old one's base — and a base from another
+   * vault plans that vault's files as edits to overwrite. `stateFile` is now
+   * only the pre-ADR-0065 name, adopted once by the location in use.
+   */
+  stateFileFor(locationTag: string): string;
   /** Is this path the config folder itself, or something inside it? */
   inside(path: string): boolean;
   /**
@@ -209,6 +218,7 @@ export function configPaths(dir: string, ownPluginDir?: string): ConfigPaths {
     sharedProfile,
     syncTrash,
     stateFile: `${home}/sync-state.json`,
+    stateFileFor: (locationTag: string) => `${home}/sync-state-${locationTag}.json`,
     inside,
     hardExcluded,
     allowed,

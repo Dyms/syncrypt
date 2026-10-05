@@ -54,13 +54,15 @@ import { autoSyncAllowed, currentConnection } from "./network.js";
 import { AutoSyncScheduler } from "./scheduler.js";
 import {
   DEFAULT_SETTINGS,
+  describeStorageLocation,
   settingsComplete,
+  storageLocationTag,
   storagePrefixOf,
   withDefaults,
   type SyncryptSettings,
 } from "./settings.js";
 import { SyncryptSettingTab } from "./settings-tab.js";
-import { AdapterStateStore } from "./state-store.js";
+import { AdapterStateStore, adoptLegacyState } from "./state-store.js";
 import { AddDeviceModal, ShareConnectionModal } from "./ticket-modals.js";
 import {
   classifyCounts,
@@ -69,6 +71,7 @@ import {
   type SyncStateView,
 } from "./sync-state.js";
 import { PassphraseModal } from "./unlock.js";
+import { unlockFailureMessage } from "./unlock-error.js";
 import { passphraseIsDefinitelyWrong } from "./passphrase-check.js";
 import { ObsidianVault } from "./vault-adapter.js";
 
@@ -83,7 +86,11 @@ const RETRY_DECLINED_MS = 60_000;
 const CONFLICTS_IN_LOG = 20;
 
 export default class SyncryptPlugin extends Plugin {
-  settings: SyncryptSettings = DEFAULT_SETTINGS;
+  // A copy, never the shared defaults object: settings are replaced IN PLACE
+  // (replaceSettings), and mutating DEFAULT_SETTINGS would change every
+  // default after it.
+  settings: SyncryptSettings = structuredClone(DEFAULT_SETTINGS);
+  private settingTab: SyncryptSettingTab | null = null;
   private engine: SyncEngine | null = null;
   private vaultPort: ObsidianVault | null = null;
   private scheduler: AutoSyncScheduler | null = null;
@@ -134,7 +141,8 @@ export default class SyncryptPlugin extends Plugin {
     // a rewrite each time Obsidian opened, for nothing (ADR-0047).
     if (JSON.stringify(loaded) !== JSON.stringify(this.settings)) await this.saveSettings();
 
-    this.addSettingTab(new SyncryptSettingTab(this.app, this));
+    this.settingTab = new SyncryptSettingTab(this.app, this);
+    this.addSettingTab(this.settingTab);
     this.registerView(
       SYNC_LOG_VIEW_TYPE,
       (leaf: WorkspaceLeaf) => new SyncLogView(leaf, this.log, () => this.strings),
@@ -401,9 +409,10 @@ export default class SyncryptPlugin extends Plugin {
     }
     new PassphraseModal(
       this.app,
-      (passphrase) => this.unlock(passphrase),
+      (passphrase, create) => this.unlock(passphrase, create),
       undefined,
       this.strings,
+      describeStorageLocation(this.settings),
     ).open();
   }
 
@@ -466,10 +475,13 @@ export default class SyncryptPlugin extends Plugin {
   async connectWithPassphrase(passphrase: string): Promise<void> {
     if (this.isUnlocked()) this.lock(); // settings just changed — rebuild
     try {
+      // Never creates: a ticket names a vault that exists. An empty location
+      // is a ticket for the wrong place, and the person is told (ADR-0065).
       await this.unlock(passphrase);
     } catch (e) {
-      // No modal is left open here, so the failure needs its own notice.
-      new Notice(this.strings.notices.unlockFailed(String(e)), 8000);
+      // No modal is left open here, so the failure needs its own notice —
+      // the same localized one the unlock dialog would show (audit №4, B13).
+      new Notice(unlockFailureMessage(e, this.strings), 10000);
     }
   }
 
@@ -477,16 +489,20 @@ export default class SyncryptPlugin extends Plugin {
    * Open the vault. THROWS on failure so the caller — normally the passphrase
    * modal — can keep asking instead of the error only reaching the log.
    */
-  private async unlock(passphrase: string): Promise<void> {
+  private async unlock(passphrase: string, create = false): Promise<void> {
     try {
       this.statusEl?.setText(this.strings.status.unlocking);
       const s = this.settings;
+      const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+      // One base per storage location (ADR-0065): another vault's base read as
+      // this vault's plans its files as edits to overwrite.
+      const stateFile = this.paths.stateFileFor(storageLocationTag(s));
+      await adoptLegacyState(adapter, this.paths.stateFile, stateFile);
       // Both providers go through requestUrl(): it issues a NATIVE request and
       // bypasses webview CORS, which is what made Android work at all
       // (RFC-0006 §Injectable transport). A WebDAV server is no likelier to
       // send permissive CORS headers than an S3 one.
       const storage = await this.openStorage();
-      const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
       this.vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
       this.engine = await openSyncEngine({
         storage,
@@ -496,7 +512,10 @@ export default class SyncryptPlugin extends Plugin {
         // ADR-0036: recorded in what we publish, compared against what we read.
         clientVersion: this.manifest.version,
         storagePrefix: storagePrefixOf(s),
-        state: new AdapterStateStore(adapter, this.paths.stateFile),
+        state: new AdapterStateStore(adapter, stateFile),
+        // An empty location becomes a vault only when the person said so in
+        // the unlock dialog (ADR-0065); otherwise it is refused as VaultAbsent.
+        createVault: create,
         log: this.log,
         safeSync: s.safeSync,
         // ADR-0018: creation profile is an explicit setting; mobile devices
@@ -968,5 +987,41 @@ export default class SyncryptPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings); // never contains the passphrase (ADR-0016)
+  }
+
+  /**
+   * A storage setting was edited. An open engine is bound to the storage it
+   * was opened on, and kept writing there while Settings showed the new one
+   * (audit №4, W2). Changing WHERE — or with which keys — is a reconnect, the
+   * same as switching provider: lock now, and the next unlock opens the new
+   * location with its own base (ADR-0065).
+   */
+  storageSettingsChanged(): void {
+    if (!this.isUnlocked()) return;
+    this.lock();
+    new Notice(this.strings.notices.storageChangedLocked, 10000);
+  }
+
+  /**
+   * Replace the settings with `next`, IN PLACE, and persist them.
+   *
+   * In place because the open settings tab holds this object: swapping in a
+   * new one left the tab editing a copy nobody saved (audit №4, A5). Rolled
+   * back if the write fails. A device that was unlocked is locked: new
+   * settings from a ticket are a different connection, and the engine must
+   * not keep running on the old one (W3).
+   */
+  async replaceSettings(next: SyncryptSettings): Promise<void> {
+    const previous = structuredClone(this.settings);
+    Object.assign(this.settings, structuredClone(next));
+    try {
+      await this.saveSettings();
+    } catch (e) {
+      Object.assign(this.settings, previous);
+      throw e;
+    }
+    if (this.isUnlocked()) this.lock();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see settings-tab.ts
+    this.settingTab?.display();
   }
 }

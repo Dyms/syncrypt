@@ -17,6 +17,9 @@ export function unlockFailureMessage(error: unknown, t: Strings): string {
   // tried, so "wrong passphrase" here sends a person who typed it correctly
   // back to retype it, forever (ADR-0063).
   if (isSyncError(error, "KdfUnaffordable")) return t.unlockModal.kdfUnaffordable;
+  // The dialog turns this into a question (unlock-flow.ts); everywhere else —
+  // a ticket, a notice — it is the answer (ADR-0065).
+  if (isSyncError(error, "VaultAbsent")) return t.unlockModal.vaultAbsentElsewhere;
   if (isSyncError(error, "ManifestCorrupt")) return t.unlockModal.manifestCorrupt;
   // Not "wrong passphrase" and not "storage unreachable": the storage answered,
   // and what it said is that the salt is gone. The fix is a restore, and this

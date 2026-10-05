@@ -248,3 +248,58 @@ export function endpointOf(s: SyncryptSettings): string {
 export function storagePrefixOf(s: SyncryptSettings): string {
   return s.provider === "webdav" ? s.webdav.prefix : s.s3.prefix;
 }
+
+/**
+ * WHICH vault the settings point at, as one canonical string (ADR-0065).
+ *
+ * Two spellings that reach the same objects should give the same string, so
+ * the scheme and host are lowercased and trailing slashes dropped — the same
+ * slashes the providers drop. Two that reach different objects must give
+ * different strings; when in doubt this errs that way, because the only cost
+ * of a false "different" is one full reconcile (conflicts, never loss), and
+ * the cost of a false "same" is a base from another vault.
+ *
+ * Credentials and region are not part of it: they change how we reach the
+ * objects, not which ones.
+ */
+export function storageLocationOf(s: SyncryptSettings): string {
+  const trimSlashes = (v: string): string => v.trim().replace(/\/+$/, "");
+  const url = (raw: string): string => {
+    const v = trimSlashes(raw);
+    try {
+      const u = new URL(v);
+      return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+    } catch {
+      return v;
+    }
+  };
+  if (s.provider === "webdav") {
+    return ["webdav", url(s.webdav.url), trimSlashes(s.webdav.prefix)].join("\n");
+  }
+  return ["s3", url(s.s3.endpoint), s.s3.bucket.trim(), trimSlashes(s.s3.prefix)].join("\n");
+}
+
+/**
+ * A short, stable tag of `storageLocationOf` for a file name: FNV-1a, 64 bit.
+ * Not a security property — it names a cache file — but 64 bits keeps two
+ * locations one person uses from ever sharing a name.
+ */
+export function storageLocationTag(s: SyncryptSettings): string {
+  let h = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(storageLocationOf(s))) {
+    h ^= BigInt(byte);
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return h.toString(16).padStart(16, "0");
+}
+
+/** The location as a person reads it, for the "no vault here" question. */
+export function describeStorageLocation(s: SyncryptSettings): string {
+  if (s.provider === "webdav") {
+    const prefix = s.webdav.prefix.trim();
+    return prefix === "" ? s.webdav.url.trim() : `${s.webdav.url.trim()} → ${prefix}`;
+  }
+  const prefix = s.s3.prefix.trim();
+  const where = `${s.s3.bucket.trim()}${prefix === "" ? "" : `/${prefix}`}`;
+  return `${where} @ ${s.s3.endpoint.trim()}`;
+}

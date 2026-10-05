@@ -18,6 +18,10 @@ export type SyncErrorCode =
   // The vault's KDF needs more memory than this device's budget (ADR-0018).
   // Says NOTHING about the passphrase, which was never tried (ADR-0063).
   | "KdfUnaffordable"
+  // Nothing at this location, and the caller did not ask to create a vault
+  // there (ADR-0065). A typed prefix one letter off lands here, not in a new,
+  // empty vault beside the real one.
+  | "VaultAbsent"
   | "ManifestCorrupt"
   | "ManifestForkUnresolved"
   | "Aborted"; // AbortSignal fired

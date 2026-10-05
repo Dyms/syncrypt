@@ -12,9 +12,11 @@
 
 1. [Install Syncrypt via BRAT](../install.md) and open its settings.
 2. Enter your storage details (endpoint, bucket/folder, prefix, credentials).
-3. Run **Syncrypt: Unlock** and set your **passphrase**. Keys are derived
-   locally and never leave the device; only non-secret parameters are uploaded
-   so your other devices can derive the same keys from the passphrase.
+3. Run **Syncrypt: Unlock** and set your **passphrase**. Since there is no
+   vault at that location yet, Syncrypt asks before creating one and has you
+   type the passphrase twice. Keys are derived locally and never leave the
+   device; only non-secret parameters are uploaded so your other devices can
+   derive the same keys from the passphrase.
 4. Optionally adjust the **sync profile** (what to sync) — see
    [configuration](./configuration.md). The default covers all notes and
    attachments.
@@ -28,7 +30,9 @@ paste it, enter the same passphrase — connected. Delete the transferred
 ticket afterwards. Details in [install & setup](../install.md).
 
 Manual way: install the plugin, enter the **same** storage details, unlock
-with the **same** passphrase, **Sync now**.
+with the **same** passphrase, **Sync now**. If Syncrypt says there is no vault
+at that location, a detail differs from the first device — do not create one;
+compare the settings.
 
 That's it. From then on, sync happens automatically a little after you stop
 editing, on app start, best-effort on close/background — and whenever you run

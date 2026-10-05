@@ -44,6 +44,12 @@ describe("unlockFailureMessage", () => {
     expect(message).not.toBe(EN_STRINGS.unlockModal.wrongPassphrase);
   });
 
+  it("no vault at the location says so, and that nothing was created (ADR-0065)", () => {
+    expect(unlockFailureMessage(new SyncError("VaultAbsent", "x"), EN_STRINGS)).toBe(
+      EN_STRINGS.unlockModal.vaultAbsentElsewhere,
+    );
+  });
+
   it("a missing keyfile says restore, not 'wrong passphrase'", () => {
     for (const t of [EN_STRINGS, stringsFor("ru")]) {
       const message = unlockFailureMessage(

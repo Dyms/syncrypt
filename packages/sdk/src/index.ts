@@ -39,6 +39,12 @@ export interface OpenSyncEngineOptions {
   kdfDefaults?: KdfPreset;
   /** Device KDF affordability ceiling (ADR-0018) — mobile clients pass it. */
   affordability?: { maxMemoryKiB: number };
+  /**
+   * May an empty location become a new vault? Default true. Interactive
+   * clients pass false and ask the person first; an empty location then
+   * rejects `VaultAbsent` (ADR-0065).
+   */
+  createVault?: boolean;
 }
 
 /**
@@ -67,6 +73,7 @@ export async function openSyncEngine(opts: OpenSyncEngineOptions): Promise<SyncE
         passphraseForm: form,
         ...(opts.kdfDefaults !== undefined ? { defaults: opts.kdfDefaults } : {}),
         ...(opts.affordability !== undefined ? { affordability: opts.affordability } : {}),
+        ...(opts.createVault !== undefined ? { create: opts.createVault } : {}),
       }),
     );
 

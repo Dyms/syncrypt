@@ -72,9 +72,12 @@ that credential *is* your password, sent with every single request.
 ## 5. First sync
 
 1. Run the **"Syncrypt: Unlock"** command (or the Unlock button in settings).
-2. Enter your passphrase. On the very first device this *creates* the vault's
-   encryption setup; **choose a strong passphrase and store it in a password
-   manager — it cannot be recovered.**
+2. Enter your passphrase. On the very first device there is no vault yet, so
+   Syncrypt says so, names the location your settings point at, and asks you
+   to type the passphrase **again** before it creates anything. If you expected
+   an existing vault there, stop and check the endpoint, bucket and prefix —
+   one wrong letter points somewhere empty. **Choose a strong passphrase and
+   store it in a password manager — it cannot be recovered.**
 3. Keep the default **cross-device** encryption profile if any of your devices
    is a phone.
 4. Run **"Syncrypt: Sync now"**. The first sync encrypts and uploads the whole

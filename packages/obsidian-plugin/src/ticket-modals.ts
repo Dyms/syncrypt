@@ -159,17 +159,12 @@ export class AddDeviceModal extends Modal {
       // carries its creation time so a UI can show it. The UI never did. One
       // recovered from a chat a year later used to enrol a device in silence.
       this.plugin.logTicketAge(payload.createdAt);
-      // Swap the live settings only once the new ones are on disk. The old
-      // order left this device pointed at the ticket's provider in memory when
-      // the write failed, while the notice said the ticket was rejected.
-      const previous = this.plugin.settings;
-      this.plugin.settings = applyTicketToSettings(previous, payload);
-      try {
-        await this.plugin.saveSettings();
-      } catch (e) {
-        this.plugin.settings = previous;
-        throw e;
-      }
+      // Rolled back if the write fails (the old order left this device pointed
+      // at the ticket's provider in memory while the notice said "rejected").
+      // In place, so an open settings tab shows and edits the new values; and
+      // an unlocked device is locked — with or without keys in the ticket, it
+      // is a different connection (audit №4, A5/W3).
+      await this.plugin.replaceSettings(applyTicketToSettings(this.plugin.settings, payload));
       const passphrase = this.passphrase;
       this.passphrase = "";
       this.close();

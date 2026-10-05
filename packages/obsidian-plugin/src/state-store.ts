@@ -32,3 +32,27 @@ export class AdapterStateStore implements StateStorePort {
     await this.adapter.writeBinary(this.path, buffer);
   }
 }
+
+/**
+ * Give the pre-ADR-0065 state file to the location in use, once.
+ *
+ * Before ADR-0065 there was one `sync-state.json` per vault folder. The
+ * location configured at the first unlock after upgrading is, for everyone
+ * who did not change storage in between, the location that file describes;
+ * it becomes that location's file. Nothing is done when the location already
+ * has one, so this never overwrites a newer base with an older one.
+ *
+ * Someone who changed the storage settings and upgraded before unlocking
+ * again hands the old base to the new location. That is the pre-ADR-0065
+ * behaviour, for one unlock; ADR-0065 records it.
+ */
+export async function adoptLegacyState(
+  adapter: DataAdapterLike,
+  legacyPath: string,
+  path: string,
+): Promise<void> {
+  if (legacyPath === path) return;
+  if (await adapter.exists(path)) return;
+  if (!(await adapter.exists(legacyPath))) return;
+  await adapter.rename(legacyPath, path);
+}

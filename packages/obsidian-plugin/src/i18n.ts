@@ -300,6 +300,8 @@ const EN = {
     ticketRejected: (detail: string) => `Syncrypt: ticket rejected — ${detail}`,
     ticketImportedNoCreds:
       "Connection settings imported WITHOUT credentials — enter the storage keys in Settings, then Unlock.",
+    storageChangedLocked:
+      "Syncrypt: the storage settings changed, so the vault was locked — nothing more is synced to the old location. Unlock to connect to the new one.",
     ticketImported: "Connection imported. Connecting… (delete the transferred ticket now)",
     deviceIdCopied: "Device ID copied",
     configSyncAdopted: "Syncrypt: Obsidian-settings profile updated from another device.",
@@ -484,6 +486,13 @@ const EN = {
     passphrase: "Passphrase",
     unlock: "Unlock",
     checking: "Checking…",
+    create: "Create vault",
+    vaultAbsent: (location: string) =>
+      `There is no Syncrypt vault at ${location}.\n\nIf this is a new vault, type the passphrase again and press "Create vault": it becomes this vault's passphrase for good, and this device's notes are uploaded into it. If you expected an existing vault here, close this window and check the endpoint, bucket and prefix in Settings — a single wrong letter points here.`,
+    createMismatch:
+      "The two passphrases did not match, so nothing was created. Type the passphrase to start again.",
+    vaultAbsentElsewhere:
+      "There is no Syncrypt vault where these settings point, so nothing was created. Check the endpoint, bucket and prefix; to start a new vault there, use Unlock.",
     wrongPassphrase:
       "That passphrase does not open this vault. Nothing was changed.\nCheck your keyboard layout and Caps Lock, then try again.",
     kdfUnaffordable:
@@ -766,6 +775,8 @@ const RU: Strings = {
     ticketRejected: (detail: string) => `Syncrypt: тикет отклонён — ${detail}`,
     ticketImportedNoCreds:
       "Настройки подключения импортированы БЕЗ ключей доступа — введите ключи в настройках и разблокируйте.",
+    storageChangedLocked:
+      "Syncrypt: настройки хранилища изменились, поэтому хранилище заблокировано — в прежнее место больше ничего не синхронизируется. Разблокируйте, чтобы подключиться к новому.",
     ticketImported:
       "Подключение импортировано. Соединяемся… (удалите переданный тикет из переписки)",
     deviceIdCopied: "Идентификатор устройства скопирован",
@@ -953,6 +964,13 @@ const RU: Strings = {
     passphrase: "Парольная фраза",
     unlock: "Разблокировать",
     checking: "Проверяю…",
+    create: "Создать хранилище",
+    vaultAbsent: (location: string) =>
+      `По адресу ${location} нет хранилища Syncrypt.\n\nЕсли это новое хранилище, введите парольную фразу ещё раз и нажмите «Создать хранилище»: она станет фразой этого хранилища навсегда, а заметки этого устройства будут в него выгружены. Если вы ждали здесь существующее хранилище, закройте окно и проверьте адрес, бакет и префикс в настройках — одна неверная буква ведёт сюда.`,
+    createMismatch:
+      "Фразы не совпали, поэтому ничего не создано. Введите парольную фразу, чтобы начать заново.",
+    vaultAbsentElsewhere:
+      "Там, куда указывают эти настройки, нет хранилища Syncrypt, поэтому ничего не создано. Проверьте адрес, бакет и префикс; чтобы создать там новое хранилище, используйте «Разблокировать».",
     wrongPassphrase:
       "Эта парольная фраза не открывает хранилище. Ничего не изменилось.\nПроверьте раскладку и Caps Lock и попробуйте ещё раз.",
     kdfUnaffordable:

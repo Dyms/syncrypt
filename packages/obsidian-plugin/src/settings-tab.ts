@@ -171,6 +171,10 @@ export class SyncryptSettingTab extends PluginSettingTab {
           .onChange(async (v) => {
             set(v.trim());
             await this.plugin.saveSettings();
+            // A different location or different keys is a reconnect, as a
+            // provider switch is: an open engine stays bound to the old one
+            // (audit №4, W2; ADR-0065).
+            this.plugin.storageSettingsChanged();
           });
       });
     };

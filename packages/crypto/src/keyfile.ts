@@ -167,6 +167,15 @@ export interface OpenVaultCryptoOptions {
    * normalization existed. Nothing else should.
    */
   passphraseForm?: PassphraseForm;
+  /**
+   * May an empty location become a NEW vault? Default true (the SDK's
+   * historical "load or create"). A client that has a person to ask passes
+   * false and asks: with false, an empty location rejects `VaultAbsent`
+   * instead of being initialized (ADR-0065). ADR-0050's gates only stop
+   * creation over data; an empty location — a typo in the prefix, the wrong
+   * bucket — has none, and used to become a second vault in silence.
+   */
+  create?: boolean;
 }
 
 /**
@@ -214,6 +223,13 @@ export async function openVaultCrypto(
     // gone. Creating a fresh salt over any of those is the one mistake with
     // no way back, so this refuses instead, and says which it is.
     await refuseIfVaultHasContent(storage, prefix);
+    if (opts.create === false) {
+      throw new SyncError(
+        "VaultAbsent",
+        `no Syncrypt vault at "${prefix === "" ? "(bucket root)" : prefix}", and creating one ` +
+          `was not requested (ADR-0065)`,
+      );
+    }
 
     const preset = opts.defaults ?? CROSS_DEVICE_KDF_PRESET;
     // The creation guard too: never create a vault THIS device cannot unlock.
