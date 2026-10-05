@@ -185,12 +185,12 @@ export function withDefaults(
       raw.language === "en" || raw.language === "ru" || raw.language === "auto"
         ? raw.language
         : DEFAULT_SETTINGS.language,
-    s3: { ...DEFAULT_SETTINGS.s3, ...raw.s3 },
+    s3: withPrefix({ ...DEFAULT_SETTINGS.s3, ...raw.s3 }),
     // A vault configured before beta.10 has no `provider` and is S3 — the only
     // backend the UI could reach. Anything unrecognized falls back the same
     // way rather than leaving the plugin pointed at nothing.
     provider: raw.provider === "webdav" ? "webdav" : "s3",
-    webdav: { ...DEFAULT_SETTINGS.webdav, ...raw.webdav },
+    webdav: withPrefix({ ...DEFAULT_SETTINGS.webdav, ...raw.webdav }),
     // Checked like every other field. A non-array here — a hand-edited
     // data.json, a half-written file — reached `new ProfileMatcher` and threw
     // inside unlock, with no way back except editing data.json by hand.
@@ -309,4 +309,24 @@ export function describeStorageLocation(s: SyncryptSettings): string {
   const prefix = s.s3.prefix.trim();
   const where = `${s.s3.bucket.trim()}${prefix === "" ? "" : `/${prefix}`}`;
   return `${where} @ ${s.s3.endpoint.trim()}`;
+}
+
+/**
+ * A prefix as the storage will use it (ADR-0074): no slash at either end, no
+ * empty segment in between. "/notes/", "notes//2026" and " notes " used to be
+ * stored as typed; an empty segment is refused locally by the object-key
+ * check, before any request, and was reported as "could not reach the
+ * storage" (audit №4, A10). Such a prefix never worked, so normalizing one on
+ * load cannot move a vault that was in use.
+ */
+export function normalizePrefix(v: string): string {
+  return v
+    .trim()
+    .split("/")
+    .filter((segment) => segment !== "")
+    .join("/");
+}
+
+function withPrefix<T extends { prefix: string }>(group: T): T {
+  return { ...group, prefix: typeof group.prefix === "string" ? normalizePrefix(group.prefix) : "" };
 }

@@ -197,7 +197,7 @@ const EN = {
     notRestored:
       "If you did not, do NOT accept it. Someone with write access to the bucket can roll every device back this way. Check who has that access first — nothing has been changed here.",
     effect:
-      "Accepting forgets only what this device remembers about the last sync. No file is deleted and nothing is uploaded yet: the next sync compares both sides from scratch, keeps both versions of anything that differs as a conflict copy, and deletes nothing.",
+      "Accepting forgets only what this device remembers about the last sync, and then syncs at once: that sync compares both sides from scratch, uploads and downloads what is missing, keeps both versions of anything that differs as a conflict copy, and deletes nothing.",
     cancel: "Cancel",
     confirm: "Accept the storage",
   },
@@ -207,7 +207,7 @@ const EN = {
     intro: (n: number) =>
       `${String(n)} entr${n === 1 ? "y" : "ies"} are listed in the vault's manifest but fall outside this device's sync profile. Some are alive on another device; some may be left over from a profile nobody uses any more. Only you can tell which.`,
     safety:
-      "Forgetting is not deleting: no file is touched, no deletion is recorded, and the stored copy is KEPT — so this stays undoable even for an entry no device carries any more. Any device that still carries a path puts it back on its next sync. The kept copies are freed separately, by the \u201crelease\u201d command, and only then can a storage cleanup delete them.",
+      "Forgetting is not deleting: no file is touched, no deletion is recorded, and the stored copy is KEPT — so this stays undoable even for an entry no device carries any more. Any device that still carries a path puts it back on its next sync. The kept copies are freed separately, by the command \u201cRelease the copies kept for forgotten entries\u201d, and only then can a storage cleanup delete them.",
     empty: "Nothing to review — this device carries everything in the manifest.",
     cancel: "Cancel",
     forget: (n: number) => (n === 0 ? "Forget selected" : `Forget ${String(n)} selected`),
@@ -679,7 +679,7 @@ const RU: Strings = {
     danger:
       "Это единственное, что Syncrypt делает без возможности отката. Удалённый объект исчезает: ни корзины, ни сохранённой версии, ни устройства, которое вернёт его обратно. Безопасно это потому, что кандидатом никогда не станет то, на что ссылается хоть один сохраняемый манифест, — и проверяется это заново в момент удаления, а не берётся из этого предпросмотра.",
     cancel: "Отмена",
-    confirm: "Освободить",
+    confirm: "Удалить из хранилища",
     close: "Закрыть",
     done: (deleted: number, freed: string) =>
       `Syncrypt: удалено объектов — ${String(deleted)}, освобождено ${freed}.`,
@@ -696,7 +696,7 @@ const RU: Strings = {
     notRestored:
       "Если нет — НЕ принимайте. Любой, у кого есть доступ на запись, может так откатить все ваши устройства. Сначала разберитесь, у кого этот доступ есть; здесь пока ничего не изменено.",
     effect:
-      "Принятие стирает только то, что это устройство помнит о прошлой синхронизации. Ни один файл не удаляется и ничего не загружается: следующая синхронизация сверит обе стороны с нуля, сохранит обе версии всего расходящегося как конфликт и не удалит ничего.",
+      "Принятие стирает только то, что это устройство помнит о прошлой синхронизации, и сразу запускает синхронизацию: она сверит обе стороны с нуля, загрузит и скачает недостающее, сохранит обе версии всего расходящегося как конфликт и не удалит ничего.",
     cancel: "Отмена",
     confirm: "Принять хранилище",
   },
@@ -706,7 +706,7 @@ const RU: Strings = {
     intro: (n: number) =>
       `В манифесте хранилища есть записи (${String(n)}), не попадающие в профиль синхронизации этого устройства. Часть из них жива на другом устройстве, часть могла остаться от профиля, которым больше никто не пользуется. Отличить может только человек.`,
     safety:
-      "Забыть — не значит удалить: ни один файл не трогается, удаление нигде не записывается, а копия в хранилище СОХРАНЯЕТСЯ — поэтому действие остаётся обратимым даже для записи, которую больше не носит ни одно устройство. Устройство, которое ещё носит путь, вернёт его на следующей синхронизации. Сохранённые копии освобождаются отдельно, командой «освободить», и только после этого их сможет удалить очистка хранилища.",
+      "Забыть — не значит удалить: ни один файл не трогается, удаление нигде не записывается, а копия в хранилище СОХРАНЯЕТСЯ — поэтому действие остаётся обратимым даже для записи, которую больше не носит ни одно устройство. Устройство, которое ещё носит путь, вернёт его на следующей синхронизации. Сохранённые копии освобождаются отдельно, командой «Освободить копии, сохранённые ради забытых записей», и только после этого их сможет удалить очистка хранилища.",
     empty: "Разбирать нечего — это устройство носит всё, что есть в манифесте.",
     cancel: "Отмена",
     forget: (n: number) => (n === 0 ? "Забыть отмеченные" : `Забыть отмеченные: ${String(n)}`),

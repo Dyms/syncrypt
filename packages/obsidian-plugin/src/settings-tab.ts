@@ -20,7 +20,7 @@ import {
   type SectionId,
   type SectionMemory,
 } from "./settings-sections.js";
-import { endpointOf, flooredSetting, settingsComplete } from "./settings.js";
+import { endpointOf, flooredSetting, normalizePrefix, settingsComplete } from "./settings.js";
 
 export class SyncryptSettingTab extends PluginSettingTab {
   constructor(
@@ -147,48 +147,78 @@ export class SyncryptSettingTab extends PluginSettingTab {
     // ADR-0016, stated once and calmly: a note, not an alarm. Shown only once
     // credentials are actually stored — before that there is nothing to warn
     // about. WebDAV's password sits in the same file for the same reason.
-    const hasSecrets = webdav
-      ? s.webdav.username !== "" || s.webdav.password !== ""
-      : s.s3.accessKeyId !== "" || s.s3.secretAccessKey !== "";
-    if (hasSecrets) {
-      storageEl.createEl("div", {
-        text: `⚠ ${t.settings.credentialWarning}`,
-        cls: "setting-item-description",
-      });
-    }
+    //
+    // Both providers' keys count: switching to WebDAV keeps the S3 keys in
+    // data.json (ADR-0033), and hid them along with this warning (audit №4,
+    // A11). Kept current as fields change, not only when the tab is drawn.
+    const credentialEl: HTMLElement = storageEl.createEl("div", {
+      text: `⚠ ${t.settings.credentialWarning}`,
+      cls: "setting-item-description",
+    });
+    const refreshCredentialWarning = (): void => {
+      const stored =
+        s.webdav.username !== "" ||
+        s.webdav.password !== "" ||
+        s.s3.accessKeyId !== "" ||
+        s.s3.secretAccessKey !== "";
+      if (stored) credentialEl.show();
+      else credentialEl.hide();
+    };
+    refreshCredentialWarning();
+    // The plaintext-endpoint warning, placed after the endpoint field and
+    // refreshed as it is typed into (the comment in endpoint-warning.ts
+    // assumed it was; it was computed once per draw).
+    let plaintextEl: HTMLElement | null = null;
+    const refreshPlaintextWarning = (): void => {
+      if (plaintextEl === null) return;
+      if (endpointIsPlaintext(endpointOf(s))) plaintextEl.show();
+      else plaintextEl.hide();
+    };
 
     const storageText = (
       name: string,
       get: () => string,
       set: (v: string) => void,
-      opts: { placeholder?: string; secret?: boolean } = {},
+      opts: {
+        placeholder?: string;
+        secret?: boolean;
+        /** How the value is stored; trimming by default (ADR-0074). */
+        normalize?: (v: string) => string;
+      } = {},
     ): void => {
+      const normalize = opts.normalize ?? ((v: string): string => v.trim());
       new Setting(storageEl).setName(name).addText((text) => {
         if (opts.secret === true) text.inputEl.type = "password";
         text
           .setPlaceholder(opts.placeholder ?? "")
           .setValue(get())
           .onChange(async (v) => {
-            set(v.trim());
+            set(normalize(v));
             await this.plugin.saveSettings();
+            refreshCredentialWarning();
+            refreshPlaintextWarning();
             // A different location or different keys is a reconnect, as a
             // provider switch is: an open engine stays bound to the old one
             // (audit №4, W2; ADR-0065).
             this.plugin.storageSettingsChanged();
           });
+        // Leaving the field shows what was stored, not what was typed.
+        text.inputEl.addEventListener("blur", () => {
+          text.setValue(get());
+        });
       });
     };
 
     const plaintextWarning = (): void => {
-      if (!endpointIsPlaintext(endpointOf(s))) return;
       // The vault's contents are encrypted before they leave, but the storage
       // credentials are not: over plain HTTP they travel in the clear, and for
       // WebDAV Basic auth that IS the password, on every single request.
-      const warn = storageEl.createEl("div", {
+      plaintextEl = storageEl.createEl("div", {
         text: `⚠ ${webdav ? t.settings.plaintextWebdavWarning : t.settings.plaintextEndpointWarning}`,
         cls: "setting-item-description",
       });
-      warn.style.color = "var(--text-error)";
+      plaintextEl.style.color = "var(--text-error)";
+      refreshPlaintextWarning();
     };
 
     if (webdav) {
@@ -205,7 +235,9 @@ export class SyncryptSettingTab extends PluginSettingTab {
         t.settings.webdavPassword,
         () => s.webdav.password,
         (v) => (s.webdav.password = v),
-        { secret: true },
+        // A password is what it is: a space at either end is part of it, and
+        // trimming made the server refuse one that had it (ADR-0074).
+        { secret: true, normalize: (v) => v },
       );
       storageEl.createEl("div", {
         text: t.settings.webdavAppPasswordHint,
@@ -213,6 +245,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       });
       storageText(t.settings.prefix, () => s.webdav.prefix, (v) => (s.webdav.prefix = v), {
         placeholder: t.settings.prefixPlaceholder,
+        normalize: normalizePrefix,
       });
       // ADR-0006: WebDAV has no conditional writes, so two devices publishing
       // the same generation are resolved by the LIST rule instead of being
@@ -230,6 +263,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       storageText(t.settings.bucket, () => s.s3.bucket, (v) => (s.s3.bucket = v));
       storageText(t.settings.prefix, () => s.s3.prefix, (v) => (s.s3.prefix = v), {
         placeholder: t.settings.prefixPlaceholder,
+        normalize: normalizePrefix,
       });
       storageText(
         t.settings.accessKeyId,
@@ -418,26 +452,48 @@ export class SyncryptSettingTab extends PluginSettingTab {
 
     // --- Safe Sync ----------------------------------------------------------
     const safeEl = section("safeSync", t.settings.safeSyncHeading);
+    // A number field stores only a number it can mean (ADR-0074). An empty
+    // field — someone clearing it to retype — used to be stored as 0, the
+    // least strict value of the deletion-burst window; "0.5" days of deletion
+    // memory became 0, which means "for ever"; a refused "-1" stayed on screen
+    // as if it applied (audit №4, A12). Now: whole numbers unless the field
+    // says otherwise, anything else is marked and not stored, and leaving the
+    // field shows what IS stored (floors included).
     const num = (
       into: HTMLElement,
       name: string,
       desc: string,
       get: () => number,
       set: (v: number) => void,
+      opts: { fraction?: boolean } = {},
     ): void => {
       new Setting(into)
         .setName(name)
         .setDesc(desc)
-        .addText((text) =>
+        .addText((text) => {
+          const mark = (ok: boolean): void => {
+            text.inputEl.setAttr("aria-invalid", ok ? "false" : "true");
+            text.inputEl.style.borderColor = ok ? "" : "var(--text-error)";
+          };
           text.setValue(String(get())).onChange(async (v) => {
-            const n = Number(v);
-            if (Number.isFinite(n) && n >= 0) {
-              set(n);
-              await this.plugin.saveSettings();
-              await this.plugin.applyLiveSettings(); // ADR-0072
-            }
-          }),
-        );
+            const trimmed = v.trim();
+            const n = Number(trimmed);
+            const ok =
+              trimmed !== "" &&
+              Number.isFinite(n) &&
+              n >= 0 &&
+              (opts.fraction === true || Number.isInteger(n));
+            mark(ok);
+            if (!ok) return;
+            set(n);
+            await this.plugin.saveSettings();
+            await this.plugin.applyLiveSettings(); // ADR-0072
+          });
+          text.inputEl.addEventListener("blur", () => {
+            text.setValue(String(get()));
+            mark(true);
+          });
+        });
     };
     num(
       safeEl,
@@ -459,6 +515,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
       t.settings.vaultFractionDesc,
       () => s.safeSync.bulkChangeMaxFraction,
       (v) => (s.safeSync.bulkChangeMaxFraction = v),
+      { fraction: true },
     );
     num(
       safeEl,
