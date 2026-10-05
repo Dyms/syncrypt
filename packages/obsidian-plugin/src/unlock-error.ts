@@ -58,3 +58,32 @@ export function commandFailureMessage(error: unknown, t: Strings): string {
   }
   return t.notices.commandFailedDetail(String(error));
 }
+
+/**
+ * A sync failed after a good unlock (ADR-0073). The notice used to carry the
+ * raw error — "SyncError: S3 probe-create …: network error" in an otherwise
+ * Russian interface (audit №4, B13). The raw text still goes to the log.
+ */
+export function syncFailureMessage(error: unknown, t: Strings): string {
+  if (
+    isSyncError(error, "StorageTransient") ||
+    isSyncError(error, "StorageRateLimited") ||
+    isSyncError(error, "StorageNotFound")
+  ) {
+    return t.unlockModal.storageUnreachable;
+  }
+  if (isSyncError(error, "StorageUnauthorized")) return t.unlockModal.storageUnauthorized;
+  if (isSyncError(error, "CryptoAuthError")) return t.notices.syncNotAuthentic;
+  if (isSyncError(error, "ManifestCorrupt")) return t.notices.syncManifestRefused;
+  return t.notices.commandFailedDetail(String(error));
+}
+
+/**
+ * A pasted ticket that did not open (ADR-0073). Every way a ticket fails to
+ * open is CryptoAuthError by design — a wrong passphrase and a cut-off paste
+ * look the same to GCM — so the message names both.
+ */
+export function ticketFailureMessage(error: unknown, t: Strings): string {
+  if (isSyncError(error, "CryptoAuthError")) return t.notices.ticketDidNotOpen;
+  return t.notices.commandFailedDetail(String(error));
+}

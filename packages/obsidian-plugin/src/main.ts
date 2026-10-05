@@ -81,7 +81,11 @@ import {
   type SyncStateView,
 } from "./sync-state.js";
 import { PassphraseModal } from "./unlock.js";
-import { commandFailureMessage, unlockFailureMessage } from "./unlock-error.js";
+import {
+  commandFailureMessage,
+  syncFailureMessage,
+  unlockFailureMessage,
+} from "./unlock-error.js";
 import { passphraseIsDefinitelyWrong } from "./passphrase-check.js";
 import { ObsidianVault } from "./vault-adapter.js";
 
@@ -92,6 +96,10 @@ import { ObsidianVault } from "./vault-adapter.js";
  * long sync is not re-asked constantly.
  */
 const RETRY_DECLINED_MS = 60_000;
+/** Safe Sync dialogs in a row for one sync before giving up on a moving plan (ADR-0073). */
+const MAX_CONFIRMATION_ROUNDS = 2;
+/** How long after the last edit the status re-reads the real dirty count (ADR-0073). */
+const FACTS_SETTLE_MS = 2_000;
 
 const CONFLICTS_IN_LOG = 20;
 
@@ -129,6 +137,8 @@ export default class SyncryptPlugin extends Plugin {
    * nothing, and publishing then put this device's defaults over the vault's.
    */
   private configPulled = false;
+  /** Pending refreshFactsSoon() (ADR-0073). */
+  private factsTimer: ReturnType<typeof setTimeout> | null = null;
   /** A profile or Safe Sync edit arrived during a sync; applied after it (ADR-0072). */
   private liveSettingsPending = false;
   /** The one passphrase dialog, so a second cannot race the first (B11). */
@@ -354,7 +364,7 @@ export default class SyncryptPlugin extends Plugin {
       locked: this.engine === null,
       syncing: this.syncing,
       appliedSoFar: this.syncing
-        ? this.log.all().filter((l) => l.level === "entry").length - this.syncStartLogLength
+        ? this.log.entryCount() - this.syncStartLogLength
         : 0,
       onLine: typeof navigator === "undefined" ? true : navigator.onLine,
       status: this.engineStatus,
@@ -428,6 +438,25 @@ export default class SyncryptPlugin extends Plugin {
   }
 
   /** Refresh status()/counts facts after a sync or unlock (no network I/O). */
+  /**
+   * The real dirty count, shortly after edits settle — so an edit that was
+   * undone, or our own write echoing back as an event, does not leave
+   * "pending" behind (ADR-0073). During a sync the engine queues the read
+   * behind it; after a lock there is no timer left (lock clears it) and
+   * `refreshFacts` reads nothing without an engine.
+   */
+  private refreshFactsSoon(): void {
+    if (this.factsTimer !== null) clearTimeout(this.factsTimer);
+    this.factsTimer = setTimeout(() => {
+      this.factsTimer = null;
+      void this.refreshFacts()
+        .catch(() => undefined)
+        .then(() => {
+          this.renderStatus();
+        });
+    }, FACTS_SETTLE_MS);
+  }
+
   private async refreshFacts(): Promise<void> {
     if (this.engine === null || this.vaultPort === null) return;
     const status = await this.engine.status();
@@ -673,6 +702,8 @@ export default class SyncryptPlugin extends Plugin {
     this.session++;
     this.syncing = false;
     this.configPulled = false;
+    if (this.factsTimer !== null) clearTimeout(this.factsTimer);
+    this.factsTimer = null;
     this.renderStatus();
     this.log.info(this.strings.log.locked);
   }
@@ -685,7 +716,15 @@ export default class SyncryptPlugin extends Plugin {
       // Our own trash moves and dot-file writes must not retrigger sync.
       if (path.startsWith(this.paths.syncTrash) || path.startsWith(".")) return;
       this.scheduler?.noteChange();
-      this.renderStatus(); // dirty state may have changed → "pending"
+      // An edit is unsynced until a status says otherwise (ADR-0073). The
+      // comment here used to promise "pending" while the render read the
+      // dirty count of the LAST status — zero — and said "Synced" over an
+      // edit, for good with auto-sync off.
+      if (this.engineStatus !== null && this.engineStatus.dirtyFiles === 0) {
+        this.engineStatus = { ...this.engineStatus, dirtyFiles: 1 };
+      }
+      this.renderStatus();
+      this.refreshFactsSoon();
     };
     // Kept so `lock()` can detach them. `registerEvent` alone only detaches on
     // UNLOAD, so every lock→unlock cycle used to add another set and every
@@ -774,7 +813,7 @@ export default class SyncryptPlugin extends Plugin {
     const run = { abort, done: new Promise<void>((r) => (stopped = r)) };
     this.running = run;
     this.syncing = true;
-    this.syncStartLogLength = this.log.all().filter((l) => l.level === "entry").length;
+    this.syncStartLogLength = this.log.entryCount();
     this.scheduler?.noteSyncStarted();
     this.renderStatus();
     try {
@@ -801,7 +840,7 @@ export default class SyncryptPlugin extends Plugin {
         this.log.warn(this.strings.log.syncFailed(String(e)));
       }
       if (origin !== "auto" && session === this.session) {
-        new Notice(this.strings.notices.syncFailed(String(e)), 8000);
+        new Notice(this.strings.notices.syncFailed(syncFailureMessage(e, this.strings)), 8000);
       }
     } finally {
       // Still inside the `syncing` guard: adopting a shared profile changes
@@ -917,6 +956,7 @@ export default class SyncryptPlugin extends Plugin {
     session: number,
     original: SyncReport,
     signal: AbortSignal,
+    attempt = 1,
   ): Promise<SyncReport> {
     const plan = await engine.dryRun(signal);
     if (session !== this.session) return original;
@@ -927,7 +967,19 @@ export default class SyncryptPlugin extends Plugin {
       this.log.info(this.strings.log.bulkCancelled);
       return original;
     }
-    return engine.confirmAndApply(plan, signal);
+    const result = await engine.confirmAndApply(plan, signal);
+    // The engine refuses a plan that changed under the dialog (another delete
+    // while the list was open) and applies nothing — correctly. It used to
+    // stop there in silence: one log line, a "pending" status, no question
+    // (audit №4, B10). Say so and ask about the list as it is now — twice at
+    // most, so a vault that never settles is not an endless dialog.
+    if (result.outcome !== "needs-confirmation" || session !== this.session) return result;
+    if (attempt >= MAX_CONFIRMATION_ROUNDS) {
+      new Notice(this.strings.notices.confirmationGaveUp, 10000);
+      return result;
+    }
+    new Notice(this.strings.notices.confirmationChanged, 8000);
+    return this.handleConfirmation(engine, session, result, signal, attempt + 1);
   }
 
   /**

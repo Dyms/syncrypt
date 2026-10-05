@@ -290,6 +290,10 @@ const EN = {
   },
 
   notices: {
+    confirmationChanged:
+      "Syncrypt: the changes moved while you were reviewing them, so nothing was applied. Here is the list as it is now.",
+    confirmationGaveUp:
+      "Syncrypt: the changes kept moving while you reviewed them, so nothing was applied. Sync again once the vault is quiet.",
     fillSettingsFirst: "Syncrypt: fill in the storage settings first.",
     configureBeforeSharing: "Syncrypt: configure and verify storage first.",
     unlockFailed: (detail: string) => `Syncrypt: unlock failed — ${detail}`,
@@ -311,6 +315,12 @@ const EN = {
     sharePassphraseWrong:
       "Syncrypt: that passphrase does not open this vault — the ticket would be unusable on the other device.",
     ticketRejected: (detail: string) => `Syncrypt: ticket rejected — ${detail}`,
+    ticketDidNotOpen:
+      "the passphrase does not open it, or the ticket was not copied whole. Nothing was changed.",
+    syncNotAuthentic:
+      "something in the storage does not open with this vault's keys — tampered, or written with another passphrase. Nothing was applied; the sync log has the details.",
+    syncManifestRefused:
+      "the storage holds a manifest this device refuses to act on. Nothing was applied; the sync log says why.",
     ticketImportedNoCreds:
       "Connection settings imported WITHOUT credentials — enter the storage keys in Settings, then Unlock.",
     storageChangedLocked:
@@ -780,6 +790,10 @@ const RU: Strings = {
   },
 
   notices: {
+    confirmationChanged:
+      "Syncrypt: пока вы смотрели список, изменения сдвинулись, поэтому ничего не применено. Вот список в текущем виде.",
+    confirmationGaveUp:
+      "Syncrypt: изменения продолжали меняться, пока вы их смотрели, поэтому ничего не применено. Синхронизируйте снова, когда в хранилище станет тихо.",
     fillSettingsFirst: "Syncrypt: сначала заполните настройки хранилища.",
     configureBeforeSharing: "Syncrypt: сначала настройте и проверьте хранилище.",
     unlockFailed: (detail: string) => `Syncrypt: разблокировка не удалась — ${detail}`,
@@ -801,6 +815,12 @@ const RU: Strings = {
     sharePassphraseWrong:
       "Syncrypt: эта парольная фраза не открывает хранилище — тикет на другом устройстве не заработает.",
     ticketRejected: (detail: string) => `Syncrypt: тикет отклонён — ${detail}`,
+    ticketDidNotOpen:
+      "фраза его не открывает, или тикет скопирован не целиком. Ничего не изменено.",
+    syncNotAuthentic:
+      "что-то в хранилище не открывается ключами этого хранилища — подмена или запись с другой парольной фразой. Ничего не применено; подробности в журнале синхронизации.",
+    syncManifestRefused:
+      "в хранилище лежит манифест, с которым это устройство отказывается работать. Ничего не применено; причина — в журнале синхронизации.",
     ticketImportedNoCreds:
       "Настройки подключения импортированы БЕЗ ключей доступа — введите ключи в настройках и разблокируйте.",
     storageChangedLocked:

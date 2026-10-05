@@ -42,13 +42,25 @@ const WARNING_NOTICES: ReadonlySet<EngineNotice["code"]> = new Set([
 export class LogBuffer implements LogPort {
   private readonly lines: LogLine[] = [];
   private readonly listeners = new Set<() => void>();
+  /**
+   * Applied-file lines ever written, the ring buffer notwithstanding. The
+   * live "syncing (n)" counter subtracts two of these; counting the lines in
+   * the buffer stopped moving once it was full (ADR-0073).
+   */
+  private entries = 0;
 
   constructor(private readonly maxLines = 500) {}
 
   entry(e: SyncReportEntry): void {
     const line: LogLine = { at: Date.now(), level: "entry", reason: e.reason, path: e.path };
     if (e.detail !== undefined) line.detail = e.detail;
+    this.entries++;
     this.push(line);
+  }
+
+  /** Applied-file lines ever written — monotonic, unlike `all()`. */
+  entryCount(): number {
+    return this.entries;
   }
 
   notice(n: EngineNotice): void {

@@ -87,8 +87,16 @@ export async function makeDevice(
     vault: {
       adapter,
       configDir: ".obsidian",
-      on: () => ({}),
-      offref: () => undefined,
+      handlers: new Map<string, Set<(...a: unknown[]) => unknown>>(),
+      on(name: string, fn: (...a: unknown[]) => unknown) {
+        let set = this.handlers.get(name);
+        if (set === undefined) this.handlers.set(name, (set = new Set()));
+        set.add(fn);
+        return { name, fn };
+      },
+      offref(ref: { name: string; fn: (...a: unknown[]) => unknown }) {
+        this.handlers.get(ref.name)?.delete(ref.fn);
+      },
     },
     workspace: { onLayoutReady: () => undefined, getLeavesOfType: () => [] },
   };
@@ -172,4 +180,9 @@ export async function importTicket(d: Device, ticket: string, passphrase = PASS)
   (modal as any).ticket = ticket;
   (modal as any).passphrase = passphrase;
   await (modal as any).connect();
+}
+
+/** Obsidian reports a vault event, as the editor's autosave would. */
+export function emit(d: Device, name: "modify" | "create" | "delete", path: string): void {
+  for (const fn of d.app.vault.handlers.get(name) ?? []) fn({ path });
 }

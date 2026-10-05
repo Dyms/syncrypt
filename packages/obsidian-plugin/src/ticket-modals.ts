@@ -11,7 +11,7 @@ import {
 
 import type SyncryptPlugin from "./main.js";
 import { applyTicketToSettings, ticketIsCredsLess } from "./ticket-flow.js";
-import { unlockFailureMessage } from "./unlock-error.js";
+import { ticketFailureMessage, unlockFailureMessage } from "./unlock-error.js";
 
 export class ShareConnectionModal extends Modal {
   private passphrase = "";
@@ -182,7 +182,7 @@ export class AddDeviceModal extends Modal {
     } catch (e) {
       // Nothing was applied — openConnectionTicket is all-or-nothing, and the
       // settings are rolled back above if persisting them failed.
-      new Notice(t.notices.ticketRejected(String(e)), 8000);
+      new Notice(t.notices.ticketRejected(ticketFailureMessage(e, t)), 8000);
     }
   }
 
