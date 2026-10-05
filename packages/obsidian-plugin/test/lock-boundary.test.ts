@@ -380,8 +380,7 @@ describe("an answer that a lock overtakes acts on nothing (B3)", () => {
   it("release", async () => {
     const me = await opened3();
     const engine = engineOf(me);
-    const real = await engine.status();
-    vi.spyOn(engine, "status").mockResolvedValue({ ...real, forgottenObjects: 2 });
+    vi.spyOn(engine, "previewRelease").mockResolvedValue(["objects/aa", "objects/bb"]);
     const release = vi.spyOn(engine, "releaseForgotten");
     answerThenLock(me, true);
     await me.plugin.releaseForgotten();

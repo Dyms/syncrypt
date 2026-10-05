@@ -231,6 +231,8 @@ const EN = {
     done: (n: number) =>
       `Syncrypt: ${String(n)} kept cop${n === 1 ? "y" : "ies"} released. The next storage cleanup can delete ${n === 1 ? "it" : "them"}.`,
     raced: "Syncrypt: another device published first — nothing was changed. Sync and try again.",
+    changed:
+      "Syncrypt: the kept copies changed while this was open (another device forgot or released some) — nothing was released. Run the command again to see the current list.",
   },
 
   engine: {
@@ -717,6 +719,8 @@ const RU: Strings = {
     done: (n: number) =>
       `Syncrypt: освобождено сохранённых копий — ${String(n)}. Ближайшая очистка хранилища сможет их удалить.`,
     raced: "Syncrypt: другое устройство опубликовало изменения первым — ничего не изменено. Синхронизируйтесь и повторите.",
+    changed:
+      "Syncrypt: пока окно было открыто, набор сохранённых копий изменился (другое устройство что-то забыло или освободило) — ничего не освобождено. Запустите команду снова, чтобы увидеть текущий список.",
   },
 
   engine: {

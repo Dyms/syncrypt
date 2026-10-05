@@ -228,8 +228,22 @@ export interface SyncEngine {
    *
    * Publishes a generation and nothing else; deleting is still reclamation's
    * job, so this is undoable right up until that runs.
+   *
+   * `expected`, when given, is the set the person was shown
+   * (`previewRelease`). If the storage holds a different set by now — another
+   * device forgot more, or released — nothing is published and `stale` says
+   * so (ADR-0070): the dialog is the only place the product says those copies
+   * may be the last ones, and it must have named all of them.
    */
-  releaseForgotten(signal?: AbortSignal): Promise<ReleaseResult>;
+  releaseForgotten(signal?: AbortSignal, expected?: readonly ObjectKey[]): Promise<ReleaseResult>;
+
+  /**
+   * The kept copies `releaseForgotten` would release now, read from the
+   * storage's current manifest — not this device's base, which can be behind
+   * (ADR-0070). Reading only. Empty when there is no manifest or the storage
+   * went backwards (the same doors `releaseForgotten` will not open).
+   */
+  previewRelease(signal?: AbortSignal): Promise<ObjectKey[]>;
 
   /**
    * What reclaiming storage would delete, WITHOUT deleting anything (ADR-0030).
@@ -304,6 +318,8 @@ export interface ReleaseResult {
   released: number;
   /** The generation published, or null when there was nothing to do. */
   generation: number | null;
+  /** The kept set is not the one that was shown; nothing was published (ADR-0070). */
+  stale?: boolean;
 }
 
 /** RFC-0004 §Deletion & tombstone GC — 30 days, resolved by ADR-0031. */
@@ -621,7 +637,17 @@ class Engine implements SyncEngine {
     });
   }
 
-  releaseForgotten(signal?: AbortSignal): Promise<ReleaseResult> {
+  previewRelease(signal?: AbortSignal): Promise<ObjectKey[]> {
+    return this.exclusive(async () => {
+      await this.loadStateOnce();
+      const remote = await readRemote(this.ctx);
+      throwIfAborted(signal, "previewRelease");
+      if (remote.manifest === null || this.rolledBack(remote)) return [];
+      return [...(remote.manifest.forgotten ?? [])];
+    });
+  }
+
+  releaseForgotten(signal?: AbortSignal, expected?: readonly ObjectKey[]): Promise<ReleaseResult> {
     return this.exclusive(async () => {
       await this.loadStateOnce();
       const remote = await readRemote(this.ctx);
@@ -630,7 +656,13 @@ class Engine implements SyncEngine {
       if (remote.manifest === null || this.rolledBack(remote) || signal?.aborted) {
         return { released: 0, generation: null };
       }
-      const released = remote.manifest.forgotten?.length ?? 0;
+      const kept = remote.manifest.forgotten ?? [];
+      // All of it or none of it: releasing a set that grew since it was shown
+      // lets go of copies nobody was told about (ADR-0070).
+      if (expected !== undefined && !sameKeys(kept, expected)) {
+        return { released: 0, generation: null, stale: true };
+      }
+      const released = kept.length;
       if (released === 0) return { released: 0, generation: null };
 
       const generation = remote.generation + 1;
@@ -1290,4 +1322,11 @@ class Engine implements SyncEngine {
 
 export function createSyncEngine(config: SyncEngineConfig): SyncEngine {
   return new Engine(config);
+}
+
+/** The same object keys, order and duplicates aside. */
+function sameKeys(a: readonly ObjectKey[], b: readonly ObjectKey[]): boolean {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((k) => y.has(k));
 }

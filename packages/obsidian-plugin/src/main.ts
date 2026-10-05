@@ -1070,7 +1070,11 @@ export default class SyncryptPlugin extends Plugin {
    */
   async releaseForgotten(): Promise<void> {
     await this.maintenance(async (engine, current) => {
-      const kept = (await engine.status()).forgottenObjects;
+      // From the storage, not from this device's base: another device may have
+      // forgotten more since this one last synced, and every copy released
+      // has to have been named here first (ADR-0070).
+      const keys = await engine.previewRelease();
+      const kept = keys.length;
       if (!current()) return;
       const approved = await this.ask<boolean>((resolve) =>
         new ReleaseForgottenModal(this.app, kept, resolve, this.strings),
@@ -1080,7 +1084,11 @@ export default class SyncryptPlugin extends Plugin {
         this.lockedMeanwhile();
         return;
       }
-      const result = await engine.releaseForgotten();
+      const result = await engine.releaseForgotten(undefined, keys);
+      if (result.stale === true) {
+        new Notice(this.strings.releaseModal.changed, 8000);
+        return;
+      }
       if (result.generation === null) {
         new Notice(this.strings.releaseModal.raced, 8000);
         return;
