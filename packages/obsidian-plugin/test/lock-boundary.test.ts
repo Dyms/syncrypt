@@ -300,6 +300,7 @@ describe("two unlocks at once open one session", () => {
   it("both succeed: the second does not replace the first", async () => {
     const world = new World();
     const seed = await makeDevice(world, { ...S3_DATA, deviceId: "dev-seed" });
+    seed.adapter.setFile("seed.md", "seed"); // published, so the passphrase can be checked
     await unlock(seed.plugin, PASS, true);
     await settle(seed.plugin);
     const me = await makeDevice(world, { ...S3_DATA, autoSync: { enabled: false } });

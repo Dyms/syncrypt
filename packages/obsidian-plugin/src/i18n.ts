@@ -520,6 +520,10 @@ const EN = {
       `There is no Syncrypt vault at ${location}.\n\nIf this is a new vault, type the passphrase again and press "Create vault": it becomes this vault's passphrase for good, and this device's notes are uploaded into it. If you expected an existing vault here, close this window and check the endpoint, bucket and prefix in Settings — a single wrong letter points here.`,
     createMismatch:
       "The two passphrases did not match, so nothing was created. Type the passphrase to start again.",
+    uncheckable: (location: string) =>
+      `The vault at ${location} has nothing in it yet, so this passphrase cannot be checked against it — and a typo would make this device write the vault's first data under a key no other device has.\n\nType the passphrase again to confirm it.`,
+    confirmMismatch:
+      "The two passphrases did not match, so nothing was opened. Type the passphrase to start again.",
     vaultAbsentElsewhere:
       "There is no Syncrypt vault where these settings point, so nothing was created. Check the endpoint, bucket and prefix; to start a new vault there, use Unlock.",
     wrongPassphrase:
@@ -1027,6 +1031,10 @@ const RU: Strings = {
       `По адресу ${location} нет хранилища Syncrypt.\n\nЕсли это новое хранилище, введите парольную фразу ещё раз и нажмите «Создать хранилище»: она станет фразой этого хранилища навсегда, а заметки этого устройства будут в него выгружены. Если вы ждали здесь существующее хранилище, закройте окно и проверьте адрес, бакет и префикс в настройках — одна неверная буква ведёт сюда.`,
     createMismatch:
       "Фразы не совпали, поэтому ничего не создано. Введите парольную фразу, чтобы начать заново.",
+    uncheckable: (location: string) =>
+      `В хранилище по адресу ${location} пока ничего нет, поэтому эту фразу не с чем сверить — а с опечаткой это устройство записало бы первые данные хранилища ключом, которого нет больше ни у кого.\n\nВведите парольную фразу ещё раз для подтверждения.`,
+    confirmMismatch:
+      "Фразы не совпали, поэтому ничего не открыто. Введите парольную фразу, чтобы начать заново.",
     vaultAbsentElsewhere:
       "Там, куда указывают эти настройки, нет хранилища Syncrypt, поэтому ничего не создано. Проверьте адрес, бакет и префикс; чтобы создать там новое хранилище, используйте «Разблокировать».",
     wrongPassphrase:

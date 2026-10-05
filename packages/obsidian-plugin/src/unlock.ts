@@ -27,7 +27,7 @@ export class PassphraseModal extends Modal {
      * `create` is true only after the person confirmed creating a vault at an
      * empty location and typed the passphrase twice (ADR-0065).
      */
-    onSubmit: (passphrase: string, create: boolean) => Promise<void>,
+    onSubmit: (passphrase: string, create: boolean, confirmed: boolean) => Promise<void>,
     private readonly onCancel?: () => void,
     private readonly t: Strings = EN_STRINGS,
     /** Where the settings point, named in the "no vault here" question. */
@@ -105,7 +105,7 @@ export class PassphraseModal extends Modal {
       this.close();
       return;
     }
-    if (step.kind === "confirm-create") {
+    if (step.kind === "confirm-create" || step.kind === "confirm-unchecked") {
       this.questionEl?.setText(step.message);
       this.questionEl?.show();
     } else {

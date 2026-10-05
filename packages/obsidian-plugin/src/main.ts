@@ -83,6 +83,7 @@ import {
   type SyncStateView,
 } from "./sync-state.js";
 import { PassphraseModal } from "./unlock.js";
+import { UncheckablePassphrase } from "./unlock-flow.js";
 import {
   commandFailureMessage,
   syncFailureMessage,
@@ -506,8 +507,8 @@ export default class SyncryptPlugin extends Plugin {
     if (this.unlockModal !== null) return;
     const modal = new PassphraseModal(
       this.app,
-      async (passphrase, create) => {
-        await this.unlock(passphrase, create);
+      async (passphrase, create, confirmed) => {
+        await this.unlock(passphrase, create, confirmed);
         this.unlockModal = null;
       },
       () => {
@@ -581,7 +582,9 @@ export default class SyncryptPlugin extends Plugin {
     try {
       // Never creates: a ticket names a vault that exists. An empty location
       // is a ticket for the wrong place, and the person is told (ADR-0065).
-      await this.unlock(passphrase);
+      // Confirmed: the ticket opened with this passphrase, and its sharer's
+      // device had it (ADR-0078).
+      await this.unlock(passphrase, false, true);
     } catch (e) {
       // No modal is left open here, so the failure needs its own notice —
       // the same localized one the unlock dialog would show (audit №4, B13).
@@ -593,7 +596,7 @@ export default class SyncryptPlugin extends Plugin {
    * Open the vault. THROWS on failure so the caller — normally the passphrase
    * modal — can keep asking instead of the error only reaching the log.
    */
-  private async unlock(passphrase: string, create = false): Promise<void> {
+  private async unlock(passphrase: string, create = false, confirmed = false): Promise<void> {
     if (this.isUnlocked()) return;
     if (this.foreignProvider !== null) return; // ADR-0075; promptUnlock says why
     // A sync from the session a lock ended is cancelled, not finished: wait
@@ -644,6 +647,10 @@ export default class SyncryptPlugin extends Plugin {
       // verify the keys anyway. Only a definitive answer blocks the unlock.
       try {
         const vault = await engine.verifyAccess();
+        // Nothing published: nothing to check the passphrase against. Unless
+        // this unlock just created the vault (passphrase typed twice), or the
+        // person has confirmed it by typing it again, ask (ADR-0078).
+        if (vault === null && !create && !confirmed) throw new UncheckablePassphrase();
         if (vault === null) this.log.info(this.strings.log.freshVault);
       } catch (e) {
         if (
@@ -696,7 +703,10 @@ export default class SyncryptPlugin extends Plugin {
         this.scheduler?.dispose();
         this.scheduler = null;
       }
-      this.log.warn(this.strings.log.unlockFailed(String(e)));
+      // A question, not a failure: the dialog asks for the passphrase again.
+      if (!(e instanceof UncheckablePassphrase)) {
+        this.log.warn(this.strings.log.unlockFailed(String(e)));
+      }
       this.renderStatus();
       throw e; // the modal explains it; see PassphraseModal
     }
