@@ -47,7 +47,7 @@ export class AutoSyncScheduler {
 
   constructor(
     private readonly trigger: () => void,
-    private readonly opts: SchedulerOptions,
+    private opts: SchedulerOptions,
     private readonly host: TimerHost = defaultHost,
   ) {}
 
@@ -95,6 +95,24 @@ export class AutoSyncScheduler {
       }
       this.trigger();
     }, delayMs);
+  }
+
+  /**
+   * New timings, keeping what is pending (ADR-0072). Settings used to dispose
+   * the scheduler and build another on every keystroke in a timing field: an
+   * edit waiting on its debounce was dropped and the interval guard forgot the
+   * last sync — the "edit waits for an unrelated one" ADR-0047 had fixed.
+   */
+  setOptions(opts: SchedulerOptions): void {
+    if (this.disposed) return;
+    this.opts = opts;
+    if (this.timer !== null) this.schedule(opts.debounceMs);
+    if (opts.periodicMs <= 0) {
+      if (this.periodic !== null) this.host.clear(this.periodic);
+      this.periodic = null;
+    } else {
+      this.armPeriodic();
+    }
   }
 
   dispose(): void {

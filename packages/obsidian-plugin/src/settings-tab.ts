@@ -291,6 +291,9 @@ export class SyncryptSettingTab extends PluginSettingTab {
           area.setValue(get().join("\n")).onChange(async (v) => {
             set(v.split("\n").map((l) => l.trim()).filter((l) => l !== ""));
             await this.plugin.saveSettings();
+            // To the open vault port too, between syncs (ADR-0072): "Count
+            // files" already showed the new profile while the sync kept the old.
+            await this.plugin.applyLiveSettings();
           });
         });
     };
@@ -431,6 +434,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
             if (Number.isFinite(n) && n >= 0) {
               set(n);
               await this.plugin.saveSettings();
+              await this.plugin.applyLiveSettings(); // ADR-0072
             }
           }),
         );

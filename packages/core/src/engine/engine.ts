@@ -208,6 +208,18 @@ export interface SyncEngine {
   acceptRolledBack(signal?: AbortSignal): Promise<boolean>;
 
   /**
+   * Replace the Safe Sync options (ADR-0072) — the same fields, with the same
+   * defaults, as `SyncEngineConfig.safeSync`. Queued like every operation, so
+   * the step in flight finishes with the set it planned with; `sync()` is a
+   * pull and a push queued separately, and the new set applies from the next
+   * one (a client that wants one set per sync calls this between syncs, as
+   * the plugin does). Settings edited while unlocked used to take
+   * effect only after a lock, with nothing on screen saying so: a breaker
+   * tightened by hand did not fire.
+   */
+  setSafeSync(options: SafeSyncOptions): Promise<void>;
+
+  /**
    * Manifest entries this device does NOT carry (ADR-0027).
    *
    * Candidates for review, never a verdict: a device cannot see other devices'
@@ -325,6 +337,36 @@ export interface ForgetResult {
   generation: number | null;
 }
 
+/** The breaker's part of SafeSyncOptions, defaults filled in. */
+type BreakerOptions = Required<
+  Pick<
+    PlanOptions,
+    "bulkChangeFloor" | "bulkChangeMaxFiles" | "bulkChangeMaxFraction" | "deletionBurstWindow"
+  >
+>;
+
+function safeSyncPlan(o: SafeSyncOptions | undefined): BreakerOptions {
+  return {
+    bulkChangeFloor: o?.bulkChangeFloor ?? DEFAULT_PLAN_OPTIONS.bulkChangeFloor,
+    bulkChangeMaxFiles: o?.bulkChangeMaxFiles ?? DEFAULT_PLAN_OPTIONS.bulkChangeMaxFiles,
+    bulkChangeMaxFraction: o?.bulkChangeMaxFraction ?? DEFAULT_PLAN_OPTIONS.bulkChangeMaxFraction,
+    deletionBurstWindow: o?.deletionBurstWindow ?? DEFAULT_PLAN_OPTIONS.deletionBurstWindow,
+  };
+}
+
+/** The retention part of SafeSyncOptions, defaults filled in. */
+function safeSyncRetention(o: SafeSyncOptions | undefined): Pick<
+  EngineContext,
+  "versionsToKeep" | "tombstoneGraceSeconds" | "reclaimGraceSeconds" | "generationsToKeep"
+> {
+  return {
+    versionsToKeep: o?.versionsToKeep ?? 3,
+    tombstoneGraceSeconds: o?.tombstoneGraceSeconds ?? DEFAULT_TOMBSTONE_GRACE_SECONDS,
+    reclaimGraceSeconds: o?.reclaimGraceSeconds ?? DEFAULT_RECLAIM_GRACE_SECONDS,
+    generationsToKeep: o?.generationsToKeep ?? DEFAULT_GENERATIONS_TO_KEEP,
+  };
+}
+
 export interface ReleaseResult {
   /** How many object keys stopped being kept. */
   released: number;
@@ -414,24 +456,20 @@ class Engine implements SyncEngine {
         ...(config.vault.syncable !== undefined
           ? { syncable: (path: VaultPath): boolean => config.vault.syncable?.(path) ?? true }
           : {}),
-        bulkChangeFloor:
-          config.safeSync?.bulkChangeFloor ?? DEFAULT_PLAN_OPTIONS.bulkChangeFloor,
-        bulkChangeMaxFiles:
-          config.safeSync?.bulkChangeMaxFiles ?? DEFAULT_PLAN_OPTIONS.bulkChangeMaxFiles,
-        bulkChangeMaxFraction:
-          config.safeSync?.bulkChangeMaxFraction ??
-          DEFAULT_PLAN_OPTIONS.bulkChangeMaxFraction,
-        deletionBurstWindow:
-          config.safeSync?.deletionBurstWindow ?? DEFAULT_PLAN_OPTIONS.deletionBurstWindow,
+        ...safeSyncPlan(config.safeSync),
       },
-      versionsToKeep: config.safeSync?.versionsToKeep ?? 3,
+      ...safeSyncRetention(config.safeSync),
       ...(config.clientVersion !== undefined ? { clientVersion: config.clientVersion } : {}),
-      tombstoneGraceSeconds:
-        config.safeSync?.tombstoneGraceSeconds ?? DEFAULT_TOMBSTONE_GRACE_SECONDS,
-      reclaimGraceSeconds:
-        config.safeSync?.reclaimGraceSeconds ?? DEFAULT_RECLAIM_GRACE_SECONDS,
-      generationsToKeep: config.safeSync?.generationsToKeep ?? DEFAULT_GENERATIONS_TO_KEEP,
     };
+  }
+
+  setSafeSync(options: SafeSyncOptions): Promise<void> {
+    // Queued: a sync that is planning reads these, and must read one set.
+    return this.exclusive(() => {
+      Object.assign(this.ctx.planOptions, safeSyncPlan(options));
+      Object.assign(this.ctx, safeSyncRetention(options));
+      return Promise.resolve();
+    });
   }
 
   // -- concurrency: one sync at a time; callers queue up ---------------------

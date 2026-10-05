@@ -129,6 +129,8 @@ export default class SyncryptPlugin extends Plugin {
    * nothing, and publishing then put this device's defaults over the vault's.
    */
   private configPulled = false;
+  /** A profile or Safe Sync edit arrived during a sync; applied after it (ADR-0072). */
+  private liveSettingsPending = false;
   /** The one passphrase dialog, so a second cannot race the first (B11). */
   private unlockModal: PassphraseModal | null = null;
   private vaultEvents: EventRef[] = [];
@@ -698,16 +700,42 @@ export default class SyncryptPlugin extends Plugin {
   }
 
   reconfigureScheduler(): void {
-    this.scheduler?.dispose();
-    this.scheduler = null;
-    if (!this.isUnlocked() || !this.settings.autoSync.enabled) return;
-    this.scheduler = new AutoSyncScheduler(() => void this.syncNow("auto"), {
+    if (!this.isUnlocked() || !this.settings.autoSync.enabled) {
+      this.scheduler?.dispose();
+      this.scheduler = null;
+      return;
+    }
+    const opts = {
       debounceMs: this.settings.autoSync.debounceSec * 1000,
       minIntervalMs: this.settings.autoSync.minIntervalSec * 1000,
       retryMs: RETRY_DECLINED_MS,
       periodicMs: this.settings.autoSync.periodicSec * 1000,
-    });
+    };
+    // Retimed in place, keeping a pending edit and the last sync's time
+    // (ADR-0072). Rebuilding dropped both on every keystroke in the field.
+    if (this.scheduler !== null) {
+      this.scheduler.setOptions(opts);
+      return;
+    }
+    this.scheduler = new AutoSyncScheduler(() => void this.syncNow("auto"), opts);
     this.scheduler.armPeriodic();
+  }
+
+  /**
+   * Hand the include/exclude profile and the Safe Sync options to the open
+   * vault port and engine (ADR-0072). Both were read once at unlock, so an
+   * edit took effect after the next lock — with "Count files" already showing
+   * the new profile and a hand-tightened breaker not firing. Between syncs: a
+   * running one finishes on the settings it started with.
+   */
+  async applyLiveSettings(): Promise<void> {
+    if (this.syncing) {
+      this.liveSettingsPending = true;
+      return;
+    }
+    this.liveSettingsPending = false;
+    this.vaultPort?.setProfile(this.settings.profile);
+    await this.engine?.setSafeSync(this.settings.safeSync);
   }
 
   // -- sync -----------------------------------------------------------------
@@ -781,6 +809,7 @@ export default class SyncryptPlugin extends Plugin {
       if (session === this.session) {
         await this.reconcileSharedConfig().catch(() => undefined);
         this.syncing = false;
+        if (this.liveSettingsPending) await this.applyLiveSettings().catch(() => undefined);
         await this.refreshFacts().catch(() => undefined);
       }
       this.renderStatus();
@@ -905,7 +934,9 @@ export default class SyncryptPlugin extends Plugin {
    * Open a dialog and wait for its decision. A lock closes it, which every
    * dialog here answers as "no" (ADR-0066).
    */
-  private ask<T>(open: (resolve: (value: T) => void) => { open(): void; close(): void }): Promise<T> {
+  private ask<T>(
+    open: (resolve: (value: T) => void) => { open(): void; close(): void },
+  ): Promise<T> {
     return new Promise<T>((resolve) => {
       const modal = open((value) => {
         this.openModals.delete(modal);

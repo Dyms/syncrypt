@@ -178,3 +178,64 @@ describe("the idle pull", () => {
     expect(fired).toBe(0);
   });
 });
+
+describe("setOptions keeps what is pending (ADR-0072)", () => {
+  it("an edit waiting on its debounce still fires, on the new debounce", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, OPTS, timers);
+    s.noteChange();
+    timers.advance(5_000);
+    s.setOptions({ ...OPTS, debounceMs: 3_000 });
+    timers.advance(2_999);
+    expect(fired).toBe(0);
+    timers.advance(1);
+    expect(fired).toBe(1);
+  });
+
+  it("nothing pending: retiming starts nothing", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, OPTS, timers);
+    s.setOptions({ ...OPTS, debounceMs: 1_000 });
+    timers.advance(600_000);
+    expect(fired).toBe(0);
+  });
+
+  it("the minimum interval still counts from the last sync", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, OPTS, timers);
+    s.noteSyncStarted(); // a sync at t=0
+    s.setOptions({ ...OPTS, debounceMs: 1_000 });
+    s.noteChange();
+    timers.advance(29_999);
+    expect(fired).toBe(0); // the guard remembers t=0
+    timers.advance(1);
+    expect(fired).toBe(1);
+  });
+
+  it("periodic pull: a new period re-arms, zero stops it", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, { ...OPTS, periodicMs: 600_000 }, timers);
+    s.armPeriodic();
+    s.setOptions({ ...OPTS, periodicMs: 60_000 });
+    timers.advance(60_000);
+    expect(fired).toBe(1);
+    s.noteSyncStarted(); // the sync it triggered re-arms the period...
+    s.setOptions({ ...OPTS, periodicMs: 0 }); // ...and zero takes it back
+    timers.advance(10_000_000);
+    expect(fired).toBe(1);
+  });
+
+  it("a disposed scheduler stays disposed", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, { ...OPTS, periodicMs: 60_000 }, timers);
+    s.dispose();
+    s.setOptions({ ...OPTS, periodicMs: 60_000 });
+    timers.advance(600_000);
+    expect(fired).toBe(0);
+  });
+});

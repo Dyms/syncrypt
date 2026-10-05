@@ -35,7 +35,7 @@ import { ProfileMatcher, type SyncProfile } from "./profile.js";
 export const DEFAULT_SYNC_TRASH_DIR = `${DEFAULT_CONFIG_DIR}/sync-trash`;
 
 export class ObsidianVault implements VaultPort {
-  private readonly matcher: ProfileMatcher;
+  private matcher: ProfileMatcher;
 
   constructor(
     private readonly adapter: DataAdapterLike,
@@ -44,6 +44,16 @@ export class ObsidianVault implements VaultPort {
     /** The vault's config folder (`Vault.configDir`), not an assumption. */
     private readonly paths: ConfigPaths = configPaths(DEFAULT_CONFIG_DIR),
   ) {
+    this.matcher = new ProfileMatcher(profile);
+  }
+
+  /**
+   * Take a new include/exclude profile (ADR-0072). Call between syncs: `list()`
+   * and `syncable()` read it from here on. Narrowing does not make deletions —
+   * the planner leaves a path that is out of profile and not here alone
+   * (ADR-0022), which is what a profile edit after a restart did already.
+   */
+  setProfile(profile: SyncProfile): void {
     this.matcher = new ProfileMatcher(profile);
   }
 
