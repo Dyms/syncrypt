@@ -138,6 +138,7 @@ const EN = {
     configureFirst: "Syncrypt: configure storage in Settings, then unlock.",
     unlockFailed: (detail: string) => `Unlock failed: ${detail}`,
     syncFailed: (detail: string) => `Sync failed: ${detail}`,
+    commandFailed: (detail: string) => `Command failed: ${detail}`,
     bulkCancelled: "Bulk change NOT applied — cancelled by you.",
     configSyncAdopted: (summary: string) =>
       `Obsidian-settings sync: adopted the shared profile from this vault (${summary}).`,
@@ -287,6 +288,12 @@ const EN = {
     configureBeforeSharing: "Syncrypt: configure and verify storage first.",
     unlockFailed: (detail: string) => `Syncrypt: unlock failed — ${detail}`,
     syncFailed: (detail: string) => `Syncrypt: sync failed — ${detail}`,
+    commandFailed: (message: string) => `Syncrypt: the command did not complete. ${message}`,
+    commandRefused:
+      "The storage is not in a state this command may act on, so nothing was changed. The sync log says why.",
+    commandFailedDetail: (detail: string) => `Details: ${detail}`,
+    lockedMeanwhile:
+      "Syncrypt: the vault was locked while this was open, so nothing was done. Unlock and run the command again.",
     migrationWarnings: (n: number) =>
       `Syncrypt: ${String(n)} migration warning(s) — see the sync log before continuing.`,
     conflicts: (n: number) =>
@@ -616,6 +623,7 @@ const RU: Strings = {
     configureFirst: "Syncrypt: укажите хранилище в настройках и разблокируйте.",
     unlockFailed: (detail: string) => `Разблокировка не удалась: ${detail}`,
     syncFailed: (detail: string) => `Синхронизация не удалась: ${detail}`,
+    commandFailed: (detail: string) => `Команда не выполнена: ${detail}`,
     bulkCancelled: "Массовое изменение НЕ применено — вы отменили его.",
     configSyncAdopted: (summary: string) =>
       `Синхронизация настроек Obsidian: применён общий профиль хранилища (${summary}).`,
@@ -762,6 +770,12 @@ const RU: Strings = {
     configureBeforeSharing: "Syncrypt: сначала настройте и проверьте хранилище.",
     unlockFailed: (detail: string) => `Syncrypt: разблокировка не удалась — ${detail}`,
     syncFailed: (detail: string) => `Syncrypt: синхронизация не удалась — ${detail}`,
+    commandFailed: (message: string) => `Syncrypt: команда не выполнена. ${message}`,
+    commandRefused:
+      "Хранилище сейчас в состоянии, в котором эта команда не должна ничего делать, поэтому ничего не изменено. Причина — в журнале синхронизации.",
+    commandFailedDetail: (detail: string) => `Подробности: ${detail}`,
+    lockedMeanwhile:
+      "Syncrypt: пока окно было открыто, хранилище заблокировали, поэтому ничего не сделано. Разблокируйте и запустите команду снова.",
     migrationWarnings: (n: number) =>
       `Syncrypt: предупреждений о миграции — ${String(n)}. Откройте журнал перед продолжением.`,
     conflicts: (n: number) =>

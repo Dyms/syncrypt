@@ -101,6 +101,7 @@ export class PassphraseModal extends Modal {
     if (step.kind === "done") {
       // Only a genuine unlock closes the modal.
       this.submitted = true;
+      this.busy = false;
       this.close();
       return;
     }
@@ -116,6 +117,17 @@ export class PassphraseModal extends Modal {
       this.inputEl.value = "";
       this.inputEl.focus();
     }
+  }
+
+  /**
+   * Not while the passphrase is being checked. Escape used to close the dialog
+   * and leave the unlock running behind it: a wrong passphrase was reported
+   * into a closed window, and a right one opened a vault the person had just
+   * dismissed (audit №4, B14). Argon2id takes seconds; the button says so.
+   */
+  override close(): void {
+    if (this.busy) return;
+    super.close();
   }
 
   override onClose(): void {

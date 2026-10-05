@@ -71,7 +71,7 @@ import {
   type SyncStateView,
 } from "./sync-state.js";
 import { PassphraseModal } from "./unlock.js";
-import { unlockFailureMessage } from "./unlock-error.js";
+import { commandFailureMessage, unlockFailureMessage } from "./unlock-error.js";
 import { passphraseIsDefinitelyWrong } from "./passphrase-check.js";
 import { ObsidianVault } from "./vault-adapter.js";
 
@@ -103,6 +103,17 @@ export default class SyncryptPlugin extends Plugin {
   private lastOutcome: SyncOutcome | null = null;
   /** Bumped by every lock/unload; a sync from an older one reports nothing. */
   private session = 0;
+  /**
+   * The sync in flight, so `lock()` can stop it and the next `unlock()` can
+   * wait for it (ADR-0066). ADR-0048 let an orphaned sync "finish harmlessly";
+   * it did not: after Lock → Unlock two engines ran on one vault, and the
+   * second one's downloads met the first one's writes as conflicts.
+   */
+  private running: { abort: AbortController; done: Promise<void> } | null = null;
+  /** Dialogs waiting on a decision; `lock()` closes them as "no" (ADR-0066). */
+  private readonly openModals = new Set<{ close(): void }>();
+  /** The one passphrase dialog, so a second cannot race the first (B11). */
+  private unlockModal: PassphraseModal | null = null;
   private vaultEvents: EventRef[] = [];
   private lastSyncAt: number | null = null;
   private lastError: "network" | "other" | null = null;
@@ -407,13 +418,23 @@ export default class SyncryptPlugin extends Plugin {
       new Notice(this.strings.notices.fillSettingsFirst);
       return;
     }
-    new PassphraseModal(
+    // One dialog. Two used to race: the first unlocked, the second failed and
+    // its error path tore the open session down without a lock (audit №4, B11).
+    if (this.unlockModal !== null) return;
+    const modal = new PassphraseModal(
       this.app,
-      (passphrase, create) => this.unlock(passphrase, create),
-      undefined,
+      async (passphrase, create) => {
+        await this.unlock(passphrase, create);
+        this.unlockModal = null;
+      },
+      () => {
+        this.unlockModal = null;
+      },
       this.strings,
       describeStorageLocation(this.settings),
-    ).open();
+    );
+    this.unlockModal = modal;
+    modal.open();
   }
 
   /** The configured backend, built the same way wherever it is needed. */
@@ -490,6 +511,11 @@ export default class SyncryptPlugin extends Plugin {
    * modal — can keep asking instead of the error only reaching the log.
    */
   private async unlock(passphrase: string, create = false): Promise<void> {
+    if (this.isUnlocked()) return;
+    // A sync from the session a lock ended is cancelled, not finished: wait
+    // for it to stop before another engine opens this vault (ADR-0066).
+    await this.running?.done;
+    let engine: SyncEngine | null = null;
     try {
       this.statusEl?.setText(this.strings.status.unlocking);
       const s = this.settings;
@@ -503,10 +529,10 @@ export default class SyncryptPlugin extends Plugin {
       // (RFC-0006 §Injectable transport). A WebDAV server is no likelier to
       // send permissive CORS headers than an S3 one.
       const storage = await this.openStorage();
-      this.vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
-      this.engine = await openSyncEngine({
+      const vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
+      engine = await openSyncEngine({
         storage,
-        vault: this.vaultPort,
+        vault: vaultPort,
         passphrase,
         deviceId: s.deviceId,
         // ADR-0036: recorded in what we publish, compared against what we read.
@@ -533,7 +559,7 @@ export default class SyncryptPlugin extends Plugin {
       // notes are local, editing must keep working, and the next sync will
       // verify the keys anyway. Only a definitive answer blocks the unlock.
       try {
-        const vault = await this.engine.verifyAccess();
+        const vault = await engine.verifyAccess();
         if (vault === null) this.log.info(this.strings.log.freshVault);
       } catch (e) {
         if (
@@ -545,6 +571,13 @@ export default class SyncryptPlugin extends Plugin {
         this.log.warn(this.strings.log.verifyOffline);
       }
 
+      // Another path unlocked while this one was deriving keys: theirs stands.
+      // Taking over would leave two engines on one vault (ADR-0066).
+      if (this.isUnlocked()) return;
+      // Only now does this become the session's engine. Assigning it up front
+      // meant a FAILED unlock's error path cleared someone else's (B11).
+      this.engine = engine;
+      this.vaultPort = vaultPort;
       this.log.info(this.strings.log.unlocked);
       this.renderStatus();
 
@@ -572,10 +605,13 @@ export default class SyncryptPlugin extends Plugin {
       // status + notice; syncNow() never throws.
       void this.syncNow("startup"); // the on-open pull (sync = pull+push)
     } catch (e) {
-      this.engine = null;
-      this.vaultPort = null;
-      this.scheduler?.dispose();
-      this.scheduler = null;
+      // Tear down only what THIS attempt put in place (ADR-0066).
+      if (engine !== null && this.engine === engine) {
+        this.engine = null;
+        this.vaultPort = null;
+        this.scheduler?.dispose();
+        this.scheduler = null;
+      }
       this.log.warn(this.strings.log.unlockFailed(String(e)));
       this.renderStatus();
       throw e; // the modal explains it; see PassphraseModal
@@ -583,6 +619,12 @@ export default class SyncryptPlugin extends Plugin {
   }
 
   lock(): void {
+    // Stop the sync in flight between operations (the engine is abort-aware),
+    // and close every dialog waiting on a decision as "no": an answer given
+    // after Lock must not act through the keys Lock just dropped (ADR-0016 §1,
+    // ADR-0066).
+    this.running?.abort.abort();
+    for (const modal of [...this.openModals]) modal.close();
     this.scheduler?.dispose();
     this.scheduler = null;
     this.engine = null; // keys become unreachable; GC clears them
@@ -590,10 +632,10 @@ export default class SyncryptPlugin extends Plugin {
     this.engineStatus = null;
     for (const ref of this.vaultEvents) this.app.vault.offref(ref);
     this.vaultEvents = [];
-    // A sync may still be running against the engine we just dropped. It can
-    // finish — nothing it does is unsafe — but it belongs to a session that no
-    // longer exists, so its report must not become this session's status and
-    // must not unblock the next unlock's startup pull (ADR-0048).
+    // A sync may still be stopping against the engine we just dropped. It
+    // belongs to a session that no longer exists, so its report must not
+    // become this session's status (ADR-0048); the next unlock waits for it
+    // (ADR-0066).
     this.session++;
     this.syncing = false;
     this.renderStatus();
@@ -661,17 +703,24 @@ export default class SyncryptPlugin extends Plugin {
       return;
     }
     const session = this.session;
+    const engine = this.engine;
+    const abort = new AbortController();
+    let stopped = (): void => undefined;
+    const run = { abort, done: new Promise<void>((r) => (stopped = r)) };
+    this.running = run;
     this.syncing = true;
     this.syncStartLogLength = this.log.all().filter((l) => l.level === "entry").length;
     this.scheduler?.noteSyncStarted();
     this.renderStatus();
     try {
-      let report = await this.engine.sync();
+      let report = await engine.sync(abort.signal);
       if (report.outcome === "needs-confirmation") {
-        report = await this.handleConfirmation(report);
+        report = await this.handleConfirmation(engine, session, report, abort.signal);
       }
-      this.lastError = null;
-      if (session === this.session) this.finishReport(report, origin);
+      if (session === this.session) {
+        this.lastError = null;
+        this.finishReport(report, origin);
+      }
     } catch (e) {
       this.lastError =
         session === this.session
@@ -680,8 +729,14 @@ export default class SyncryptPlugin extends Plugin {
             : "other"
           : this.lastError;
       if (session === this.session) this.lastSyncAt = Date.now();
-      this.log.warn(this.strings.log.syncFailed(String(e)));
-      if (origin !== "auto") new Notice(this.strings.notices.syncFailed(String(e)), 8000);
+      // A sync that a lock cancelled did not fail; the lock is already in the
+      // log. Anything else an ended session hits is still written down.
+      if (session === this.session || !isSyncError(e, "Aborted")) {
+        this.log.warn(this.strings.log.syncFailed(String(e)));
+      }
+      if (origin !== "auto" && session === this.session) {
+        new Notice(this.strings.notices.syncFailed(String(e)), 8000);
+      }
     } finally {
       // Still inside the `syncing` guard: adopting a shared profile changes
       // what this device syncs, so it must not race the next sync (ADR-0024).
@@ -691,6 +746,8 @@ export default class SyncryptPlugin extends Plugin {
         await this.refreshFacts().catch(() => undefined);
       }
       this.renderStatus();
+      if (this.running === run) this.running = null;
+      stopped();
     }
   }
 
@@ -775,17 +832,74 @@ export default class SyncryptPlugin extends Plugin {
     }
   }
 
-  private async handleConfirmation(original: SyncReport): Promise<SyncReport> {
-    if (this.engine === null) return original;
-    const plan = await this.engine.dryRun();
-    const approved = await new Promise<boolean>((resolve) => {
-      new ConfirmSyncModal(this.app, plan, resolve, this.strings).open();
-    });
-    if (!approved) {
+  /**
+   * The Safe Sync question, on the engine and session that raised it. It used
+   * to re-read `this.engine` after the dialog: null after a Lock (a raw
+   * TypeError on screen), or a NEW session's engine, which then applied a plan
+   * made on the old one (audit №4, B3; ADR-0066).
+   */
+  private async handleConfirmation(
+    engine: SyncEngine,
+    session: number,
+    original: SyncReport,
+    signal: AbortSignal,
+  ): Promise<SyncReport> {
+    const plan = await engine.dryRun(signal);
+    if (session !== this.session) return original;
+    const approved = await this.ask<boolean>((resolve) =>
+      new ConfirmSyncModal(this.app, plan, resolve, this.strings),
+    );
+    if (!approved || session !== this.session) {
       this.log.info(this.strings.log.bulkCancelled);
       return original;
     }
-    return this.engine.confirmAndApply(plan);
+    return engine.confirmAndApply(plan, signal);
+  }
+
+  /**
+   * Open a dialog and wait for its decision. A lock closes it, which every
+   * dialog here answers as "no" (ADR-0066).
+   */
+  private ask<T>(open: (resolve: (value: T) => void) => { open(): void; close(): void }): Promise<T> {
+    return new Promise<T>((resolve) => {
+      const modal = open((value) => {
+        this.openModals.delete(modal);
+        resolve(value);
+      });
+      this.openModals.add(modal);
+      modal.open();
+    });
+  }
+
+  /**
+   * Run a maintenance command against the engine of THIS session. `current()`
+   * says whether that is still so; each command checks it after every wait —
+   * a lock can land while a preview is computed or a dialog is open, and the
+   * answer must not act through the keys the lock dropped (ADR-0066). Failures
+   * reach the screen; these commands used to drop them (audit №4, B9).
+   */
+  private async maintenance(
+    run: (engine: SyncEngine, current: () => boolean) => Promise<void>,
+  ): Promise<void> {
+    const engine = this.engine;
+    if (engine === null) {
+      this.promptUnlock();
+      return;
+    }
+    const session = this.session;
+    const current = (): boolean => session === this.session && engine === this.engine;
+    try {
+      await run(engine, current);
+    } catch (e) {
+      if (!current()) return; // the lock already said why
+      this.log.warn(this.strings.log.commandFailed(String(e)));
+      new Notice(this.strings.notices.commandFailed(commandFailureMessage(e, this.strings)), 10000);
+    }
+  }
+
+  /** Said when a lock overtook a command: nothing was done. */
+  private lockedMeanwhile(): void {
+    new Notice(this.strings.notices.lockedMeanwhile, 8000);
   }
 
   private finishReport(report: SyncReport, origin: string): void {
@@ -844,28 +958,30 @@ export default class SyncryptPlugin extends Plugin {
    * other devices' profiles, so the judgement is the user's.
    */
   async reviewManifest(): Promise<void> {
-    if (this.engine === null) {
-      this.promptUnlock();
-      return;
-    }
-    const candidates = await this.engine.listUncarried();
-    if (candidates.length === 0) {
-      new Notice(this.strings.forgetModal.noneFound, 6000);
-      return;
-    }
-    const engine = this.engine;
-    const chosen = await new Promise<string[]>((resolve) => {
-      new ForgetPathsModal(this.app, candidates, resolve, this.strings).open();
+    await this.maintenance(async (engine, current) => {
+      const candidates = await engine.listUncarried();
+      if (!current()) return;
+      if (candidates.length === 0) {
+        new Notice(this.strings.forgetModal.noneFound, 6000);
+        return;
+      }
+      const chosen = await this.ask<string[]>((resolve) =>
+        new ForgetPathsModal(this.app, candidates, resolve, this.strings),
+      );
+      if (chosen.length === 0) return;
+      if (!current()) {
+        this.lockedMeanwhile();
+        return;
+      }
+      const result = await engine.forgetPaths(chosen);
+      if (result.generation === null) {
+        new Notice(this.strings.forgetModal.raced, 8000);
+        return;
+      }
+      new Notice(this.strings.forgetModal.done(result.forgotten.length), 8000);
+      await this.refreshFacts().catch(() => undefined);
+      this.renderStatus();
     });
-    if (chosen.length === 0) return;
-    const result = await engine.forgetPaths(chosen);
-    if (result.generation === null) {
-      new Notice(this.strings.forgetModal.raced, 8000);
-      return;
-    }
-    new Notice(this.strings.forgetModal.done(result.forgotten.length), 8000);
-    await this.refreshFacts().catch(() => undefined);
-    this.renderStatus();
   }
 
   /**
@@ -877,31 +993,27 @@ export default class SyncryptPlugin extends Plugin {
    * since caught up, and the check costs one manifest read.
    */
   async acceptStorage(): Promise<void> {
-    if (this.engine === null) {
-      this.promptUnlock();
-      return;
-    }
-    const engine = this.engine;
-    const { baseGeneration } = await engine.status();
-    // No manifest at all is generation 0 — a wiped bucket is a rollback too.
-    const remoteGeneration = (await engine.verifyAccess())?.generation ?? 0;
-    if (baseGeneration === null || remoteGeneration >= baseGeneration) {
-      new Notice(this.strings.notices.notRolledBack, 6000);
-      return;
-    }
-    const approved = await new Promise<boolean>((resolve) => {
-      new AcceptStorageModal(
-        this.app,
-        remoteGeneration,
-        baseGeneration,
-        resolve,
-        this.strings,
-      ).open();
+    await this.maintenance(async (engine, current) => {
+      const { baseGeneration } = await engine.status();
+      // No manifest at all is generation 0 — a wiped bucket is a rollback too.
+      const remoteGeneration = (await engine.verifyAccess())?.generation ?? 0;
+      if (!current()) return;
+      if (baseGeneration === null || remoteGeneration >= baseGeneration) {
+        new Notice(this.strings.notices.notRolledBack, 6000);
+        return;
+      }
+      const approved = await this.ask<boolean>((resolve) =>
+        new AcceptStorageModal(this.app, remoteGeneration, baseGeneration, resolve, this.strings),
+      );
+      if (!approved) return;
+      if (!current()) {
+        this.lockedMeanwhile();
+        return;
+      }
+      await engine.forgetBase();
+      new Notice(this.strings.notices.storageAccepted, 8000);
+      await this.syncNow("manual");
     });
-    if (!approved) return;
-    await engine.forgetBase();
-    new Notice(this.strings.notices.storageAccepted, 8000);
-    await this.syncNow("manual");
   }
 
   /**
@@ -912,24 +1024,26 @@ export default class SyncryptPlugin extends Plugin {
    * one confirmation stand for two very different decisions.
    */
   async releaseForgotten(): Promise<void> {
-    if (this.engine === null) {
-      this.promptUnlock();
-      return;
-    }
-    const engine = this.engine;
-    const kept = (await engine.status()).forgottenObjects;
-    const approved = await new Promise<boolean>((resolve) => {
-      new ReleaseForgottenModal(this.app, kept, resolve, this.strings).open();
+    await this.maintenance(async (engine, current) => {
+      const kept = (await engine.status()).forgottenObjects;
+      if (!current()) return;
+      const approved = await this.ask<boolean>((resolve) =>
+        new ReleaseForgottenModal(this.app, kept, resolve, this.strings),
+      );
+      if (!approved || kept === 0) return;
+      if (!current()) {
+        this.lockedMeanwhile();
+        return;
+      }
+      const result = await engine.releaseForgotten();
+      if (result.generation === null) {
+        new Notice(this.strings.releaseModal.raced, 8000);
+        return;
+      }
+      new Notice(this.strings.releaseModal.done(result.released), 8000);
+      await this.refreshFacts().catch(() => undefined);
+      this.renderStatus();
     });
-    if (!approved || kept === 0) return;
-    const result = await engine.releaseForgotten();
-    if (result.generation === null) {
-      new Notice(this.strings.releaseModal.raced, 8000);
-      return;
-    }
-    new Notice(this.strings.releaseModal.done(result.released), 8000);
-    await this.refreshFacts().catch(() => undefined);
-    this.renderStatus();
   }
 
   /**
@@ -939,15 +1053,21 @@ export default class SyncryptPlugin extends Plugin {
    * engine before anything is deleted, never executed as previewed.
    */
   async reclaimStorage(): Promise<void> {
-    if (this.engine === null) {
-      this.promptUnlock();
+    await this.maintenance(async (engine, current) => {
+      await this.reclaimWith(engine, current);
+    });
+  }
+
+  private async reclaimWith(engine: SyncEngine, current: () => boolean): Promise<void> {
+    const plan = await engine.previewReclaim();
+    if (!current()) return;
+    const approved = await this.ask<boolean>((resolve) =>
+      new ReclaimStorageModal(this.app, plan, resolve, this.strings),
+    );
+    if (!current()) {
+      if (approved) this.lockedMeanwhile();
       return;
     }
-    const engine = this.engine;
-    const plan = await engine.previewReclaim();
-    const approved = await new Promise<boolean>((resolve) => {
-      new ReclaimStorageModal(this.app, plan, resolve, this.strings).open();
-    });
     // Nothing ripe and nothing to prune is the NORMAL first outcome: there was
     // no decision to make, so closing the dialog is not a "no". Persist the
     // mark, or the grace window would never start for a user who only looks.

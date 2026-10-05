@@ -35,3 +35,26 @@ export function unlockFailureMessage(error: unknown, t: Strings): string {
   }
   return t.unlockModal.otherFailure(String(error));
 }
+
+/**
+ * A maintenance command (forget, release, reclaim, accept) failed while the
+ * vault was open. The same codes as above, read for a different moment: the
+ * keys are known good here, so an authentication or manifest failure is the
+ * storage refusing — and the engine has already logged why (ADR-0041's
+ * rollback refusal, for one). These commands used to drop every failure on
+ * the floor (audit №4, B9).
+ */
+export function commandFailureMessage(error: unknown, t: Strings): string {
+  if (
+    isSyncError(error, "StorageTransient") ||
+    isSyncError(error, "StorageRateLimited") ||
+    isSyncError(error, "StorageNotFound")
+  ) {
+    return t.unlockModal.storageUnreachable;
+  }
+  if (isSyncError(error, "StorageUnauthorized")) return t.unlockModal.storageUnauthorized;
+  if (isSyncError(error, "ManifestCorrupt") || isSyncError(error, "CryptoAuthError")) {
+    return t.notices.commandRefused;
+  }
+  return t.notices.commandFailedDetail(String(error));
+}

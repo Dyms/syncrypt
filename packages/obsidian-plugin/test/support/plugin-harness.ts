@@ -26,15 +26,31 @@ export const PASS = "plugin harness passphrase";
 /** Every storage a test's devices can be pointed at. */
 export class World {
   readonly stores = new Map<string, MemoryStorage>();
-  constructor(private readonly conditionalWrites = true) {}
+  constructor(
+    private readonly make: () => MemoryStorage = () => new MemoryStorage(),
+  ) {}
   store(key: string): MemoryStorage {
     let s = this.stores.get(key);
     if (s === undefined) {
-      s = new MemoryStorage({ conditionalWrites: this.conditionalWrites });
+      s = this.make();
       this.stores.set(key, s);
     }
     return s;
   }
+}
+
+/** The one storage every S3_DATA-based device of a test reaches. */
+export function mainStore(world: World): MemoryStorage {
+  return world.store("s3:https://s3.example.com/notes");
+}
+
+/** Poll until `ok()` holds (a background sync, a dialog opening). */
+export async function waitFor(ok: () => boolean, what = "condition"): Promise<void> {
+  for (let i = 0; i < 2000; i++) {
+    if (ok()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`timed out waiting for ${what}`);
 }
 
 export const S3_DATA = {
