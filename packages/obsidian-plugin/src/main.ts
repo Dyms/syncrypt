@@ -63,10 +63,12 @@ import { AutoSyncScheduler } from "./scheduler.js";
 import {
   DEFAULT_SETTINGS,
   describeStorageLocation,
+  foreignProvider,
   generateDeviceId,
   settingsComplete,
   storageLocationTag,
   storagePrefixOf,
+  unknownKeys,
   withDefaults,
   type SyncryptSettings,
 } from "./settings.js";
@@ -137,6 +139,10 @@ export default class SyncryptPlugin extends Plugin {
    * nothing, and publishing then put this device's defaults over the vault's.
    */
   private configPulled = false;
+  /** data.json's top-level fields this build does not know, written back as-is (ADR-0075). */
+  private extraData: Record<string, unknown> = {};
+  /** A provider only a newer build knows: settings read-only, no unlock (ADR-0075). */
+  private foreignProvider: string | null = null;
   /** Pending refreshFactsSoon() (ADR-0073). */
   private factsTimer: ReturnType<typeof setTimeout> | null = null;
   /** A profile or Safe Sync edit arrived during a sync; applied after it (ADR-0072). */
@@ -194,7 +200,17 @@ export default class SyncryptPlugin extends Plugin {
     // id on first run, a field this version added. It used to be written on
     // every launch, which put the file holding the storage credentials through
     // a rewrite each time Obsidian opened, for nothing (ADR-0047).
-    if (JSON.stringify(loaded) !== JSON.stringify(this.settings)) await this.saveSettings();
+    // A newer build's data.json (ADR-0075): its fields are kept on every write,
+    // and if it names a provider this build does not know, nothing is written
+    // and nothing connects — falling back to S3 would reach the old bucket.
+    this.extraData = unknownKeys(loaded);
+    this.foreignProvider = foreignProvider(loaded);
+    if (this.foreignProvider !== null) {
+      this.log.warn(this.strings.log.newerData(this.foreignProvider));
+      new Notice(this.strings.notices.newerData(this.foreignProvider), 15000);
+    } else if (JSON.stringify(loaded) !== JSON.stringify({ ...this.extraData, ...this.settings })) {
+      await this.saveSettings();
+    }
 
     this.settingTab = new SyncryptSettingTab(this.app, this);
     this.addSettingTab(this.settingTab);
@@ -477,6 +493,10 @@ export default class SyncryptPlugin extends Plugin {
 
   promptUnlock(): void {
     if (this.isUnlocked()) return;
+    if (this.foreignProvider !== null) {
+      new Notice(this.strings.notices.newerData(this.foreignProvider), 8000);
+      return;
+    }
     if (!settingsComplete(this.settings)) {
       new Notice(this.strings.notices.fillSettingsFirst);
       return;
@@ -575,6 +595,7 @@ export default class SyncryptPlugin extends Plugin {
    */
   private async unlock(passphrase: string, create = false): Promise<void> {
     if (this.isUnlocked()) return;
+    if (this.foreignProvider !== null) return; // ADR-0075; promptUnlock says why
     // A sync from the session a lock ended is cancelled, not finished: wait
     // for it to stop before another engine opens this vault (ADR-0066).
     await this.running?.done;
@@ -1258,7 +1279,14 @@ export default class SyncryptPlugin extends Plugin {
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData(this.settings); // never contains the passphrase (ADR-0016)
+    // Read-only under a newer build's data.json (ADR-0075).
+    if (this.foreignProvider !== null) {
+      new Notice(this.strings.notices.newerData(this.foreignProvider), 8000);
+      return;
+    }
+    // Never contains the passphrase (ADR-0016). Fields a newer build wrote ride
+    // along untouched.
+    await this.saveData({ ...this.extraData, ...this.settings });
   }
 
   /**

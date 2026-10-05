@@ -330,3 +330,29 @@ export function normalizePrefix(v: string): string {
 function withPrefix<T extends { prefix: string }>(group: T): T {
   return { ...group, prefix: typeof group.prefix === "string" ? normalizePrefix(group.prefix) : "" };
 }
+
+/**
+ * The provider data.json names when this build does not know it — a newer
+ * Syncrypt wrote the file and this one is a downgrade (ADR-0075). Null when it
+ * is known or absent. In memory `withDefaults` falls back to S3 (ADR-0033);
+ * this is what keeps that fallback from being written back, or connected to.
+ */
+export function foreignProvider(loaded: unknown): string | null {
+  if (typeof loaded !== "object" || loaded === null) return null;
+  const p = (loaded as { provider?: unknown }).provider;
+  if (p === undefined || p === "s3" || p === "webdav") return null;
+  return typeof p === "string" ? p : JSON.stringify(p);
+}
+
+/**
+ * Top-level keys in data.json that this build does not know, to write back
+ * untouched (ADR-0075). A newer build's fields are its own; this one has no
+ * business deleting them because it cannot read them.
+ */
+export function unknownKeys(loaded: unknown): Record<string, unknown> {
+  if (typeof loaded !== "object" || loaded === null) return {};
+  const known = new Set(Object.keys(DEFAULT_SETTINGS));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(loaded)) if (!known.has(k)) out[k] = v;
+  return out;
+}

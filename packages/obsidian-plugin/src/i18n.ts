@@ -135,6 +135,8 @@ const EN = {
     verifyOffline:
       "Unlocked without reaching storage — the passphrase could not be verified yet; editing works and the next sync will check it.",
     locked: "Syncrypt locked — keys forgotten.",
+    newerData: (provider: string) =>
+      `data.json names a storage provider this build does not know ("${provider}") — written by a newer Syncrypt. Settings are left untouched and nothing connects (ADR-0075).`,
     deviceCopied: (was: string, now: string) =>
       `This vault folder carries another installation's device ID (${was}); this device syncs as ${now} (ADR-0069).`,
     configureFirst: "Syncrypt: configure storage in Settings, then unlock.",
@@ -327,6 +329,8 @@ const EN = {
       "Syncrypt: the storage settings changed, so the vault was locked — nothing more is synced to the old location. Unlock to connect to the new one.",
     ticketImported: "Connection imported. Connecting… (delete the transferred ticket now)",
     deviceIdCopied: "Device ID copied",
+    newerData: (provider: string) =>
+      `Syncrypt: these settings were written by a newer version (storage provider "${provider}"). Update Syncrypt — until then this version will not connect or change the settings.`,
     deviceCopied:
       "Syncrypt: this vault folder was copied from another device (or Obsidian's local data was reset), so this device now syncs under its own new ID. Nothing else changes.",
     configSyncAdopted: "Syncrypt: Obsidian-settings profile updated from another device.",
@@ -638,6 +642,8 @@ const RU: Strings = {
     verifyOffline:
       "Разблокировано без связи с хранилищем — парольную фразу проверить пока не удалось; работать можно, проверка произойдёт при следующей синхронизации.",
     locked: "Syncrypt заблокирован — ключи забыты.",
+    newerData: (provider: string) =>
+      `В data.json указан незнакомый этой сборке провайдер хранилища («${provider}») — файл записан более новой версией Syncrypt. Настройки не трогаются, подключения нет (ADR-0075).`,
     deviceCopied: (was: string, now: string) =>
       `Папка этого хранилища несёт идентификатор другой установки (${was}); это устройство синхронизируется как ${now} (ADR-0069).`,
     configureFirst: "Syncrypt: укажите хранилище в настройках и разблокируйте.",
@@ -828,6 +834,8 @@ const RU: Strings = {
     ticketImported:
       "Подключение импортировано. Соединяемся… (удалите переданный тикет из переписки)",
     deviceIdCopied: "Идентификатор устройства скопирован",
+    newerData: (provider: string) =>
+      `Syncrypt: эти настройки записаны более новой версией (провайдер хранилища «${provider}»). Обновите Syncrypt — до тех пор эта версия не подключается и не меняет настройки.`,
     deviceCopied:
       "Syncrypt: папку хранилища скопировали с другого устройства (или локальные данные Obsidian были сброшены), поэтому это устройство теперь синхронизируется под своим новым идентификатором. Больше ничего не меняется.",
     configSyncAdopted: "Syncrypt: профиль настроек Obsidian обновлён с другого устройства.",
