@@ -135,6 +135,8 @@ const EN = {
     verifyOffline:
       "Unlocked without reaching storage — the passphrase could not be verified yet; editing works and the next sync will check it.",
     locked: "Syncrypt locked — keys forgotten.",
+    deviceCopied: (was: string, now: string) =>
+      `This vault folder carries another installation's device ID (${was}); this device syncs as ${now} (ADR-0069).`,
     configureFirst: "Syncrypt: configure storage in Settings, then unlock.",
     unlockFailed: (detail: string) => `Unlock failed: ${detail}`,
     syncFailed: (detail: string) => `Sync failed: ${detail}`,
@@ -313,6 +315,8 @@ const EN = {
       "Syncrypt: the storage settings changed, so the vault was locked — nothing more is synced to the old location. Unlock to connect to the new one.",
     ticketImported: "Connection imported. Connecting… (delete the transferred ticket now)",
     deviceIdCopied: "Device ID copied",
+    deviceCopied:
+      "Syncrypt: this vault folder was copied from another device (or Obsidian's local data was reset), so this device now syncs under its own new ID. Nothing else changes.",
     configSyncAdopted: "Syncrypt: Obsidian-settings profile updated from another device.",
     configSyncSecretPlugins: (names: string) =>
       `Syncrypt: another device turned on settings sync for ${names} — plugins that can keep API keys in data.json. Turn it off here if you would rather not.`,
@@ -622,6 +626,8 @@ const RU: Strings = {
     verifyOffline:
       "Разблокировано без связи с хранилищем — парольную фразу проверить пока не удалось; работать можно, проверка произойдёт при следующей синхронизации.",
     locked: "Syncrypt заблокирован — ключи забыты.",
+    deviceCopied: (was: string, now: string) =>
+      `Папка этого хранилища несёт идентификатор другой установки (${was}); это устройство синхронизируется как ${now} (ADR-0069).`,
     configureFirst: "Syncrypt: укажите хранилище в настройках и разблокируйте.",
     unlockFailed: (detail: string) => `Разблокировка не удалась: ${detail}`,
     syncFailed: (detail: string) => `Синхронизация не удалась: ${detail}`,
@@ -798,6 +804,8 @@ const RU: Strings = {
     ticketImported:
       "Подключение импортировано. Соединяемся… (удалите переданный тикет из переписки)",
     deviceIdCopied: "Идентификатор устройства скопирован",
+    deviceCopied:
+      "Syncrypt: папку хранилища скопировали с другого устройства (или локальные данные Obsidian были сброшены), поэтому это устройство теперь синхронизируется под своим новым идентификатором. Больше ничего не меняется.",
     configSyncAdopted: "Syncrypt: профиль настроек Obsidian обновлён с другого устройства.",
     configSyncSecretPlugins: (names: string) =>
       `Syncrypt: другое устройство включило синхронизацию настроек для ${names} — эти плагины могут хранить ключи API в data.json. Если не нужно — выключите здесь.`,

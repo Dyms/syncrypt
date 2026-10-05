@@ -77,6 +77,8 @@ export async function makeDevice(
   world: World,
   data: unknown,
   adapter = new MockDataAdapter(),
+  /** This installation's vault-scoped localStorage; absent = Obsidian < 1.8.7. */
+  install?: Map<string, unknown>,
 ): Promise<Device> {
   adapter.folders.add(".obsidian");
   adapter.folders.add(".obsidian/plugins");
@@ -90,6 +92,13 @@ export async function makeDevice(
     },
     workspace: { onLayoutReady: () => undefined, getLeavesOfType: () => [] },
   };
+  if (install !== undefined) {
+    app.loadLocalStorage = (k: string) => install.get(k) ?? null;
+    app.saveLocalStorage = (k: string, v: unknown) => {
+      if (v === null) install.delete(k);
+      else install.set(k, v);
+    };
+  }
   const plugin = new SyncryptPlugin(app, {
     id: "syncrypt",
     version: "1.0.0-test",

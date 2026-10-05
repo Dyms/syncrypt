@@ -114,6 +114,11 @@ export interface SyncryptSettings {
   kdfProfile: "cross-device" | "desktop-only";
   /** Stable random per-device UUID (RFC-0007), generated on first run. */
   deviceId: string;
+  /**
+   * The ID has been handed to this installation's own storage (ADR-0069).
+   * Set, and no ID in the installation: the folder was copied from another.
+   */
+  deviceIdInstalled: boolean;
 }
 
 export interface PlatformDefaults {
@@ -159,6 +164,7 @@ export const DEFAULT_SETTINGS: SyncryptSettings = {
   },
   kdfProfile: "cross-device",
   deviceId: "",
+  deviceIdInstalled: false,
 };
 
 /**
@@ -207,6 +213,7 @@ export function withDefaults(
     autoSync: { ...autoSyncDefaults, ...raw.autoSync },
     kdfProfile: raw.kdfProfile ?? DEFAULT_SETTINGS.kdfProfile,
     deviceId: raw.deviceId !== undefined && raw.deviceId !== "" ? raw.deviceId : generateDeviceId(),
+    deviceIdInstalled: raw.deviceIdInstalled === true,
   };
 }
 

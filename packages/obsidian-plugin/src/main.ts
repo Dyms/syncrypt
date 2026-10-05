@@ -5,7 +5,15 @@
 // Triggers (RFC-0004): pull on layout-ready; debounced while-active sync;
 // best-effort push on quit; manual "Sync now".
 
-import { moment, Notice, Platform, Plugin, type EventRef, type WorkspaceLeaf } from "obsidian";
+import {
+  moment,
+  Notice,
+  Platform,
+  Plugin,
+  type App,
+  type EventRef,
+  type WorkspaceLeaf,
+} from "obsidian";
 
 import type { StoragePort, SyncEngine, SyncOutcome, SyncReport } from "@syncrypt/sdk";
 import {
@@ -55,6 +63,7 @@ import { AutoSyncScheduler } from "./scheduler.js";
 import {
   DEFAULT_SETTINGS,
   describeStorageLocation,
+  generateDeviceId,
   settingsComplete,
   storageLocationTag,
   storagePrefixOf,
@@ -62,6 +71,7 @@ import {
   type SyncryptSettings,
 } from "./settings.js";
 import { SyncryptSettingTab } from "./settings-tab.js";
+import { DEVICE_ID_KEY, resolveDeviceIdentity, type InstallStore } from "./device-identity.js";
 import { AdapterStateStore, adoptLegacyState } from "./state-store.js";
 import { AddDeviceModal, ShareConnectionModal } from "./ticket-modals.js";
 import {
@@ -153,6 +163,21 @@ export default class SyncryptPlugin extends Plugin {
     const loaded: unknown = await this.loadData();
     this.settings = withDefaults(loaded, { mobile: Platform.isMobile });
     this.applyLanguage();
+    // The device ID belongs to this installation, not to the folder (ADR-0069).
+    // withDefaults has already made one up if data.json had none.
+    const fromData = this.settings.deviceId;
+    const identity = resolveDeviceIdentity(
+      fromData,
+      this.settings.deviceIdInstalled,
+      installStore(this.app),
+      generateDeviceId,
+    );
+    this.settings.deviceId = identity.deviceId;
+    this.settings.deviceIdInstalled = identity.installed;
+    if (identity.copied) {
+      this.log.info(this.strings.log.deviceCopied(fromData, identity.deviceId));
+      new Notice(this.strings.notices.deviceCopied, 12000);
+    }
     // Written only when normalization CHANGED something — a generated device
     // id on first run, a field this version added. It used to be written on
     // every launch, which put the file holding the storage credentials through
@@ -1182,4 +1207,24 @@ export default class SyncryptPlugin extends Plugin {
  */
 function pullCompleted(outcome: SyncOutcome): boolean {
   return outcome === "applied" || outcome === "no-op" || outcome === "conflicts";
+}
+
+/**
+ * This installation's vault-scoped localStorage (Obsidian 1.8.7+), or null on
+ * an older client — which keeps the old behaviour: the ID lives in data.json.
+ */
+function installStore(app: App): InstallStore | null {
+  const host = app as Partial<Pick<App, "loadLocalStorage" | "saveLocalStorage">>;
+  const load = host.loadLocalStorage;
+  const save = host.saveLocalStorage;
+  if (typeof load !== "function" || typeof save !== "function") return null;
+  return {
+    load: () => {
+      const v: unknown = load.call(app, DEVICE_ID_KEY);
+      return typeof v === "string" ? v : null;
+    },
+    save: (id) => {
+      save.call(app, DEVICE_ID_KEY, id);
+    },
+  };
 }
