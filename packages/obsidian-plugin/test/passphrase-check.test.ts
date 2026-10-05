@@ -23,7 +23,11 @@ import {
   MemoryVault,
 } from "@syncrypt/core/testing";
 
+import { MOBILE_MEMORY_BUDGET_KIB, openSyncEngine } from "@syncrypt/sdk";
+
+import { EN_STRINGS } from "../src/i18n.js";
 import { passphraseIsDefinitelyWrong } from "../src/passphrase-check.js";
+import { unlockFailureMessage } from "../src/unlock-error.js";
 
 const PASSPHRASE = "the vault passphrase";
 const TEST_PRESET = {
@@ -139,5 +143,48 @@ describe("the check does not write", () => {
     // No manifest yet, so verifyAccess returns null: not wrong, nothing written.
     expect(await check(storage, PASSPHRASE)).toBe(false);
     expect(await storage.get(KEYFILE_KEY)).toEqual(params);
+  });
+});
+
+describe("a device that cannot afford the vault's KDF (ADR-0063)", () => {
+  /** A vault whose salt carries the desktop-only profile (no derivation needed). */
+  async function desktopOnlyVault(): Promise<MemoryStorage> {
+    const storage = new MemoryStorage();
+    await storage.put(KEYFILE_KEY, serializeKdfParams(generateKdfParams(DESKTOP_KDF_PRESET)));
+    return storage;
+  }
+
+  it("is told so on unlock — not that its correct passphrase is wrong", async () => {
+    const storage = await desktopOnlyVault();
+    const failure = await openSyncEngine({
+      storage,
+      vault: new MemoryVault(),
+      passphrase: PASSPHRASE,
+      deviceId: "phone",
+      affordability: { maxMemoryKiB: MOBILE_MEMORY_BUDGET_KIB },
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(failure).toMatchObject({ code: "KdfUnaffordable" });
+    expect(unlockFailureMessage(failure, EN_STRINGS)).toBe(EN_STRINGS.unlockModal.kdfUnaffordable);
+  });
+
+  it("cannot check a passphrase, so the check says neither 'wrong' nor 'fine'", async () => {
+    // "Wrong" refused the right passphrase; "not wrong" would let Share seal a
+    // ticket with a passphrase nothing checked.
+    const storage = await desktopOnlyVault();
+    for (const typed of [PASSPHRASE, "a typo"]) {
+      await expect(
+        passphraseIsDefinitelyWrong({
+          storage,
+          vault: new MemoryVault(),
+          storagePrefix: "",
+          passphrase: typed,
+          deviceId: "phone",
+          affordability: { maxMemoryKiB: MOBILE_MEMORY_BUDGET_KIB },
+        }),
+      ).rejects.toMatchObject({ code: "KdfUnaffordable" });
+    }
   });
 });

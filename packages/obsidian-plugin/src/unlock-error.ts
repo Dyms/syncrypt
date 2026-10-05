@@ -13,6 +13,10 @@ import type { Strings } from "./i18n.js";
  */
 export function unlockFailureMessage(error: unknown, t: Strings): string {
   if (isSyncError(error, "CryptoAuthError")) return t.unlockModal.wrongPassphrase;
+  // Checked before anything else could claim it: the passphrase was never
+  // tried, so "wrong passphrase" here sends a person who typed it correctly
+  // back to retype it, forever (ADR-0063).
+  if (isSyncError(error, "KdfUnaffordable")) return t.unlockModal.kdfUnaffordable;
   if (isSyncError(error, "ManifestCorrupt")) return t.unlockModal.manifestCorrupt;
   // Not "wrong passphrase" and not "storage unreachable": the storage answered,
   // and what it said is that the salt is gone. The fix is a restore, and this

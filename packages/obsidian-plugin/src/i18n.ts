@@ -484,6 +484,8 @@ const EN = {
     checking: "Checking…",
     wrongPassphrase:
       "That passphrase does not open this vault. Nothing was changed.\nCheck your keyboard layout and Caps Lock, then try again.",
+    kdfUnaffordable:
+      "This vault was created with the desktop-only key profile, and opening it needs more memory than this device can safely use. Your passphrase was not checked — nothing is wrong with it. Unlock this vault on a desktop, or recreate it with the cross-device profile to use it here.",
     manifestCorrupt:
       "The vault index in storage could not be read. Your local notes are untouched — check the sync log before syncing.",
     keyfileMissing:
@@ -949,6 +951,8 @@ const RU: Strings = {
     checking: "Проверяю…",
     wrongPassphrase:
       "Эта парольная фраза не открывает хранилище. Ничего не изменилось.\nПроверьте раскладку и Caps Lock и попробуйте ещё раз.",
+    kdfUnaffordable:
+      "Это хранилище создано с профилем ключа «только для компьютера», и чтобы его открыть, нужно больше памяти, чем это устройство может безопасно выделить. Парольная фраза не проверялась — с ней всё в порядке. Разблокируйте хранилище на компьютере или пересоздайте его с кросс-платформенным профилем, чтобы пользоваться им здесь.",
     manifestCorrupt:
       "Не удалось прочитать индекс хранилища. Локальные заметки не тронуты — загляните в журнал перед синхронизацией.",
     keyfileMissing:

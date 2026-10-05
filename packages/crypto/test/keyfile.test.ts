@@ -154,7 +154,7 @@ describe("openVaultCrypto", () => {
       });
       expect.unreachable("should have thrown");
     } catch (e) {
-      expect(isSyncError(e, "CryptoAuthError"), String(e)).toBe(true);
+      expect(isSyncError(e, "KdfUnaffordable"), String(e)).toBe(true);
       expect((e as Error).message).toContain("128 MiB");
       expect((e as Error).message).toContain("64 MiB");
     }
@@ -185,7 +185,7 @@ describe("openVaultCrypto", () => {
         defaults: DESKTOP_KDF_PRESET,
         affordability: { maxMemoryKiB: 65536 },
       }),
-    ).rejects.toSatisfy((e) => isSyncError(e, "CryptoAuthError"));
+    ).rejects.toSatisfy((e) => isSyncError(e, "KdfUnaffordable"));
     expect(storage.keys()).toEqual([]); // nothing was written
   });
 

@@ -6,7 +6,7 @@
 // nobody can unlock, discovered on the other device by someone who cannot fix
 // it.
 //
-// Two rules, and the second one was missing (ADR-0060):
+// Three rules; the second was missing until ADR-0060, the third until ADR-0063:
 //
 // 1. Only a definite CryptoAuthError is "wrong". An unreachable bucket says
 //    nothing about the passphrase and must not block sharing.
@@ -17,6 +17,11 @@
 //    default and silently discarded a desktop-only choice. A vault with no
 //    keyfile has no passphrase to be wrong about, so the question is answered
 //    before anything is opened.
+//
+// 3. "This device cannot afford to try" is neither answer (ADR-0063). It is
+//    rethrown as KdfUnaffordable: reported as "wrong" it rejected the right
+//    passphrase; reported as "not wrong" it would seal a ticket with a
+//    passphrase nothing checked — the defect rule 1 exists to prevent.
 
 import type { DeviceId, LogPort, StoragePort, VaultPort } from "@syncrypt/core";
 import { isSyncError, openSyncEngine, vaultHasKeyfile } from "@syncrypt/sdk";
@@ -49,6 +54,7 @@ export async function passphraseIsDefinitelyWrong(
     await engine.verifyAccess();
     return false;
   } catch (e) {
+    if (isSyncError(e, "KdfUnaffordable")) throw e;
     return isSyncError(e, "CryptoAuthError");
   }
 }

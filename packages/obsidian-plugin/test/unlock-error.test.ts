@@ -35,6 +35,15 @@ describe("unlockFailureMessage", () => {
     }
   });
 
+  it("an unaffordable KDF says so, and clears the passphrase (ADR-0063)", () => {
+    const message = unlockFailureMessage(
+      new SyncError("KdfUnaffordable", "needs 128 MiB, budget 64 MiB"),
+      EN_STRINGS,
+    );
+    expect(message).toBe(EN_STRINGS.unlockModal.kdfUnaffordable);
+    expect(message).not.toBe(EN_STRINGS.unlockModal.wrongPassphrase);
+  });
+
   it("a missing keyfile says restore, not 'wrong passphrase'", () => {
     for (const t of [EN_STRINGS, stringsFor("ru")]) {
       const message = unlockFailureMessage(

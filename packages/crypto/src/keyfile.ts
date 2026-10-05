@@ -291,8 +291,11 @@ function assertAffordable(
   affordability?: { maxMemoryKiB: number },
 ): void {
   if (affordability !== undefined && memoryKiB > affordability.maxMemoryKiB) {
+    // Its own code, not CryptoAuthError: the passphrase was never tried, and
+    // every caller that hears CryptoAuthError says "wrong passphrase" — to a
+    // person who typed the right one (ADR-0063).
     throw new SyncError(
-      "CryptoAuthError",
+      "KdfUnaffordable",
       `this vault's KDF needs ${Math.round(memoryKiB / 1024)} MiB of Argon2id memory, ` +
         `above this device's ${Math.round(affordability.maxMemoryKiB / 1024)} MiB budget ` +
         `(ADR-0018). Unlock it on a desktop, or recreate the vault with the ` +

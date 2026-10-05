@@ -11,6 +11,7 @@ import {
 
 import type SyncryptPlugin from "./main.js";
 import { applyTicketToSettings, ticketIsCredsLess } from "./ticket-flow.js";
+import { unlockFailureMessage } from "./unlock-error.js";
 
 export class ShareConnectionModal extends Modal {
   private passphrase = "";
@@ -46,11 +47,24 @@ export class ShareConnectionModal extends Modal {
   }
 
   private async generate(): Promise<void> {
-    if (this.passphrase.length === 0) return;
+    // Taken ONCE. The check below runs Argon2id for seconds with the field
+    // still live; reading `this.passphrase` again afterwards sealed the ticket
+    // with whatever was in the field by then — a stray keystroke made exactly
+    // the ticket the check exists to prevent (audit №4, B7).
+    const passphrase = this.passphrase;
+    if (passphrase.length === 0) return;
     // The passphrase is checked against the VAULT first. A typo used to
     // produce a ticket that decrypts into settings nobody can unlock, and the
     // person only found out on the other device (ADR-0048).
-    const wrong = await this.plugin.passphraseIsWrong(this.passphrase);
+    let wrong: boolean;
+    try {
+      wrong = await this.plugin.passphraseIsWrong(passphrase);
+    } catch (e) {
+      // This device cannot afford the vault's KDF, so it cannot check — and an
+      // unchecked passphrase is not sealed into a ticket (ADR-0063).
+      new Notice(unlockFailureMessage(e, this.plugin.t()), 12000);
+      return;
+    }
     if (wrong) {
       new Notice(this.plugin.t().notices.sharePassphraseWrong, 8000);
       return;
@@ -79,7 +93,7 @@ export class ShareConnectionModal extends Modal {
               ? { accessKeyId: s3.accessKeyId, secretAccessKey: s3.secretAccessKey }
               : {}),
           };
-    const ticket = await createConnectionTicket(input, this.passphrase);
+    const ticket = await createConnectionTicket(input, passphrase);
     this.passphrase = "";
 
     const t = this.plugin.t();
