@@ -36,6 +36,8 @@ export const DEFAULT_SYNC_TRASH_DIR = `${DEFAULT_CONFIG_DIR}/sync-trash`;
 
 export class ObsidianVault implements VaultPort {
   private matcher: ProfileMatcher;
+  /** canonical → on-disk spelling, from the last listing (ADR-0077). */
+  private natives = new Map<VaultPath, string>();
 
   constructor(
     private readonly adapter: DataAdapterLike,
@@ -59,10 +61,26 @@ export class ObsidianVault implements VaultPort {
 
   async *list(): AsyncIterable<VaultPath> {
     const found: VaultPath[] = [];
+    const natives = new Map<VaultPath, string>();
+    const twice = new Set<VaultPath>();
+    // How each path is spelled on THIS disk (ADR-0077). Two spellings of one
+    // canonical path is ADR-0053's collision: no spelling is remembered, the
+    // scan marks it ambiguous, and nothing changes from before.
+    const remember = (canonical: VaultPath, native: string): void => {
+      if (twice.has(canonical)) return;
+      const seen = natives.get(canonical);
+      if (seen !== undefined && seen !== native) {
+        natives.delete(canonical);
+        twice.add(canonical);
+        return;
+      }
+      natives.set(canonical, native);
+    };
     const walk = async (folder: string): Promise<void> => {
       const { files, folders } = await this.adapter.list(folder);
       for (const file of files) {
         const canonical = this.fromNative(file);
+        remember(canonical, file);
         if (this.paths.inside(canonical)) {
           // Config files answer to config-sync settings only (RFC-0008).
           if (this.paths.allowed(canonical, this.configSync)) found.push(canonical);
@@ -73,6 +91,7 @@ export class ObsidianVault implements VaultPort {
       }
       for (const sub of folders) {
         const canonical = this.fromNative(sub);
+        remember(canonical, sub);
         // Hard invariants first: sync-trash is never walked, and dot-folders
         // are skipped except `.obsidian` under an explicit config-sync opt-in.
         if (canonical === this.paths.syncTrash) continue;
@@ -86,6 +105,7 @@ export class ObsidianVault implements VaultPort {
       }
     };
     await walk("");
+    this.natives = natives;
     for (const p of found.sort()) yield p;
   }
 
@@ -190,8 +210,22 @@ export class ObsidianVault implements VaultPort {
     return { size: stat.size, mtime: stat.mtime / 1000 };
   }
 
+  /**
+   * The spelling of `path` on this disk (ADR-0077). Obsidian uses "/" on every
+   * platform; what differs is Unicode normalization. A filesystem that keeps
+   * the bytes it is given (ext4: Linux, Android) holds "café" as NFD when it
+   * arrived that way, and asking for the NFC canonical form finds nothing —
+   * the file was never synced, and one that had been was tombstoned for every
+   * device (audit №4, C2). The last listing says how each path is spelled; a
+   * path it did not see (a download) takes its folder's spelling, so it lands
+   * in the folder that exists instead of beside it.
+   */
   toNative(path: VaultPath): string {
-    return path; // Obsidian uses "/" separators on every platform
+    const known = this.natives.get(path);
+    if (known !== undefined) return known;
+    const slash = path.lastIndexOf("/");
+    if (slash === -1) return path;
+    return `${this.toNative(path.slice(0, slash))}/${path.slice(slash + 1)}`;
   }
 
   fromNative(native: string): VaultPath {

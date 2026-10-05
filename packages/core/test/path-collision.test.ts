@@ -84,6 +84,8 @@ describe("scanVault and two files that canonicalize to one path", () => {
     // knowledge, and a string round-trip test would exclude every accented
     // filename on macOS, where the folding makes them work today. Pinned so
     // the limit is visible rather than folklore (ADR-0053 §Consequences).
+    // MemoryVault has no native spelling to map to; ObsidianVault now does
+    // (ADR-0077, packages/obsidian-plugin/test/native-spelling.test.ts).
     const vault = new MemoryVault();
     vault.setFile(NFD, "only the decomposed one");
     const ambiguous = new Set<VaultPath>();

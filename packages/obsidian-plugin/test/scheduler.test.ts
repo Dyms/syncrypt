@@ -273,4 +273,3 @@ describe("the periodic pull respects the minimum interval (ADR-0076)", () => {
     expect(fired).toBe(1);
   });
 });
-
