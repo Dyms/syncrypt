@@ -319,6 +319,47 @@ describe("the forgotten list is untrusted input like every other name", () => {
     }
   });
 
+  it("AND SO IS THE objectKey IN files AND history — THE SAME RULE", () => {
+    // ADR-0061: `forgotten` was validated and `objectKey` was not, which is
+    // backwards — `objectKey` is the one the engine fetches and deletes. Every
+    // provider refuses it one layer down, so this is defence in depth; it was
+    // still the one field without the check.
+    for (const bad of [
+      `${OBJECTS_PREFIX}../manifests/000000009-devA.json`,
+      `${OBJECTS_PREFIX}./x`,
+      `${OBJECTS_PREFIX}//x`,
+      "/objects/x",
+      "",
+    ]) {
+      const entry = { hash: "b3:aa", size: 1, mtime: 1000, objectKey: bad };
+      const withFile = new TextEncoder().encode(
+        JSON.stringify({ ...base(), files: { "note.md": entry } }),
+      );
+      expect(() => parseManifest(withFile), `files: ${bad}`).toThrow(/objectKey/);
+
+      // history holds prior versions and goes to the same get/delete calls.
+      const withHistory = new TextEncoder().encode(
+        JSON.stringify({
+          ...base(),
+          files: { "note.md": { ...entry, objectKey: `${OBJECTS_PREFIX}ok` } },
+          history: { "note.md": [entry] },
+        }),
+      );
+      expect(() => parseManifest(withHistory), `history: ${bad}`).toThrow(/objectKey/);
+    }
+  });
+
+  it("a usable objectKey still round-trips", () => {
+    const m = base({
+      files: {
+        "note.md": { hash: "b3:aa", size: 1, mtime: 1000, objectKey: `${OBJECTS_PREFIX}aa/bb/cc` },
+      },
+    });
+    expect(parseManifest(serializeManifest(m)).files["note.md"]?.objectKey).toBe(
+      `${OBJECTS_PREFIX}aa/bb/cc`,
+    );
+  });
+
   it("a non-array, or a non-string member, is corrupt", () => {
     for (const bad of ["nope", 7, [42], [null]]) {
       const bytes = new TextEncoder().encode(

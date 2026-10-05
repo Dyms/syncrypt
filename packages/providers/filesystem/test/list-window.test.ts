@@ -53,6 +53,53 @@ const walk = async (storage: FilesystemStorage, prefix: string): Promise<string[
   return keys;
 };
 
+describe("a read of a key with no object at it says so", () => {
+  it("A KEY THAT IS A DIRECTORY IS ABSENT, NOT A FILESYSTEM FAULT", async () => {
+    // ADR-0061. EISDIR, ENOTDIR and ENAMETOOLONG used to become
+    // StorageTransient, which the engine RETRIES with backoff: "there is
+    // nothing here" was reported as "the disk is having a moment". RFC-0006
+    // says a read of an absent key is StorageNotFound, and there is no object
+    // at a key whose path is a directory.
+    const storage = await storageWith(["objects/aa/one"]);
+
+    await expect(storage.stat("objects/aa")).rejects.toSatisfy((e) =>
+      isSyncError(e, "StorageNotFound"),
+    );
+    await expect(storage.get("objects/aa")).rejects.toSatisfy((e) =>
+      isSyncError(e, "StorageNotFound"),
+    );
+  });
+
+  it("and a key too long for the filesystem is absent too", async () => {
+    const storage = await storageWith([]);
+    const long = `objects/${"x".repeat(300)}`;
+    await expect(storage.get(long)).rejects.toSatisfy((e) =>
+      isSyncError(e, "StorageNotFound"),
+    );
+  });
+
+  it("A WRITE THAT FAILS THAT WAY IS STILL A FAILURE", async () => {
+    // The rule is for READS: a put that cannot write is not "absent", and
+    // calling it that would let a failed upload look like a missing object.
+    const storage = await storageWith(["objects/aa/one"]);
+    await expect(
+      storage.put("objects/aa", enc("over a directory")),
+    ).rejects.toSatisfy((e) => isSyncError(e, "StorageTransient"));
+  });
+
+  it("a permission error is still a permission error", async () => {
+    const storage = await storageWith(["objects/aa/one"]);
+    const real = storage.stat.bind(storage);
+    storage.stat = (k: string) =>
+      k === "objects/aa/one"
+        ? Promise.reject(new SyncError("StorageUnauthorized", "EACCES"))
+        : real(k);
+    await expect(walk(storage, "objects/")).rejects.toSatisfy((e) =>
+      isSyncError(e, "StorageUnauthorized"),
+    );
+  });
+});
+
 describe("the window between the walk and the stat", () => {
   it("a key that vanished is not in the listing, and the walk completes", async () => {
     const storage = await storageWith(["manifests/a", "manifests/b", "manifests/c"]);

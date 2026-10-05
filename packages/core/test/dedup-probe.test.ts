@@ -200,3 +200,67 @@ describe("an object adopted from the probe is confirmed before the manifest name
     expect(report.outcome).toBe("applied");
   });
 });
+
+describe("an object the push did not write is confirmed, whichever way it got there", () => {
+  it("A PRECONDITION FAILURE IS THE SAME END STATE AS AN ADOPTED OBJECT", async () => {
+    // ADR-0061. When the probe cannot answer, the push does a conditional PUT
+    // and treats StoragePreconditionFailed as success: the object was already
+    // there. That is exactly the state `confirmAdopted` exists for — the
+    // manifest about to be published names ciphertext this push did not write
+    // — and that path was not registered, so it was never re-checked.
+    //
+    // The window: another device's reclamation sweeps the object between the
+    // PUT and the publish. Here the sweep is simulated at the moment the
+    // precondition fails, which is inside that window.
+    const storage = new MemoryStorage();
+    const vault = new MemoryVault();
+    vault.setFile("note.md", "shared content");
+
+    // The object is already in storage, as another device left it.
+    const objectKey = await new IdentityCrypto()
+      .hash(new TextEncoder().encode("shared content"))
+      .then((h) => new IdentityCrypto().objectKeyFor(h));
+    await storage.put(objectKey, await new IdentityCrypto().encrypt("content",
+      new TextEncoder().encode("shared content")));
+
+    let probes = 0;
+    const flaky: StoragePort = {
+      capabilities: () => ({ ...storage.capabilities(), conditionalWrites: true }),
+      get: (key) => storage.get(key),
+      delete: (key) => storage.delete(key),
+      list: (prefix) => storage.list(prefix),
+      // The probe blips once; the confirmation afterwards works.
+      stat: (key: string): Promise<ObjectStat> => {
+        if (key.startsWith("objects/") && probes++ === 0) {
+          return Promise.reject(new SyncError("StorageTransient", "probe blip"));
+        }
+        return storage.stat(key);
+      },
+      put: async (key, data, opts) => {
+        if (key.startsWith("objects/") && opts?.ifNoneMatch === "*") {
+          // Another device sweeps it in this very window.
+          await storage.delete(key);
+          throw new SyncError("StoragePreconditionFailed", `object exists: ${key}`);
+        }
+        return storage.put(key, data, opts);
+      },
+    };
+
+    const engine = createSyncEngine({
+      storage: flaky,
+      vault,
+      crypto: new IdentityCrypto(),
+      clock: new FixedClock(),
+      state: new MemoryStateStore(),
+      deviceId: "dev-a",
+      storagePrefix: "",
+    });
+
+    // Nothing is published: the manifest would have named bytes that are gone.
+    // Matched by MESSAGE: the fixture also injects a StorageTransient probe
+    // blip, so a code check alone passes when that error merely escapes
+    // (ADR-0061).
+    await expect(engine.push()).rejects.toThrow(/is gone now/);
+    expect(storage.keys().filter((k) => k.startsWith("manifests/"))).toEqual([]);
+  });
+});

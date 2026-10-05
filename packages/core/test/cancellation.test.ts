@@ -18,6 +18,7 @@ import {
   createSyncEngine,
   isSyncError,
   OBJECTS_PREFIX,
+  type ObjectStat,
   type SyncEngine,
   type VaultPath,
 } from "../src/index.js";
@@ -78,6 +79,25 @@ function device(
   };
 }
 
+/** A storage that fires the signal part-way through a listing. */
+class CancellingStorage extends MemoryStorage {
+  armed = false;
+  constructor(
+    private readonly controller: AbortController,
+    private readonly afterKeys: number,
+  ) {
+    super();
+  }
+  override async *list(prefix: string): AsyncIterable<ObjectStat> {
+    let seen = 0;
+    for await (const stat of super.list(prefix)) {
+      if (this.armed && seen === this.afterKeys) this.controller.abort();
+      seen++;
+      yield stat;
+    }
+  }
+}
+
 const EIGHT = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
 /**
@@ -85,13 +105,15 @@ const EIGHT = ["a", "b", "c", "d", "e", "f", "g", "h"];
  * what makes a path it cannot see read as a deletion rather than as a file it
  * has never met. The defect needs that base to show its real shape.
  */
-async function syncedDevice(vault: MemoryVault = new MemoryVault()): Promise<{
+async function syncedDevice(
+  vault: MemoryVault = new MemoryVault(),
+  storage: MemoryStorage = new MemoryStorage(),
+): Promise<{
   storage: MemoryStorage;
   vault: MemoryVault;
   engine: SyncEngine;
   log: MemoryLog;
 }> {
-  const storage = new MemoryStorage();
   for (const n of EIGHT) vault.setFile(`${n}.md`, `content of ${n}`);
   const d = device(storage, vault);
   const report = await d.engine.sync();
@@ -151,15 +173,19 @@ describe("the journal is not the caller's to edit", () => {
     // a client sorting `entries` in place — or clearing them after rendering
     // them — rewrote the record of what the last sync did.
     const d = await syncedDevice();
-    const report = await d.engine.status().then((s) => s.lastReport);
-    expect(report?.entries).toHaveLength(8);
 
+    // A sync that actually DID something. Clearing an empty array proves
+    // nothing, and the second sync here used to be a no-op (ADR-0061).
+    d.vault.now += 10;
+    d.vault.setFile("i.md", "one more file");
     const fresh = await d.engine.sync();
+    expect(fresh.entries).toHaveLength(1);
+
     fresh.entries.length = 0;
     fresh.conflicts.push("not a conflict");
 
     const after = await d.engine.status();
-    expect(after.lastReport?.outcome).toBe("no-op");
+    expect(after.lastReport?.entries).toHaveLength(1);
     expect(after.lastReport?.conflicts).toEqual([]);
   });
 
@@ -180,28 +206,42 @@ describe("the journal is not the caller's to edit", () => {
     expect(after.lastReport?.conflicts).toEqual([]);
   });
 
-  it("and the entries the caller holds are the ones the journal logged", async () => {
-    // The arrays are copied; the entries inside are shared and documented
-    // read-only. This pins that it IS the same content, so nobody "fixes" the
-    // copy into a deep clone on every sync of a large vault by accident.
+  it("the arrays are copied and the entries inside are SHARED, not cloned", async () => {
+    // SyncReport says so: the array belongs to the caller, the entries are
+    // read-only. Comparing paths would pass against a deep clone on every
+    // sync of a large vault, so this compares identity (ADR-0061).
     const d = await syncedDevice();
-    const report = (await d.engine.status()).lastReport;
-    expect(report?.entries.map((e) => e.path).sort()).toEqual(
-      EIGHT.map((n) => `${n}.md`).sort(),
-    );
+    d.vault.now += 10;
+    d.vault.setFile("i.md", "one more file");
+    const fresh = await d.engine.sync();
+    const journal = (await d.engine.status()).lastReport;
+
+    expect(journal?.entries).not.toBe(fresh.entries); // a different array…
+    expect(journal?.entries[0]).toBe(fresh.entries[0]); // …of the same entries
   });
 });
 
 describe("a cancelled reclamation preview is not a plan either", () => {
-  it("THROWS INSTEAD OF PROPOSING TO DELETE LIVE OBJECTS", async () => {
-    const d = await syncedDevice();
-    expect(d.storage.keys().filter((k) => k.startsWith(OBJECTS_PREFIX))).toHaveLength(8);
+  it("THROWS WHEN THE LISTING ITSELF WAS CUT SHORT", async () => {
+    // The dangerous shape, and the one this test used to skip by aborting
+    // before the call: `readManifestIndex` and `listObjects` return what they
+    // REACHED, so a plan built from a partial listing treats every object the
+    // unread manifests point at as unreachable (ADR-0061).
+    const controller = new AbortController();
+    const storage = new CancellingStorage(controller, 2);
+    const d = await syncedDevice(new MemoryVault(), storage);
+    expect(storage.keys().filter((k) => k.startsWith(OBJECTS_PREFIX))).toHaveLength(8);
+    storage.armed = true;
 
-    // A listing that stopped early: every object the manifests it did not
-    // read still point at now looks unreachable.
+    await expect(d.engine.previewReclaim(controller.signal)).rejects.toSatisfy((e) =>
+      isSyncError(e, "Aborted"),
+    );
+  });
+
+  it("and when the signal fired before it started", async () => {
+    const d = await syncedDevice();
     const controller = new AbortController();
     controller.abort();
-
     await expect(d.engine.previewReclaim(controller.signal)).rejects.toSatisfy((e) =>
       isSyncError(e, "Aborted"),
     );

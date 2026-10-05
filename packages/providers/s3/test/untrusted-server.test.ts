@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 import { isSyncError, SyncError } from "@syncrypt/core";
 
 import { S3Client } from "../src/client.js";
-import { probeKey } from "../src/storage.js";
 import type { S3Config } from "../src/config.js";
 import { S3Storage } from "../src/index.js";
 import type { HttpRequest, HttpResponse, HttpTransport } from "../src/transport.js";
@@ -282,6 +281,62 @@ describe("numbers and keys out of a hostile listing", () => {
 });
 
 // ---------------------------------------------------------------------------
+describe("a listed key is checked like a key being written", () => {
+  it("A TRAVERSING KEY IN A LISTING IS DROPPED, NOT YIELDED", async () => {
+    // ADR-0058 wrote the contract ("every key complete and validated") and
+    // ADR-0061 found this provider was the one not keeping it: filesystem
+    // validates via stat, WebDAV via safeKey, S3 filtered by prefix only. The
+    // row is skipped rather than fatal — the same direction `decodeKey` takes
+    // for a key that will not decode.
+    const { transport } = recording(
+      listing(
+        contents("objects/aa/bb/good") +
+          contents("objects/../manifests/000000009-devA.json") +
+          contents("objects/./x") +
+          contents("objects//x"),
+      ),
+    );
+    const storage = await S3Storage.create({ ...BASE, transport });
+
+    const keys: string[] = [];
+    for await (const stat of storage.list("objects/")) keys.push(stat.key);
+    expect(keys).toEqual(["objects/aa/bb/good"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("an ETag the backend did not send is not an empty ETag", () => {
+  it("A HEAD WITHOUT AN ETAG FALLS THROUGH INSTEAD OF REPORTING \"\"", async () => {
+    // ADR-0061. The 416 branch was fixed in ADR-0056 and the other stat paths
+    // kept `?? ""` — against which every conditional write compares equal to
+    // nothing. Refusing is Transient, so the strategy loop tries the next
+    // shape and a gateway that omits ETags degrades to LIST rather than
+    // failing outright.
+    const listBody = listing(contents("objects/aa/bb/cc", "4096"));
+    const transport: HttpTransport = (req: HttpRequest) => {
+      if (req.url.includes("list-type=2")) {
+        return Promise.resolve({
+          status: 200,
+          headers: {},
+          body: new TextEncoder().encode(listBody),
+        });
+      }
+      // HEAD and the ranged GET answer, with no ETag at all.
+      return Promise.resolve({
+        status: req.method === "HEAD" ? 200 : 206,
+        headers: { "content-length": "4096", "content-range": "bytes 0-0/4096" },
+        body: new Uint8Array(),
+      });
+    };
+    const storage = await S3Storage.create({ ...BASE, transport });
+
+    const stat = await storage.stat("objects/aa/bb/cc");
+    expect(stat.etag).toBe('"e"'); // the listing's, because the others sent none
+    expect(stat.size).toBe(4096);
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe("the capability probe writes inside the vault it belongs to", () => {
   it("A CREDENTIAL SCOPED TO THE VAULT PREFIX CAN START THE PROVIDER", async () => {
     // Exactly the policy the threat model tells users to write: s3:* on
@@ -310,6 +365,7 @@ describe("the capability probe writes inside the vault it belongs to", () => {
     });
 
     expect(s).toBeDefined();
+    expect(touched.length).toBeGreaterThan(0); // .every() is true of nothing
     expect(touched.every((t) => t.includes("vaults/main/meta/capability-probe-"))).toBe(true);
   });
 
@@ -329,17 +385,5 @@ describe("the capability probe writes inside the vault it belongs to", () => {
     expect(seen).toContain("DELETE");
   });
 
-  it("lands under meta/, never under objects/ and never at the root", () => {
-    // objects/ is content the reclamation planner reasons about; the root is
-    // outside every vault in a shared bucket.
-    expect(probeKey("vaults/main")).toMatch(/^vaults\/main\/meta\/capability-probe-[0-9a-f]{16}$/);
-    expect(probeKey("vaults/main/")).toMatch(/^vaults\/main\/meta\//);
-    expect(probeKey("")).toMatch(/^meta\/capability-probe-/);
-    expect(probeKey(undefined)).toMatch(/^meta\/capability-probe-/);
-    expect(probeKey("vaults/main")).not.toContain("objects/");
-  });
 
-  it("two probes do not collide", () => {
-    expect(probeKey("v")).not.toBe(probeKey("v"));
-  });
 });

@@ -74,8 +74,14 @@ export interface SyncEngineConfig {
  * against a setting the engine has honoured since (ADR-0060). The plugin
  * passes a variable, so TypeScript's excess-property check never fired and
  * nobody noticed. Named here, used there.
+ *
+ * `syncable` is EXCLUDED on purpose. It is part of `PlanOptions`, but the
+ * engine takes it from the vault port — `config.vault.syncable` — and never
+ * reads `safeSync.syncable`, so leaving it in the type would be the same
+ * false promise pointing the other way: it would compile and do nothing
+ * (ADR-0061).
  */
-export type SafeSyncOptions = Partial<PlanOptions> & {
+export type SafeSyncOptions = Omit<Partial<PlanOptions>, "syncable"> & {
   /** Prior versions of a path retained in the manifest (ADR-0010). */
   versionsToKeep?: number;
   /** Tombstone expiry window in seconds; 0 disables it (ADR-0031). */

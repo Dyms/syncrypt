@@ -251,8 +251,14 @@ export function planReclaim(input: ReclaimInput): ReclaimPlan {
 
 /**
  * Keep the oldest-marked keys and drop the rest (see MAX_MARKED_KEYS). Ties
- * break on the key so the result is deterministic — two devices computing the
- * same mark must agree, or they would fight over its contents every run.
+ * break on the key so the result is reproducible: the same inputs give the
+ * same mark, which is what makes the tests meaningful and a cap diffable
+ * between runs.
+ *
+ * It used to say "two devices computing the same mark must agree, or they
+ * would fight over its contents every run" — true when the mark was shared,
+ * and ADR-0049 made it per-device, after which there is no other device
+ * writing this file at all (see `GcMark`: never merged with another device's).
  */
 function capMark(since: Record<ObjectKey, number>): Record<ObjectKey, number> {
   const entries = Object.entries(since);

@@ -104,9 +104,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * rules on top (the filesystem provider refuses a backslash, which is a path
  * separator where it writes); none may be laxer than this.
  *
- * The 512-byte cap is the manifest parser's: a key longer than that cannot
- * round-trip through a manifest, so a provider accepting one only defers the
- * refusal to a place with less context.
+ * The 512-byte cap applies wherever this does, the manifest parser included:
+ * every key the parser keeps — in `files`, in `history`, in `forgotten` — comes
+ * through here, so a longer key cannot round-trip through a manifest and a
+ * provider accepting one would only defer the refusal to a place with less
+ * context.
  */
 export function isUsableObjectKey(key: string): boolean {
   return (
@@ -130,7 +132,14 @@ function validateEntry(path: string, v: unknown): ManifestEntry {
     throw corrupt(`entry for "${path}" has invalid size`);
   }
   if (!isEpochSeconds(mtime)) throw corrupt(`entry for "${path}" has invalid mtime`);
-  if (typeof objectKey !== "string" || objectKey.length === 0) {
+  // The same rule as `forgotten[]` and as every key a provider writes
+  // (ADR-0044, ADR-0058). This is a NAME OUT OF STORAGE: it goes straight to
+  // get/stat/delete, and `objects/../manifests/000000009-devA.json` was
+  // accepted here while the less dangerous `forgotten` list refused it. The
+  // providers all fail closed one layer down, which is why this is
+  // defence-in-depth rather than a hole — and why it should not have been the
+  // one field without the check (ADR-0061).
+  if (typeof objectKey !== "string" || !isUsableObjectKey(objectKey)) {
     throw corrupt(`entry for "${path}" has invalid objectKey`);
   }
   return { hash, size, mtime, objectKey };

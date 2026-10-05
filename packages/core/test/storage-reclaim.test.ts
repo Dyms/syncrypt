@@ -281,7 +281,11 @@ describe("reclaiming storage (ADR-0030)", () => {
     const now = 2_000_000;
     const safeSync = { generationsToKeep: 1, reclaimGraceSeconds: DAY, versionsToKeep: 0 };
     const a = makeDevice(storage, "dev-a", new FixedClock(now), safeSync);
-    const b = makeDevice(storage, "dev-b", new FixedClock(now), safeSync);
+    // B's clock is AHEAD. With one shared mark, b's pass would overwrite a's
+    // timestamps with later ones and push a's sweep past its own window; with
+    // both devices on the same instant the test could not tell the two apart
+    // (ADR-0061).
+    const b = makeDevice(storage, "dev-b", new FixedClock(now + DAY), safeSync);
 
     a.vault.setFile("note.md", "one");
     await a.engine.sync();

@@ -168,7 +168,14 @@ describe("the one request that is not idempotent", () => {
       transport,
     });
 
-    await storage.put("objects/big", big());
+    const res = await storage.put("objects/big", big());
+
+    // THAT THE MULTIPART PATH RAN AT ALL. Without this, dropping the
+    // multipart branch entirely leaves the two assertions below green — the
+    // exact shape of vacuous test this project has been hunting (ADR-0061).
+    expect(res.etag).toBe('"done"'); // only CompleteMultipartUpload answers this
+    expect(seen.filter((s) => s.startsWith("POST"))).toHaveLength(2); // initiate + complete
+    expect(seen.filter((s) => s.startsWith("PUT"))).toHaveLength(3); // 12 MiB / 5 MiB
 
     // No ListMultipartUploads, no DELETE: the ordinary path is unchanged.
     expect(seen.filter((s) => s.includes("uploads=") && s.startsWith("GET"))).toEqual([]);

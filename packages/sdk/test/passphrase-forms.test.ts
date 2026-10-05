@@ -6,10 +6,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { EngineNotice, LogPort, SyncReportEntry } from "@syncrypt/core";
+import type { LogPort } from "@syncrypt/core";
 import { createSyncEngine, isSyncError, SyncError } from "@syncrypt/core";
 import {
   FixedClock,
+  MemoryLog,
   MemoryStateStore,
   MemoryStorage,
   MemoryVault,
@@ -31,17 +32,6 @@ const TEST_PRESET = {
   iterations: 2,
   parallelism: 1,
 } as const;
-
-class Recorder implements LogPort {
-  readonly notices: EngineNotice[] = [];
-  readonly entries: SyncReportEntry[] = [];
-  entry(e: SyncReportEntry): void {
-    this.entries.push(e);
-  }
-  notice(n: EngineNotice): void {
-    this.notices.push(n);
-  }
-}
 
 /**
  * A vault as a client before ADR-0057 would have left it: keys derived from
@@ -97,7 +87,7 @@ const open = (
 describe("a vault created before the passphrase had a spelling", () => {
   it("OPENS, AND SAYS WHICH FORM OPENED IT", async () => {
     const storage = await legacyVault(DECOMPOSED);
-    const log = new Recorder();
+    const log = new MemoryLog();
 
     // The same person, at the same device, typing the same characters.
     const engine = await open(storage, DECOMPOSED, log);
@@ -112,7 +102,7 @@ describe("a vault created before the passphrase had a spelling", () => {
     // composed characters. Before ADR-0057 this was "wrong passphrase", with
     // no way for the user to tell that it was not.
     const storage = await legacyVault(DECOMPOSED);
-    const log = new Recorder();
+    const log = new MemoryLog();
 
     const engine = await open(storage, COMPOSED, log);
 
@@ -125,7 +115,7 @@ describe("a vault created before the passphrase had a spelling", () => {
     const first = await open(storage, DECOMPOSED, undefined, withNote());
     await first.sync();
 
-    const log = new Recorder();
+    const log = new MemoryLog();
     const second = await open(storage, COMPOSED, log);
     expect((await second.verifyAccess())?.generation).toBeGreaterThan(0);
     expect(log.notices.filter((n) => n.code === "passphrase-legacy-form")).toEqual([]);
@@ -208,7 +198,7 @@ describe("what the fallback must not do", () => {
       storagePrefix: "",
     }).sync();
 
-    const log = new Recorder();
+    const log = new MemoryLog();
     const engine = await open(storage, MIXED, log);
 
     expect((await engine.verifyAccess())?.files).toBe(1);
@@ -222,7 +212,7 @@ describe("what the fallback must not do", () => {
 
     // A second device, typing the composed characters, is an ordinary join —
     // no legacy form involved, because the vault was never written in one.
-    const log = new Recorder();
+    const log = new MemoryLog();
     const joining = await open(storage, COMPOSED, log);
     expect(await joining.verifyAccess()).not.toBeNull();
     expect(log.notices.filter((n) => n.code === "passphrase-legacy-form")).toEqual([]);

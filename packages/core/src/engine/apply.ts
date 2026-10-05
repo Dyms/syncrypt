@@ -197,16 +197,39 @@ export async function applyPullOps(
             }),
           );
         } else if (remoteEntry !== undefined) {
-          // Deleted locally, edited remotely: restore the remote version
-          // (a creation — the path is locally absent). Edit beats delete.
+          // Deleted locally, edited remotely: restore the remote version.
+          // Edit beats delete.
+          //
+          // "The path is locally absent" is what the SCAN said, and ADR-0053
+          // established for the download branch that the scan is not the
+          // filesystem: the user can create the file between the scan and
+          // now, and on a case-folding filesystem the path can resolve to a
+          // file the scan reported under another spelling. That guard was
+          // added to `download` and not here, and this arm wrote over
+          // whatever was at the path — no trash, no copy, and a report that
+          // said "conflict" while the user's bytes were gone (ADR-0061).
+          //
+          // So: ask the filesystem, and if something is there, the remote
+          // version goes BESIDE it, exactly as every other conflict does.
           const data = await fetchVerified(ctx, op.path, remoteEntry);
-          await writeAndRemember(ctx, op.path, data, remoteEntry.hash);
-          entries.push(
-            reportEntry(op, {
-              detail: { code: "remote-edit-restored" },
-              bytes: data.length,
-            }),
-          );
+          if ((await ctx.vault.stat(op.path)) !== null) {
+            const copyPath = await freeCopyPath(ctx, op.path, remote.device);
+            await writeAndRemember(ctx, copyPath, data, remoteEntry.hash);
+            entries.push(
+              reportEntry(op, {
+                detail: { code: "conflict-copy-saved", copyPath },
+                bytes: data.length,
+              }),
+            );
+          } else {
+            await writeAndRemember(ctx, op.path, data, remoteEntry.hash);
+            entries.push(
+              reportEntry(op, {
+                detail: { code: "remote-edit-restored" },
+                bytes: data.length,
+              }),
+            );
+          }
         } else {
           // Edited locally, deleted remotely: keep the local file untouched;
           // the next push revives it. Edit beats delete.
@@ -291,7 +314,14 @@ export async function applyPushOps(
             await ctx.storage.put(ctx.key(objectKey), blob, guard);
           } catch (e) {
             if (!(e instanceof SyncError) || e.code !== "StoragePreconditionFailed") throw e;
-            // Already stored by this or another device — the desired end state.
+            // Already stored by this or another device — the desired end
+            // state, and the SAME end state the adoption check below exists
+            // for: the manifest about to be published names ciphertext this
+            // push did not write. The window is narrower than the probe's
+            // (the object existed at PUT time, not at probe time) and the
+            // hazard is identical, so it is confirmed the same way
+            // (ADR-0061).
+            adopted.push({ path: op.path, objectKey });
           }
         }
         // Uploaded nothing because the probe said it was already there: the

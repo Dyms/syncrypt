@@ -33,23 +33,42 @@ const EVERY_KNOB = {
 
 describe("the SDK accepts every setting the engine honours", () => {
   it("THE LITERAL COMPILES — WHICH IS THE WHOLE TEST", () => {
+    // A type cannot be held by a test that runs: narrow `SafeSyncOptions`
+    // again and `npm run typecheck` fails on the annotation below. The
+    // assertions that used to be here only read back this file's own const
+    // (ADR-0061), so they are gone.
     const opts: NonNullable<OpenSyncEngineOptions["safeSync"]> = EVERY_KNOB;
-    expect(opts.generationsToKeep).toBe(7);
-    expect(opts.reclaimGraceSeconds).toBe(2 * 24 * 60 * 60);
-    expect(opts.tombstoneGraceSeconds).toBe(14 * 24 * 60 * 60);
+    expect(Object.keys(opts).sort()).toEqual([
+      "bulkChangeFloor",
+      "bulkChangeMaxFiles",
+      "bulkChangeMaxFraction",
+      "deletionBurstWindow",
+      "generationsToKeep",
+      "reclaimGraceSeconds",
+      "tombstoneGraceSeconds",
+      "versionsToKeep",
+    ]);
   });
 
-  it("and an engine opened with it is opened with those values", async () => {
+  it("AND THE ENGINE IS ACTUALLY OPENED WITH THEM", async () => {
+    // The previous version of this test asserted `sweep === []` and
+    // `prunedManifests === []` on a freshly synced one-file vault — true for
+    // every value of every setting, so deleting the `safeSync` pass-through
+    // from the SDK left it green (ADR-0061).
+    //
+    // `reclaimGraceSeconds` is the cheapest setting with a visible effect: a
+    // short grace sweeps on a clock the DEFAULT grace (one day) would not.
+    const GRACE = 100;
     const storage = new MemoryStorage();
     const vault = new MemoryVault();
-    vault.setFile("note.md", "hello");
+    const clock = new FixedClock(1_000_000);
     const engine = await openSyncEngine({
       storage,
       vault,
       passphrase: "p",
       deviceId: "dev-a",
       state: new MemoryStateStore(),
-      clock: new FixedClock(),
+      clock,
       kdfDefaults: {
         kdf: "argon2id",
         version: 1,
@@ -57,14 +76,32 @@ describe("the SDK accepts every setting the engine honours", () => {
         iterations: 2,
         parallelism: 1,
       },
-      safeSync: EVERY_KNOB,
+      safeSync: {
+        ...EVERY_KNOB,
+        reclaimGraceSeconds: GRACE,
+        // Nothing may hold a reference to the old object: no retained prior
+        // version, and no retained older manifest generation.
+        versionsToKeep: 0,
+        generationsToKeep: 1,
+      },
     });
 
-    // generationsToKeep: 7 reaches the reclamation planner, which is the one
-    // of the four with a visible effect on an otherwise untouched vault.
+    // One object becomes garbage: the file is rewritten, so the first
+    // ciphertext is referenced by nothing retained.
+    vault.setFile("note.md", "first version");
     await engine.sync();
-    const plan = await engine.previewReclaim();
-    expect(plan.prunedManifests).toEqual([]);
-    expect(plan.sweep).toEqual([]);
+    vault.now += 10;
+    clock.advance(10);
+    vault.setFile("note.md", "second version, of another length");
+    await engine.sync();
+    const objects = () => storage.keys().filter((k) => k.startsWith("objects/"));
+    expect(objects()).toHaveLength(2);
+
+    await engine.reclaimStorage(); // marks it
+    clock.advance(GRACE + 1); // past OUR grace, far short of the default day
+    const swept = await engine.reclaimStorage();
+
+    expect(swept.deleted).toHaveLength(1);
+    expect(objects()).toHaveLength(1);
   });
 });

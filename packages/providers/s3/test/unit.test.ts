@@ -165,10 +165,10 @@ describe("capability probe (honest reporting)", () => {
 
   it("reports true only when the backend actually rejects violated conditions", async () => {
     mockFetch(probeBackend(true));
-    expect(await probeConditionalWrites(new S3Client(CONFIG), retry)).toBe(true);
+    expect(await probeConditionalWrites(new S3Client(CONFIG), retry, probeKey("vaults/main"))).toBe(true);
 
     mockFetch(probeBackend(false)); // backend silently ignores the headers
-    expect(await probeConditionalWrites(new S3Client(CONFIG), retry)).toBe(false);
+    expect(await probeConditionalWrites(new S3Client(CONFIG), retry, probeKey("vaults/main"))).toBe(false);
   });
 
   it("cleans up its probe object", async () => {
@@ -180,7 +180,7 @@ describe("capability probe (honest reporting)", () => {
       }
       return new Response(null, { status: 200, headers: { etag: '"e"' } });
     });
-    await probeConditionalWrites(new S3Client(CONFIG), retry);
+    await probeConditionalWrites(new S3Client(CONFIG), retry, probeKey("vaults/main"));
     expect(deleted).toHaveLength(1);
     // ADR-0056: the probe lives under the vault's own prefix, inside meta/, so a
     // bucket shared with other data never sees a stray key at its root — and a
@@ -201,10 +201,18 @@ describe("capability probe (honest reporting)", () => {
     expect(deleted[0]).toContain("/vaults/notes/meta/capability-probe-");
   });
 
-  it("two probes never collide, and a trailing slash does not double up", () => {
+  it("two probes never collide, and the key lands where it belongs", () => {
+    // The whole of probeKey's contract, in the file that owns the pure
+    // helper: `untrusted-server.test.ts` had two more copies of this, and it
+    // is about hostile RESPONSES (ADR-0061).
     expect(probeKey(undefined)).not.toBe(probeKey(undefined));
     expect(probeKey("v/")).toMatch(/^v\/meta\/capability-probe-[0-9a-f]{16}$/);
     expect(probeKey(undefined)).toMatch(/^meta\/capability-probe-[0-9a-f]{16}$/);
+    expect(probeKey("vaults/main")).toMatch(
+      /^vaults\/main\/meta\/capability-probe-[0-9a-f]{16}$/,
+    );
+    // Never under objects/, which the reclamation planner walks.
+    expect(probeKey("vaults/main")).not.toContain("objects/");
   });
 });
 

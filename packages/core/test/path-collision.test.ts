@@ -21,12 +21,23 @@ import {
 const NFC = "café.md" as VaultPath; // é as one code point
 const NFD = "café.md" as VaultPath; // e + combining acute
 
-/** A vault that keeps the two spellings apart, as Linux and Android do. */
-class NormalizationPreservingVault extends MemoryVault {
-  override async *list(): AsyncIterable<VaultPath> {
-    for await (const p of super.list()) yield p;
-  }
-}
+/**
+ * Three spellings of ONE character, for the three-way case. "café" has only
+ * two, so a third literal of it is byte-identical to one of these — which is
+ * what the three-file test used to do: `setFile` is keyed by the exact string,
+ * so the third write overwrote the second and the test had TWO files
+ * (ADR-0061). U+1E09 (c with cedilla and acute) has four.
+ */
+const THREE = [
+  "\u1e09.md", // composed
+  "c\u0327\u0301.md", // c + cedilla + acute
+  "\u00e7\u0301.md", // ç + acute
+] as VaultPath[];
+
+// MemoryVault keys files by the exact string, so it already keeps the
+// spellings apart the way Linux and Android do. A subclass that overrode
+// list() to yield exactly what the base yields used to sit here and read as
+// if it added that (ADR-0061).
 
 function device(
   storage: MemoryStorage,
@@ -52,7 +63,7 @@ function device(
 
 describe("scanVault and two files that canonicalize to one path", () => {
   it("reports neither, and says which path is ambiguous", async () => {
-    const vault = new NormalizationPreservingVault();
+    const vault = new MemoryVault();
     vault.setFile(NFD, "the decomposed one");
     vault.setFile(NFC, "the precomposed one, of a different length");
     vault.setFile("plain.md", "unaffected");
@@ -73,7 +84,7 @@ describe("scanVault and two files that canonicalize to one path", () => {
     // knowledge, and a string round-trip test would exclude every accented
     // filename on macOS, where the folding makes them work today. Pinned so
     // the limit is visible rather than folklore (ADR-0053 §Consequences).
-    const vault = new NormalizationPreservingVault();
+    const vault = new MemoryVault();
     vault.setFile(NFD, "only the decomposed one");
     const ambiguous = new Set<VaultPath>();
     const scan = await scanVault(vault, new IdentityCrypto(), undefined, undefined, ambiguous);
@@ -82,7 +93,7 @@ describe("scanVault and two files that canonicalize to one path", () => {
   });
 
   it("an ordinary vault is unaffected", async () => {
-    const vault = new NormalizationPreservingVault();
+    const vault = new MemoryVault();
     vault.setFile("a.md", "one");
     vault.setFile("dir/b.md", "two");
     const ambiguous = new Set<VaultPath>();
@@ -91,15 +102,19 @@ describe("scanVault and two files that canonicalize to one path", () => {
     expect([...ambiguous]).toEqual([]);
   });
 
-  it("three files on one path are still one ambiguous path", async () => {
-    const vault = new NormalizationPreservingVault();
-    vault.setFile(NFD, "one");
-    vault.setFile(NFC, "two, longer");
-    vault.setFile("café.md", "three, longer still");
+  it("THREE files on one path are still one ambiguous path", async () => {
+    const vault = new MemoryVault();
+    expect(new Set(THREE).size).toBe(3); // three byte strings…
+    expect(new Set(THREE.map((p) => p.normalize("NFC"))).size).toBe(1); // …one path
+    THREE.forEach((p, i) => {
+      vault.setFile(p, `version ${String(i)}, of its own length${"!".repeat(i)}`);
+    });
+
     const ambiguous = new Set<VaultPath>();
     const scan = await scanVault(vault, new IdentityCrypto(), undefined, undefined, ambiguous);
+
     expect(scan).toEqual([]);
-    expect([...ambiguous]).toEqual([NFC]);
+    expect([...ambiguous]).toEqual([THREE[0]?.normalize("NFC")]);
   });
 });
 
@@ -113,7 +128,7 @@ describe("the engine excludes an ambiguous path instead of deleting it", () => {
     await first.engine.sync();
 
     // A second device ends up with both spellings on disk.
-    const second = device(storage, "second", new NormalizationPreservingVault());
+    const second = device(storage, "second", new MemoryVault());
     await second.engine.sync();
     expect(second.vault.getText(NFC)).toBe("the published version");
     second.vault.now += 10;
@@ -133,7 +148,7 @@ describe("the engine excludes an ambiguous path instead of deleting it", () => {
 
   it("and neither file is uploaded under the guess", async () => {
     const storage = new MemoryStorage();
-    const d = device(storage, "d", new NormalizationPreservingVault());
+    const d = device(storage, "d", new MemoryVault());
     d.vault.setFile(NFD, "one");
     d.vault.setFile(NFC, "two, of a different length");
     d.vault.setFile("plain.md", "unaffected");
@@ -147,7 +162,7 @@ describe("the engine excludes an ambiguous path instead of deleting it", () => {
 
   it("status() does not count an ambiguous path as a pending change", async () => {
     const storage = new MemoryStorage();
-    const d = device(storage, "d", new NormalizationPreservingVault());
+    const d = device(storage, "d", new MemoryVault());
     d.vault.setFile("plain.md", "unaffected");
     await d.engine.sync();
 
@@ -160,7 +175,7 @@ describe("the engine excludes an ambiguous path instead of deleting it", () => {
 
   it("once one of them is renamed, the other syncs normally", async () => {
     const storage = new MemoryStorage();
-    const d = device(storage, "d", new NormalizationPreservingVault());
+    const d = device(storage, "d", new MemoryVault());
     d.vault.setFile(NFD, "one");
     d.vault.setFile(NFC, "two, of a different length");
     await d.engine.sync();

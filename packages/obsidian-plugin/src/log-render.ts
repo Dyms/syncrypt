@@ -64,7 +64,7 @@ export function renderLine(line: LogLine, t: Strings): string {
       case "paths-not-distinct":
         return t.engine.pathsNotDistinct(n.paths);
       case "passphrase-legacy-form":
-        return t.engine.passphraseLegacyForm(n.form);
+        return t.engine.passphraseLegacyForm(t.passphraseForms[n.form]);
       case "deletions-paced":
         return t.engine.deletionsPaced(
           n.discount.paced,

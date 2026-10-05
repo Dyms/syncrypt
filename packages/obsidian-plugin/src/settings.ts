@@ -36,7 +36,7 @@ export function flooredSetting(
 }
 
 /** Apply every floor to a whole Safe-Sync block, in the units it stores. */
-export function flooredSafeSync<T extends SafeSyncNumbers>(safeSync: T): T {
+function flooredSafeSync<T extends SafeSyncNumbers>(safeSync: T): T {
   return {
     ...safeSync,
     versionsToKeep: flooredSetting("versionsToKeep", safeSync.versionsToKeep),

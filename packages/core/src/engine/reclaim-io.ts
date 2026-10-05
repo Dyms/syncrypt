@@ -34,7 +34,7 @@ import type { EngineContext } from "./context.js";
  * skipped: treating it as absent would make everything it references look
  * unreachable, and nothing here is ever deleted on a guess.
  */
-export async function readManifestIndex(
+async function readManifestIndex(
   ctx: EngineContext,
   signal?: AbortSignal,
 ): Promise<ManifestInStorage[]> {
@@ -83,7 +83,7 @@ export async function listObjects(
  * closed. Another device's mark is never read: its timestamps are in its own
  * clock, and there is no way to convert them into ours (see gcMarkKey).
  */
-export async function readGcMark(ctx: EngineContext): Promise<GcMark | null> {
+async function readGcMark(ctx: EngineContext): Promise<GcMark | null> {
   try {
     const blob = await ctx.storage.get(ctx.key(gcMarkKey(ctx.deviceId)));
     return parseGcMark(await ctx.crypto.decrypt("manifest", blob));

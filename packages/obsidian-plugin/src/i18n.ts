@@ -102,6 +102,17 @@ const EN = {
     statusPrefix: "Status: ",
   },
 
+  /**
+   * The Unicode forms a passphrase can take (ADR-0057) as WORDS, not as the
+   * identifiers the engine uses: the notice interpolated "as-typed" straight
+   * into an English sentence, and the same raw token into a Russian one
+   * (ADR-0061).
+   */
+  passphraseForms: {
+    "as-typed": "exactly as it was typed, without normalization",
+    nfd: "fully decomposed (NFD)",
+  },
+
   reasons: {
     [ReasonCode.NewLocalFile]: "new local file → uploaded",
     [ReasonCode.LocalChanged]: "local hash differs from base → uploaded",
@@ -558,6 +569,11 @@ const RU: Strings = {
     unlocking: "Syncrypt: разблокировка…",
     waitingForWifi: "Syncrypt: ожидание Wi-Fi",
     statusPrefix: "Статус: ",
+  },
+
+  passphraseForms: {
+    "as-typed": "ровно так, как её набрали, без нормализации",
+    nfd: "полностью разложенной (NFD)",
   },
 
   reasons: {

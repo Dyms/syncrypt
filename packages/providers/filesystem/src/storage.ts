@@ -46,12 +46,34 @@ function etagOf(data: Uint8Array): string {
   return `"${createHash("sha256").update(data).digest("hex").slice(0, 32)}"`;
 }
 
+function errno(e: unknown): string | undefined {
+  return typeof e === "object" && e !== null
+    ? (e as NodeJS.ErrnoException).code
+    : undefined;
+}
+
 function isNoEnt(e: unknown): boolean {
-  return (
-    typeof e === "object" &&
-    e !== null &&
-    (e as NodeJS.ErrnoException).code === "ENOENT"
-  );
+  return errno(e) === "ENOENT";
+}
+
+/**
+ * Errors that mean THERE IS NO OBJECT AT THIS KEY, not that the filesystem
+ * misbehaved.
+ *
+ * `ENOENT` is the obvious one. The others are this provider's own shape
+ * leaking: a key whose path happens to be a directory (`a` when only `a/1`
+ * exists) answers EISDIR, a key under a non-directory answers ENOTDIR, and a
+ * key the filesystem considers too long answers ENAMETOOLONG. All three used
+ * to become `StorageTransient`, which the engine RETRIES with backoff — so
+ * "there is nothing here" was reported as "the disk is having a moment"
+ * (ADR-0061). RFC-0006 says a read of an absent key is StorageNotFound.
+ *
+ * Reads only. A WRITE that fails with EISDIR genuinely failed and is not
+ * "absent".
+ */
+function isAbsentOnRead(e: unknown): boolean {
+  const code = errno(e);
+  return code === "ENOENT" || code === "EISDIR" || code === "ENOTDIR" || code === "ENAMETOOLONG";
 }
 
 function normalizeFsError(e: unknown, key: ObjectKey): SyncError {
@@ -127,6 +149,7 @@ export class FilesystemStorage implements StoragePort {
     try {
       return new Uint8Array(await fs.readFile(this.fullPath(key)));
     } catch (e) {
+      if (isAbsentOnRead(e)) throw new SyncError("StorageNotFound", `not found: ${key}`, e);
       throw normalizeFsError(e, key);
     }
   }
@@ -142,6 +165,7 @@ export class FilesystemStorage implements StoragePort {
         lastModified: Math.floor(st.mtimeMs / 1000),
       };
     } catch (e) {
+      if (isAbsentOnRead(e)) throw new SyncError("StorageNotFound", `not found: ${key}`, e);
       throw normalizeFsError(e, key);
     }
   }

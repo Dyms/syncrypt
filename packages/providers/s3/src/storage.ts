@@ -8,6 +8,7 @@
 
 import {
   isSyncError,
+  isUsableObjectKey,
   SyncError,
   type ObjectKey,
   type ObjectStat,
@@ -296,7 +297,7 @@ export class S3Storage implements StoragePort {
     return {
       key,
       size: Number(res.header("content-length") ?? "0"),
-      etag: res.header("etag") ?? "",
+      etag: requireEtag(res.header("etag"), key, "stat(head)"),
       lastModified: parseHttpDate(res.header("last-modified")),
     };
   }
@@ -344,7 +345,7 @@ export class S3Storage implements StoragePort {
       key,
       // 206 → the size after the slash; 200 (Range ignored) → content-length.
       size: Number(total ?? res.header("content-length") ?? "0"),
-      etag: res.header("etag") ?? "",
+      etag: requireEtag(res.header("etag"), key, "stat(range)"),
       lastModified: parseHttpDate(res.header("last-modified")),
     };
   }
@@ -397,6 +398,13 @@ export class S3Storage implements StoragePort {
         // it is the server volunteering something else, and every caller here
         // hands these keys to stat(), get() and delete().
         if (!obj.key.startsWith(prefix)) continue;
+        // A listed key goes straight back into get/stat/delete, so it is
+        // checked like a key being written (RFC-0006 §list, rule 2). The
+        // contract was written in ADR-0058 and enforced in two providers out
+        // of three: this one filtered by prefix and nothing else (ADR-0061).
+        // A row we will not use is skipped, not fatal — the same direction
+        // `decodeKey` already takes for a key that will not decode.
+        if (!isUsableObjectKey(obj.key)) continue;
         yield { key: obj.key, size: obj.size, etag: obj.etag, lastModified: obj.lastModified };
       }
 
@@ -460,7 +468,12 @@ function randomHex(bytes: number): string {
 export async function probeConditionalWrites(
   client: S3Client,
   retryOpts: RetryOptions,
-  key: ObjectKey = probeKey(undefined),
+  // REQUIRED. It used to default to `probeKey(undefined)`, which puts the
+  // probe at the bucket ROOT — exactly the placement ADR-0056 fixed, where a
+  // prefix-scoped least-privilege credential answers 403 before any sync can
+  // start. No production call site used the default; a future one that forgot
+  // the argument would have silently brought the defect back (ADR-0061).
+  key: ObjectKey,
 ): Promise<boolean> {
   const payload = new TextEncoder().encode("syncrypt capability probe — safe to delete");
   try {
@@ -503,6 +516,30 @@ export function probeKey(vaultPrefix: string | undefined): ObjectKey {
   const prefix = (vaultPrefix ?? "").replace(/\/+$/, "");
   const relative = `meta/capability-probe-${randomHex(8)}`;
   return prefix === "" ? relative : `${prefix}/${relative}`;
+}
+
+/**
+ * An ETag the conditional-write path can compare against, or a refusal.
+ *
+ * RFC-0006 says `stat().etag` is never empty, and S3 sends one on HEAD, on a
+ * ranged GET and in a listing — the one real exception is a 416 on a zero-byte
+ * object, handled where it happens. `?? ""` on the others is the same shape of
+ * defensive default that produced that defect: it turns a backend that did not
+ * answer into an answer of "", against which every conditional write compares
+ * equal to nothing (ADR-0061).
+ *
+ * Refusing is Transient on purpose: `stat` treats that as "try the next
+ * shape", so a gateway that omits ETags degrades to the one-key LIST instead
+ * of failing outright, and the conformance suite is what tells its owner.
+ */
+function requireEtag(etag: string | null, key: ObjectKey, operation: string): string {
+  if (etag === null || etag === "") {
+    throw new SyncError(
+      "StorageTransient",
+      `S3 ${operation} "${key}": the backend sent no ETag`,
+    );
+  }
+  return etag;
 }
 
 type StatStrategy = "head" | "range" | "list";

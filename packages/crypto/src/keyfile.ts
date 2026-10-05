@@ -154,7 +154,9 @@ export interface OpenVaultCryptoOptions {
   /**
    * Device affordability ceiling (ADR-0018). Vault params above it are
    * refused FAIL-CLOSED instead of OOM-crashing a webview. Mobile clients
-   * pass { maxMemoryKiB: 131072 }.
+   * pass `{ maxMemoryKiB: MOBILE_MEMORY_BUDGET_KIB }` — and must not pass
+   * 131072, which is `DESKTOP_KDF_PRESET.memoryKiB` and therefore a ceiling
+   * that refuses nothing. This comment said to pass exactly that (ADR-0060).
    */
   affordability?: { maxMemoryKiB: number };
   /**

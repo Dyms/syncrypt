@@ -1,5 +1,15 @@
-// Retry with exponential backoff + full jitter — mirrors provider-s3's
-// (kept per-provider so providers stay dependency-independent).
+// Retry with exponential backoff + full jitter.
+//
+// Byte-for-byte the same as provider-s3's. The reason this file used to give —
+// "kept per-provider so providers stay dependency-independent" — is not true:
+// both copies import `isSyncError` from @syncrypt/core, which is where a
+// shared one would live. It stays duplicated for now because moving it is a
+// four-package change with no behaviour in it, and that is recorded as the
+// next consolidation rather than pretended away (ADR-0061).
+//
+// NOTE: the S3 copy carries a warning this one does not need — that
+// `POST ?uploads` is not idempotent (ADR-0060). WebDAV issues no such
+// request; every verb this provider retries is idempotent.
 
 import { isSyncError } from "@syncrypt/core";
 

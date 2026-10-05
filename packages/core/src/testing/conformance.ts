@@ -162,10 +162,13 @@ export function describeStorageConformance(
       expect((await storage.stat("vaults/main/objects/aa/one")).key).toBe(
         "vaults/main/objects/aa/one",
       );
-      for await (const stat of storage.list("vaults/main/objects/")) {
-        expect(stat.key).toBe("vaults/main/objects/aa/one");
-        expect(dec(await storage.get(stat.key))).toBe("mine");
-      }
+      // Collected, not asserted inside the loop: an EMPTY listing satisfies a
+      // loop body, so a provider that mishandles a deep prefix would sail
+      // through the test written to catch that (ADR-0061).
+      const listed: string[] = [];
+      for await (const stat of storage.list("vaults/main/objects/")) listed.push(stat.key);
+      expect(listed).toEqual(["vaults/main/objects/aa/one"]);
+      expect(dec(await storage.get(listed[0] ?? ""))).toBe("mine");
     });
 
     it("LIST TAKES A KEY PREFIX, AND NOTHING OUTSIDE IT COMES BACK", async () => {
@@ -209,22 +212,36 @@ export function describeStorageConformance(
       // yielded.
       expect(seen.length).toBeGreaterThanOrEqual(1);
       expect(seen.every((k) => k.startsWith("objects/"))).toBe(true);
-      for (const key of seen.slice(0, 2)) expect(key).not.toBe("");
     });
 
     it("refuses a key with a traversing segment instead of resolving it", async () => {
       // These arrive from a listing, which is the server talking, and go
       // straight into stat/get/delete. `..` normalizes out of a URL and out of
       // a filesystem path alike, so the object acted on is not the one named.
-      for (const key of ["objects/../manifests/000000009-devA.json", "objects/./x", "objects//x"]) {
+      //
+      // The TARGET exists, which is what makes the `get` arm mean anything: a
+      // provider that resolves the key hands back these bytes, and one that
+      // merely has nothing there would answer StorageNotFound — also a
+      // SyncError, and the assertion used to accept it (ADR-0061).
+      const target = "manifests/000000009-devA.json";
+      await storage.put(target, enc("THE MANIFEST, WHICH IS NOT THEIRS TO FETCH"));
+
+      for (const key of [`objects/../${target}`, "objects/./x", "objects//x"]) {
         await expect(storage.put(key, enc("x")), key).rejects.toSatisfy((e) => isSyncError(e));
-        await expect(storage.get(key), key).rejects.toSatisfy((e) => isSyncError(e));
         await expect(storage.delete(key), key).rejects.toSatisfy((e) => isSyncError(e));
+        let got: string | null = null;
+        try {
+          got = dec(await storage.get(key));
+        } catch (e) {
+          expect(isSyncError(e), key).toBe(true);
+        }
+        expect(got, key).not.toBe("THE MANIFEST, WHICH IS NOT THEIRS TO FETCH");
       }
-      // …and nothing was created by any of those attempts.
+
+      // …and nothing was created by any of those attempts: only the target.
       const listed: string[] = [];
       for await (const stat of storage.list("")) listed.push(stat.key);
-      expect(listed).toEqual([]);
+      expect(listed).toEqual([target]);
     });
 
     /**
