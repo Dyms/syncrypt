@@ -119,6 +119,8 @@ function engineWith(
     crypto,
     deviceId: opts.deviceId,
     storagePrefix,
+    // The base is tied to the vault it came from (ADR-0079).
+    vaultIdentity: crypto.vaultIdentity,
     ...(opts.clock !== undefined ? { clock: opts.clock } : {}),
     ...(opts.log !== undefined ? { log: opts.log } : {}),
     ...(opts.state !== undefined ? { state: opts.state } : {}),

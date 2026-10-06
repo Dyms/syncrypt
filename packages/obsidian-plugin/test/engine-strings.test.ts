@@ -23,6 +23,7 @@ const NOTICES: Record<EngineNotice["code"], EngineNotice> = {
   },
   "confirmation-stale": { code: "confirmation-stale", newDestructive: 3 },
   "state-unreadable": { code: "state-unreadable", detail: "SyntaxError" },
+  "base-other-vault": { code: "base-other-vault" },
   "dedup-probe-unavailable": {
     code: "dedup-probe-unavailable",
     path: "note.md",

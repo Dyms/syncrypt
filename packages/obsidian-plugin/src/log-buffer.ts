@@ -35,6 +35,7 @@ const WARNING_NOTICES: ReadonlySet<EngineNotice["code"]> = new Set([
   "vault-written-by-newer",
   "confirmation-stale",
   "state-unreadable",
+  "base-other-vault",
   "dedup-probe-unavailable",
   "passphrase-legacy-form",
 ]);

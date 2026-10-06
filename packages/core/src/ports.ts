@@ -213,6 +213,8 @@ export type EngineNotice =
   | { code: "confirmation-required"; reason?: ConfirmationReason }
   | { code: "confirmation-stale"; newDestructive: number }
   | { code: "state-unreadable"; detail: string }
+  /** The saved base belongs to another vault and was not used (ADR-0079). */
+  | { code: "base-other-vault" }
   | { code: "dedup-probe-unavailable"; path: VaultPath; detail: string }
   | { code: "manifest-entries-forgotten"; count: number; generation: number }
   | { code: "forgotten-objects-released"; count: number; generation: number }

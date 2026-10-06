@@ -48,6 +48,13 @@ export interface SyncEngineConfig {
   deviceId: DeviceId;
   storagePrefix: string; // bucket key prefix for this vault
   /**
+   * Which vault this engine opens — any string two vaults never share; the
+   * SDK passes the salt of the vault's key parameters (ADR-0079). Recorded
+   * with the base; a base recorded for another vault is not used. Omitted:
+   * no check (the base is trusted as before).
+   */
+  vaultIdentity?: string;
+  /**
    * This client's version, e.g. the plugin's manifest version (ADR-0036).
    * Recorded in every manifest it publishes, and compared against what it
    * reads so a vault shared by mismatched devices says so instead of behaving
@@ -433,6 +440,10 @@ class Engine implements SyncEngine {
   /** Last blob handed to the state port, to skip writing the same bytes twice. */
   private lastSavedState: string | undefined;
   private stateLoaded = false;
+  /** Which vault the base belongs to (ADR-0079); see SyncEngineConfig. */
+  private readonly vaultIdentity: string | undefined;
+  /** The identity found in the state blob, kept when this engine has none. */
+  private storedIdentity: string | undefined;
   /** One version-skew line per session, not one per sync. */
   private versionSkewReported = false;
   private running = false;
@@ -441,6 +452,7 @@ class Engine implements SyncEngine {
   constructor(config: SyncEngineConfig) {
     const prefix = config.storagePrefix.replace(/\/+$/, "");
     this.statePort = config.state;
+    this.vaultIdentity = config.vaultIdentity;
     this.ctx = {
       storage: config.storage,
       vault: config.vault,
@@ -546,8 +558,24 @@ class Engine implements SyncEngine {
       if (blob === null) return;
       raw = JSON.parse(new TextDecoder().decode(blob));
       if (typeof raw !== "object" || raw === null) return;
+      const stored = (raw as { vault?: unknown }).vault;
+      this.storedIdentity = typeof stored === "string" ? stored : undefined;
       const baseRaw = (raw as { base?: unknown }).base;
-      if (baseRaw !== undefined && baseRaw !== null) {
+      // A base recorded for ANOTHER vault is not a common ancestor of this
+      // one. Trusted, it read that vault's last-synced state as this one's,
+      // and the planner downloaded over unchanged local files — a silent
+      // overwrite (audit №4, D3). ADR-0065 keeps one state file per storage
+      // location in the plugin; this holds for any client, and for a vault
+      // recreated at the same location. Without a base the next sync
+      // reconciles from scratch: differences become conflicts, nothing is
+      // deleted (ADR-0079). The hash cache is about local files and stays.
+      const otherVault =
+        this.vaultIdentity !== undefined &&
+        this.storedIdentity !== undefined &&
+        this.storedIdentity !== this.vaultIdentity;
+      if (otherVault && baseRaw !== undefined && baseRaw !== null) {
+        this.ctx.log.notice({ code: "base-other-vault" });
+      } else if (baseRaw !== undefined && baseRaw !== null) {
         // Filtered on the way in too: state written before ADR-0025, or under
         // a wider profile, must not resurrect the defect on this run.
         this.adoptBase(parseManifest(new TextEncoder().encode(JSON.stringify(baseRaw))));
@@ -568,8 +596,10 @@ class Engine implements SyncEngine {
 
   private async saveState(): Promise<void> {
     if (this.statePort === undefined) return;
+    const vault = this.vaultIdentity ?? this.storedIdentity;
     const serialized = JSON.stringify({
       version: 2,
+      ...(vault !== undefined ? { vault } : {}),
       base: this.base,
       hashes: encodeHashCache(this.cache, this.ctx.clock.now()),
     });

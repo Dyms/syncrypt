@@ -38,6 +38,8 @@ export function renderLine(line: LogLine, t: Strings): string {
         return t.engine.confirmationStale(n.newDestructive);
       case "state-unreadable":
         return t.engine.stateUnreadable(n.detail);
+      case "base-other-vault":
+        return t.engine.baseOtherVault;
       case "dedup-probe-unavailable":
         return t.engine.dedupProbeUnavailable(n.path, n.detail);
       case "manifest-entries-forgotten":

@@ -255,6 +255,8 @@ const EN = {
       `The plan changed since you confirmed it (${String(n)} new destructive operations) — confirm again.`,
     stateUnreadable: (detail: string) =>
       `Local sync state unreadable — reconciling from scratch, which is slower but safe (${detail}).`,
+    baseOtherVault:
+      "The saved sync state belongs to another vault, so it was not used — reconciling from scratch: anything that differs is kept as a conflict copy, nothing is deleted.",
     dedupProbeUnavailable: (path: string, detail: string) =>
       `Could not check whether "${path}" is already in storage — uploading it anyway (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
@@ -762,6 +764,8 @@ const RU: Strings = {
       `План изменился после вашего подтверждения (новых разрушающих операций: ${String(n)}) — подтвердите заново.`,
     stateUnreadable: (detail: string) =>
       `Локальное состояние синхронизации не читается — сверяюсь с нуля: медленнее, но безопасно (${detail}).`,
+    baseOtherVault:
+      "Сохранённое состояние синхронизации относится к другому хранилищу, поэтому не использовано — сверяюсь с нуля: всё расходящееся сохраняется как конфликт-копия, ничего не удаляется.",
     dedupProbeUnavailable: (path: string, detail: string) =>
       `Не удалось проверить, есть ли «${path}» в хранилище — загружаю на всякий случай (${detail}).`,
     manifestEntriesForgotten: (count: number, generation: number) =>
