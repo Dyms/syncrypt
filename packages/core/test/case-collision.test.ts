@@ -31,7 +31,7 @@ class CaseInsensitiveVault extends MemoryVault {
   override read(p: VaultPath): Promise<Uint8Array> {
     return super.read(this.fold(p));
   }
-  override write(p: VaultPath, data: Uint8Array): Promise<void> {
+  override write(p: VaultPath, data: Uint8Array): ReturnType<MemoryVault["write"]> {
     return super.write(this.fold(p), data);
   }
   override stat(p: VaultPath): Promise<{ size: number; mtime: number } | null> {

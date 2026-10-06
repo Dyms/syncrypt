@@ -13,6 +13,7 @@ import type {
   StateStorePort,
   StoragePort,
   VaultPort,
+  WrittenStat,
 } from "../ports.js";
 import type { ObjectKey, VaultPath } from "../types.js";
 import { describeEntry, type SyncReportEntry } from "../report.js";
@@ -175,9 +176,10 @@ export class MemoryVault implements VaultPort {
     return Promise.resolve(new Uint8Array(f.data));
   }
 
-  write(path: VaultPath, data: Uint8Array): Promise<void> {
+  write(path: VaultPath, data: Uint8Array): Promise<WrittenStat | undefined> {
     this.files.set(path, { data: new Uint8Array(data), mtime: this.now });
-    return Promise.resolve();
+    // Nothing can interleave with a synchronous set: this IS what was written.
+    return Promise.resolve({ size: data.length, mtime: this.now });
   }
 
   trash(path: VaultPath): Promise<void> {

@@ -184,3 +184,40 @@ describe("AdapterStateStore (ADR-0011)", () => {
     );
   });
 });
+
+describe("write vouches only for what it verified (ADR-0082)", () => {
+  it("returns the stat of the bytes it read back", async () => {
+    const adapter = new MockDataAdapter();
+    adapter.now = 5_000;
+    const vault = new ObsidianVault(adapter, DEFAULT_PROFILE);
+    expect(await vault.write("n.md", enc("hello"))).toEqual({ size: 5, mtime: 5 });
+  });
+
+  it("returns nothing when the file changed around the read-back", async () => {
+    class SaveDuringReadBack extends MockDataAdapter {
+      armed = true;
+      override async readBinary(path: string): Promise<ArrayBuffer> {
+        const bytes = await super.readBinary(path);
+        if (this.armed) {
+          this.armed = false;
+          this.now += 1;
+          this.setFile(path, "hello"); // same bytes, saved again by the editor
+        }
+        return bytes;
+      }
+    }
+    const adapter = new SaveDuringReadBack();
+    const vault = new ObsidianVault(adapter, DEFAULT_PROFILE);
+    expect(await vault.write("n.md", enc("hello"))).toBeUndefined();
+  });
+
+  it("returns nothing when the adapter cannot stat", async () => {
+    class NoStat extends MockDataAdapter {
+      override stat(): Promise<null> {
+        return Promise.reject(new Error("EIO"));
+      }
+    }
+    const vault = new ObsidianVault(new NoStat(), DEFAULT_PROFILE);
+    expect(await vault.write("n.md", enc("hello"))).toBeUndefined();
+  });
+});

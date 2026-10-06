@@ -16,6 +16,7 @@ import {
   SyncError,
   type VaultPath,
   type VaultPort,
+  type WrittenStat,
 } from "@syncrypt/core";
 
 import type { DataAdapterLike } from "./adapter-types.js";
@@ -155,7 +156,7 @@ export class ObsidianVault implements VaultPort {
     }
   }
 
-  async write(path: VaultPath, data: Uint8Array): Promise<void> {
+  async write(path: VaultPath, data: Uint8Array): Promise<WrittenStat | undefined> {
     // ADR-0017 (accepted fallback): direct writeBinary — no absent-window the
     // watcher could misread as a deletion — plus MANDATORY read-back
     // verification. A completed-but-corrupted write fails loudly here; the
@@ -168,6 +169,11 @@ export class ObsidianVault implements VaultPort {
     } catch (e) {
       throw new SyncError("VaultWriteFailed", `cannot write ${path}: ${String(e)}`, e);
     }
+    // Stat, read back, stat again: the read-back proves these bytes are what
+    // is there, and an unchanged stat around it proves the stat is theirs.
+    // That pair is what the engine may cache the downloaded hash under; a
+    // save anywhere in between leaves it nothing to vouch for (ADR-0082).
+    const before = await this.adapter.stat(native).catch(() => null);
     const readBack = new Uint8Array(await this.adapter.readBinary(native));
     if (!bytesEqual(readBack, data)) {
       throw new SyncError(
@@ -175,6 +181,17 @@ export class ObsidianVault implements VaultPort {
         `write verification failed for ${path}: the file on disk does not match what was written (ADR-0017)`,
       );
     }
+    const after = await this.adapter.stat(native).catch(() => null);
+    if (
+      before?.type !== "file" ||
+      after?.type !== "file" ||
+      before.size !== after.size ||
+      before.mtime !== after.mtime ||
+      before.size !== data.length
+    ) {
+      return undefined;
+    }
+    return { size: before.size, mtime: before.mtime / 1000 };
   }
 
   async trash(path: VaultPath): Promise<void> {

@@ -232,6 +232,18 @@ export function parseManifest(bytes: Uint8Array): Manifest {
     if (forgotten.length > 0) manifest.forgotten = [...new Set(forgotten)].sort();
   }
 
+  if (raw.forgottenPaths !== undefined) {
+    if (!isRecord(raw.forgottenPaths)) throw corrupt("forgottenPaths is not an object");
+    const markers: Record<VaultPath, number> = {};
+    for (const [path, gen] of Object.entries(raw.forgottenPaths)) {
+      if (typeof gen !== "number" || !Number.isSafeInteger(gen) || gen < 1) {
+        throw corrupt(`forgottenPaths for "${path}" has invalid generation`);
+      }
+      markers[validatePath(path, "forgottenPaths")] = gen;
+    }
+    if (Object.keys(markers).length > 0) manifest.forgottenPaths = markers;
+  }
+
   if (raw.history !== undefined) {
     if (!isRecord(raw.history)) throw corrupt("history is not an object");
     const history: Record<VaultPath, ManifestEntry[]> = {};

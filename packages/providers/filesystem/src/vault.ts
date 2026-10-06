@@ -15,6 +15,7 @@ import {
   SyncError,
   type VaultPath,
   type VaultPort,
+  type WrittenStat,
 } from "@syncrypt/core";
 
 import { isTmpName, tmpPathFor } from "./tmp.js";
@@ -83,13 +84,18 @@ export class FilesystemVault implements VaultPort {
     }
   }
 
-  async write(p: VaultPath, data: Uint8Array): Promise<void> {
+  async write(p: VaultPath, data: Uint8Array): Promise<WrittenStat> {
     const target = this.fullPath(p);
     try {
       await fs.mkdir(path.dirname(target), { recursive: true });
       const tmp = tmpPathFor(target);
       await fs.writeFile(tmp, data);
+      // The temp file's stat is the stat of exactly these bytes: nobody else
+      // writes a name only this call knows, and rename keeps size and mtime.
+      // A save after the rename changes the mtime (ADR-0082).
+      const st = await fs.stat(tmp);
       await fs.rename(tmp, target); // atomic replace
+      return { size: st.size, mtime: st.mtimeMs / 1000 };
     } catch (e) {
       throw new SyncError("VaultWriteFailed", `cannot write ${p}: ${String(e)}`, e);
     }

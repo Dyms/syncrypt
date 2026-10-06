@@ -146,11 +146,13 @@ async function writeAndRemember(
   data: Uint8Array,
   hash: Hash,
 ): Promise<void> {
-  await ctx.vault.write(path, data);
-  if (ctx.hashCache === undefined) return;
-  const stat = await ctx.vault.stat(path);
-  if (stat === null) return;
-  ctx.hashCache.set(path, { size: stat.size, mtime: stat.mtime, hash });
+  const written = await ctx.vault.write(path, data);
+  // Only a stat the vault vouches for (ADR-0082): a stat taken here, after
+  // the write, recorded a save that landed meanwhile as the downloaded
+  // content — never re-read, never uploaded, overwritten by the next remote
+  // change (review №2 of ADR-0080, F3).
+  if (ctx.hashCache === undefined || written === undefined) return;
+  ctx.hashCache.set(path, { size: written.size, mtime: written.mtime, hash });
 }
 
 /**
@@ -568,6 +570,11 @@ export function buildNextManifest(
   // reclamation (ADR-0055).
   if (remote?.forgotten !== undefined && remote.forgotten.length > 0) {
     manifest.forgotten = [...remote.forgotten];
+  }
+  // Likewise the forget markers (ADR-0082): what they protect is a device
+  // that has not pulled since the forget, however many pushes ago that was.
+  if (remote?.forgottenPaths !== undefined) {
+    manifest.forgottenPaths = { ...remote.forgottenPaths };
   }
   if (ctx.clientVersion !== undefined) manifest.writer = ctx.clientVersion;
   return manifest;

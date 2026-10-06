@@ -80,12 +80,14 @@ describe("the check answers only when it is sure", () => {
     expect(await check(await realVault(), "the vault passphras")).toBe(true);
   });
 
-  it("an unreachable bucket says nothing about the passphrase", async () => {
-    const storage = new MemoryStorage();
+  it("an unreachable bucket says nothing about the passphrase — so no answer (ADR-0082)", async () => {
+    const storage = await realVault();
     const failing = Object.create(storage) as MemoryStorage;
     failing.get = () =>
       Promise.reject(new SyncError("StorageTransient", "the bucket is unreachable"));
-    expect(await check(failing, PASSPHRASE)).toBe(false);
+    for (const typed of [PASSPHRASE, "a typo"]) {
+      await expect(check(failing, typed)).rejects.toMatchObject({ code: "StorageTransient" });
+    }
   });
 
   it("works under the vault's prefix", async () => {

@@ -31,15 +31,30 @@ export class SyncryptSettingTab extends PluginSettingTab {
   }
 
   /** Closing the tab leaves the profile field too: a pending edit applies (R5). */
+  /**
+   * Profile edits not yet committed (R5, ADR-0082): typed into a field that
+   * has not been left. Committed on blur, on close, and before a re-render.
+   */
+  private pendingProfile: (() => Promise<void>)[] = [];
+
+  /** Closing the tab leaves the profile field too: a pending edit commits (R5). */
   override hide(): void {
     super.hide();
-    void this.plugin.applyLiveSettings();
+    void this.commitProfileEdits();
+  }
+
+  private async commitProfileEdits(): Promise<void> {
+    const pending = this.pendingProfile;
+    this.pendingProfile = [];
+    for (const commit of pending) await commit();
   }
 
   // display() remains the supported imperative API; the declarative
   // getSettingDefinitions (1.13+) cannot express the unlock flow or the
   // dynamic credential note yet.
   display(): void {
+    // A re-render drops the fields; what was typed into them is not dropped.
+    void this.commitProfileEdits();
     const { containerEl } = this;
     containerEl.empty();
     const s = this.plugin.settings;
@@ -144,8 +159,11 @@ export class SyncryptSettingTab extends PluginSettingTab {
             // Nothing is connected until Unlock, and the engine is rebuilt
             // from scratch there.
             s.provider = v === "webdav" ? "webdav" : "s3";
+            // Before the save, as for the storage fields: the in-memory
+            // settings are what an unlock in flight reads, and a failed save
+            // must not leave an engine on the old backend (ADR-0082).
+            this.plugin.storageSettingsChanged();
             await this.plugin.saveSettings();
-            if (this.plugin.isUnlocked()) this.plugin.lock();
             rerender();
           }),
       );
@@ -200,13 +218,16 @@ export class SyncryptSettingTab extends PluginSettingTab {
           .setValue(get())
           .onChange(async (v) => {
             set(normalize(v));
+            // A different location or different keys is a reconnect, as a
+            // provider switch is: an open engine stays bound to the old one
+            // (audit №4, W2; ADR-0065). Said BEFORE the save: the settings in
+            // memory changed now, and a save that throws used to skip this —
+            // the engine kept the old bucket under settings showing the new
+            // one (ADR-0082).
+            this.plugin.storageSettingsChanged();
             await this.plugin.saveSettings();
             refreshCredentialWarning();
             refreshPlaintextWarning();
-            // A different location or different keys is a reconnect, as a
-            // provider switch is: an open engine stays bound to the old one
-            // (audit №4, W2; ADR-0065).
-            this.plugin.storageSettingsChanged();
           });
         // Leaving the field shows what was stored, not what was typed.
         text.inputEl.addEventListener("blur", () => {
@@ -328,16 +349,29 @@ export class SyncryptSettingTab extends PluginSettingTab {
         .setName(name)
         .setDesc(desc)
         .addTextArea((area) => {
-          area.setValue(get().join("\n")).onChange(async (v) => {
-            set(v.split("\n").map((l) => l.trim()).filter((l) => l !== ""));
+          // A pattern is half-typed until the field is left: "*" on the way to
+          // "*.pdf" is not a profile. It used to be saved and applied per
+          // keystroke (R5), and then still reached a sync through the
+          // after-sync re-apply of another field's edit (ADR-0082). So the
+          // keystrokes stay in the field; leaving it saves and applies.
+          let draft: string | null = null;
+          const commit = async (): Promise<void> => {
+            if (draft === null) return;
+            const value = draft;
+            draft = null;
+            set(value.split("\n").map((l) => l.trim()).filter((l) => l !== ""));
             await this.plugin.saveSettings();
+            // To the open vault port too, between syncs (ADR-0072).
+            await this.plugin.applyLiveSettings();
+          };
+          area.setValue(get().join("\n")).onChange((v) => {
+            if (draft === null) this.pendingProfile.push(commit);
+            draft = v;
           });
-          // To the open vault port too, between syncs (ADR-0072) — but when
-          // the field is left, not per keystroke (ADR-0081, post-fix R5). A
-          // sync that ran at "*" on the way to "*.pdf" planned with it, and
-          // the base dropped every entry the half pattern excluded: the next
-          // edit from another device became a conflict.
-          area.inputEl.addEventListener("blur", () => void this.plugin.applyLiveSettings());
+          area.inputEl.addEventListener("blur", () => {
+            this.pendingProfile = this.pendingProfile.filter((c) => c !== commit);
+            void commit();
+          });
         });
     };
     profileArea(

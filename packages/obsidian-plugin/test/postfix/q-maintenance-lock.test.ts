@@ -119,4 +119,27 @@ describe("Q: a lock during a maintenance operation", () => {
     await unlock(me.plugin, PASS);
     expect(me.plugin.isUnlocked()).toBe(true);
   });
+
+  it("the read-only previews get the command's signal too (ADR-0082)", async () => {
+    const me = await makeDevice(new World(), { ...S3_DATA, autoSync: { enabled: false } });
+    me.adapter.setFile("seed.md", "published");
+    await unlock(me.plugin, PASS, true);
+    await settle(me.plugin);
+    const engine = engineOf(me);
+    const seen: Record<string, boolean> = {};
+    vi.spyOn(engine, "listUncarried").mockImplementation((signal) => {
+      me.plugin.lock();
+      seen.review = signal?.aborted === true;
+      return Promise.resolve([]);
+    });
+    await me.plugin.reviewManifest();
+    await unlock(me.plugin, PASS);
+    vi.spyOn(engineOf(me), "previewRelease").mockImplementation((signal) => {
+      me.plugin.lock();
+      seen.release = signal?.aborted === true;
+      return Promise.resolve([]);
+    });
+    await me.plugin.releaseForgotten();
+    expect(seen).toEqual({ review: true, release: true });
+  });
 });

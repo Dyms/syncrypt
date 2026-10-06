@@ -743,6 +743,11 @@ class Engine implements SyncEngine {
       };
       if (Object.keys(history).length > 0) next.history = history;
       if (kept.size > 0) next.forgotten = [...kept].sort();
+      // Where, and when: a base older than this does not vouch for these
+      // paths any more (ADR-0082).
+      const markers = { ...(remote.manifest.forgottenPaths ?? {}) };
+      for (const path of forgotten) markers[path] = generation;
+      next.forgottenPaths = markers;
       // ADR-0036: this manifest is published by us, so it says so. Building it
       // by hand here used to skip that, and every peer then reported the vault
       // as written by a client older than itself.
@@ -754,9 +759,15 @@ class Engine implements SyncEngine {
         return { forgotten: [], generation: null };
       }
       // The base stays what this device last synced, not what the storage
-      // holds (ADR-0080, R1). Nothing this device carries changed: forgetting is for paths it does
-      // NOT carry, which a profile-filtered base never held.
-      this.adoptBase(next, { pull: false, planned: this.baseFor(remote), changed: new Set() });
+      // holds (ADR-0080, R1) — except the forgotten paths, which leave it.
+      // Forgetting is meant for paths this device does not carry, but the API
+      // does not enforce it; keeping a carried path's entry made another
+      // device's unrelated file at that path an edit of ours (ADR-0082).
+      this.adoptBase(next, {
+        pull: false,
+        planned: this.baseFor(remote),
+        changed: new Set(forgotten),
+      });
       await this.saveState();
       this.ctx.log.notice({
         code: "manifest-entries-forgotten",
@@ -807,7 +818,11 @@ class Engine implements SyncEngine {
       if (remote.manifest.history !== undefined) {
         next.history = { ...remote.manifest.history };
       }
-      // `forgotten` deliberately absent: that IS the release.
+      // `forgotten` deliberately absent: that IS the release. The markers
+      // stay — they protect devices, not copies (ADR-0082).
+      if (remote.manifest.forgottenPaths !== undefined) {
+        next.forgottenPaths = { ...remote.manifest.forgottenPaths };
+      }
       if (this.ctx.clientVersion !== undefined) next.writer = this.ctx.clientVersion;
 
       const published = await publishManifest(this.ctx, next);
@@ -902,9 +917,11 @@ class Engine implements SyncEngine {
     const winner = remote.winnerAt(base.generation);
     // Not in storage any more: pruned by reclamation, or a base this device
     // never published. Nothing to compare against, so nothing to claim.
-    if (winner === null || winner === base.device) return base;
-    this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
-    return null;
+    if (winner !== null && winner !== base.device) {
+      this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
+      return null;
+    }
+    return withoutForgotten(base, remote.manifest);
   }
 
   /**
@@ -1258,6 +1275,12 @@ class Engine implements SyncEngine {
       // harmless orphans; the next push completes idempotently (RFC-0004).
       return this.report(startedAt, "aborted", res.entries, fromGen, fromGen);
     }
+    if (nothingPushed(res)) {
+      // Every upload sat out (unreadable now): a generation identical to the
+      // last one would only fill the retained history and send every other
+      // device's push to pull-first (review №2 of ADR-0080, F2).
+      return this.report(startedAt, "no-op", res.entries, fromGen, fromGen);
+    }
 
     const generation = remote.generation + 1;
     const next = buildNextManifest(
@@ -1419,25 +1442,28 @@ class Engine implements SyncEngine {
       if (pushRes.aborted) {
         return this.report(startedAt, "aborted", entries, fromGen, toGen, conflicts);
       }
-      const generation = remote.generation + 1;
-      const next = buildNextManifest(
-        this.ctx,
-        remote.manifest,
-        generation,
-        pushRes.uploaded,
-        pushRes.tombstoned,
-      );
-      const published = await publishManifest(this.ctx, next);
-      if (!published.ok) {
-        return this.report(startedAt, "pull-first", entries, fromGen, toGen, conflicts);
+      // Nothing uploaded or tombstoned (all unreadable now): nothing to publish.
+      if (!nothingPushed(pushRes)) {
+        const generation = remote.generation + 1;
+        const next = buildNextManifest(
+          this.ctx,
+          remote.manifest,
+          generation,
+          pushRes.uploaded,
+          pushRes.tombstoned,
+        );
+        const published = await publishManifest(this.ctx, next);
+        if (!published.ok) {
+          return this.report(startedAt, "pull-first", entries, fromGen, toGen, conflicts);
+        }
+        this.adoptBase(next, {
+          pull: false,
+          planned: plannedForPush,
+          changed: pushedPaths(pushRes.uploaded, pushRes.tombstoned),
+        });
+        await this.saveState();
+        toGen = generation;
       }
-      this.adoptBase(next, {
-        pull: false,
-        planned: plannedForPush,
-        changed: pushedPaths(pushRes.uploaded, pushRes.tombstoned),
-      });
-      await this.saveState();
-      toGen = generation;
     }
 
     const outcome: SyncOutcome =
@@ -1485,6 +1511,39 @@ function sameKeys(a: readonly ObjectKey[], b: readonly ObjectKey[]): boolean {
   const x = new Set(a);
   const y = new Set(b);
   return x.size === y.size && [...x].every((k) => y.has(k));
+}
+
+/**
+ * The base, minus entries the storage has since forgotten (ADR-0082). A
+ * forgotten entry leaves no tombstone and no history, so what is at that path
+ * now — if anything — does not descend from it: an unrelated file another
+ * device created there read as an EDIT of this device's copy, and downloaded
+ * over it. Without the entry it is two files with no common base: a conflict,
+ * both kept; and nothing at the path is this device re-adding its copy, as
+ * ADR-0027 promised. The evidence is the forget marker: a base older than it
+ * does not vouch for the path. (Not the forgotten key list: it is gone after
+ * a release, and a re-added entry can carry a forgotten key — dropping that
+ * made every later edit a conflict, forever.)
+ */
+function withoutForgotten(base: Manifest, remote: Manifest): Manifest {
+  const markers = remote.forgottenPaths ?? {};
+  let files: Record<VaultPath, ManifestEntry> | null = null;
+  for (const [path, marker] of Object.entries(markers)) {
+    // A base at or past the forget was synced after it: its entry, if any,
+    // is a re-added one and stands.
+    if (base.generation >= marker || !(path in base.files)) continue;
+    files ??= { ...base.files };
+    delete files[path];
+  }
+  return files === null ? base : { ...base, files };
+}
+
+/** A push that changed nothing: every upload sat out, nothing was tombstoned. */
+function nothingPushed(res: {
+  uploaded: Readonly<Record<VaultPath, ManifestEntry>>;
+  tombstoned: readonly VaultPath[];
+}): boolean {
+  return Object.keys(res.uploaded).length === 0 && res.tombstoned.length === 0;
 }
 
 /** The paths a push changed: what it uploaded and what it tombstoned. */

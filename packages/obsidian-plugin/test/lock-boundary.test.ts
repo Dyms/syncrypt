@@ -186,7 +186,7 @@ describe("one passphrase dialog, and it cannot be dismissed mid-check (B11, B14)
     expect(engineOf(me)).toBe(engine);
   });
 
-  it("Escape while the passphrase is being checked does not close the dialog", async () => {
+  it("Escape while the passphrase is being checked closes the dialog and abandons the unlock (ADR-0082)", async () => {
     let finish = (): void => undefined;
     const modal = new PassphraseModal(
       {} as never,
@@ -197,11 +197,29 @@ describe("one passphrase dialog, and it cannot be dismissed mid-check (B11, B14)
     modal.open();
     (modal as unknown as { passphrase: string }).passphrase = "p";
     const submitted = (modal as unknown as { submit(): Promise<void> }).submit();
-    modal.close(); // Escape
-    expect(isOpen(modal)).toBe(true);
+    modal.close(); // Escape — a hung request must not hold the dialog
+    expect(isOpen(modal)).toBe(false);
+    expect(modal.abandoned).toBe(true);
     finish();
     await submitted;
-    expect(isOpen(modal)).toBe(false); // closed by the unlock that succeeded
+    expect(isOpen(modal)).toBe(false);
+  });
+
+  it("an unlock whose dialog was closed mid-check opens nothing (B14, ADR-0082)", async () => {
+    const world = new World();
+    const seed = await makeDevice(world, { ...S3_DATA, deviceId: "dev-seed" });
+    seed.adapter.setFile("seed.md", "seed");
+    await unlock(seed.plugin, PASS, true);
+    await settle(seed.plugin);
+    const me = await makeDevice(world, { ...S3_DATA, autoSync: { enabled: false } });
+    me.plugin.promptUnlock();
+    const modal = (me.plugin as unknown as { unlockModal: PassphraseModal }).unlockModal;
+    (modal as unknown as { passphrase: string }).passphrase = PASS;
+    const submitted = (modal as unknown as { submit(): Promise<void> }).submit(); // Argon2id running
+    modal.close(); // Escape
+    await submitted;
+    await settle(me.plugin);
+    expect(me.plugin.isUnlocked()).toBe(false);
   });
 });
 

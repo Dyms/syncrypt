@@ -9,6 +9,12 @@ import type { ConfirmationReason, PacingDiscount } from "./plan.js";
 // StoragePort (RFC-0006). "StorageProvider" in RFC-0006 is the same contract.
 // ---------------------------------------------------------------------------
 
+/** What `VaultPort.write` vouches for: the stat of the bytes it wrote. */
+export interface WrittenStat {
+  size: number;
+  mtime: number;
+}
+
 export interface ObjectStat {
   key: ObjectKey;
   size: number;
@@ -121,8 +127,18 @@ export interface VaultPort {
    */
   read(path: VaultPath): Promise<Uint8Array>;
 
-  /** Create/overwrite a file atomically (temp + rename where possible). */
-  write(path: VaultPath, data: Uint8Array): Promise<void>;
+  /**
+   * Create/overwrite a file atomically (temp + rename where possible).
+   *
+   * May resolve with the stat of exactly the bytes written — taken where the
+   * implementation can vouch that nothing else wrote in between (the temp file
+   * before its rename; a read-back that matched). The engine records the
+   * downloaded hash in the hash cache under that stat and ONLY under that
+   * stat: one taken after the write could be a save that landed meanwhile,
+   * which the cache would then vouch for as the downloaded content (ADR-0082).
+   * Resolving with nothing is always correct; the next scan re-hashes.
+   */
+  write(path: VaultPath, data: Uint8Array): Promise<WrittenStat | undefined>;
 
   /** Move a file into local Safe-Sync trash instead of hard-deleting (ADR-0010). */
   trash(path: VaultPath): Promise<void>;

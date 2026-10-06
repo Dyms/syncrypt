@@ -62,4 +62,14 @@ export interface Manifest {
    * Deleting them is `releaseForgotten()`, which is its own deliberate act.
    */
   forgotten?: ObjectKey[];
+  /**
+   * Where a forget happened: path → the generation that forgot it (ADR-0082).
+   *
+   * A forgotten entry leaves no tombstone and no history, so a device whose
+   * base still holds it cannot tell an unrelated file later created at that
+   * path from an edit of its own copy — and downloaded over it. A base older
+   * than the marker does not vouch for that path. Unlike `forgotten`, this
+   * outlives the release of the copies; a marker is a path and a number.
+   */
+  forgottenPaths?: Record<VaultPath, number>;
 }

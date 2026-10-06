@@ -6,10 +6,12 @@
 // nobody can unlock, discovered on the other device by someone who cannot fix
 // it.
 //
-// Three rules; the second was missing until ADR-0060, the third until ADR-0063:
+// Five rules; the second came with ADR-0060, the third ADR-0063, the fourth
+// ADR-0081, the fifth ADR-0082:
 //
 // 1. Only a definite CryptoAuthError is "wrong". An unreachable bucket says
-//    nothing about the passphrase and must not block sharing.
+//    nothing about the passphrase. (It used to be "must not block sharing";
+//    see rule 5.)
 // 2. It must not WRITE. `openSyncEngine` creates `meta/keyfile-params.json`
 //    when the vault has none, and this path passed no `kdfDefaults` — so
 //    pressing a button that looks like a check, before the first sync, created
@@ -29,6 +31,12 @@
 //    receiving device takes as confirmed (ADR-0078) and publishes the vault's
 //    first generation under — the sharer is locked out of its own vault.
 //    Rethrown as NothingToCheck: Share asks for a first sync instead.
+//
+// 5. Rule 1, revised (ADR-0082): an unreachable bucket still says nothing
+//    about the passphrase — so it is not "not wrong" either. It said so, and
+//    an offline Share sealed a typo the receiving device then took as
+//    confirmed (ADR-0078). Every failure other than "does not decrypt" is
+//    rethrown; Share says why it cannot check, and seals nothing.
 
 import type { DeviceId, LogPort, StoragePort, VaultPort } from "@syncrypt/core";
 import { isSyncError, openSyncEngine, vaultHasKeyfile } from "@syncrypt/sdk";
@@ -69,7 +77,11 @@ export async function passphraseIsDefinitelyWrong(
     if ((await engine.verifyAccess()) === null) throw new NothingToCheck();
     return false;
   } catch (e) {
-    if (e instanceof NothingToCheck || isSyncError(e, "KdfUnaffordable")) throw e;
-    return isSyncError(e, "CryptoAuthError");
+    // Only a definite "does not decrypt" is an answer. Everything else —
+    // nothing to check, a KDF this device cannot run, a storage that does not
+    // answer — is no answer, and an unchecked passphrase is not sealed into a
+    // ticket (rule 5, ADR-0082).
+    if (isSyncError(e, "CryptoAuthError")) return true;
+    throw e;
   }
 }

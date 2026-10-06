@@ -22,7 +22,7 @@ import {
 /** The user saves `target` at the moment the pull writes `trigger`. */
 class TypingVault extends MemoryVault {
   armed: { trigger: VaultPath; target: VaultPath; text: string } | null = null;
-  override write(path: VaultPath, data: Uint8Array): Promise<void> {
+  override write(path: VaultPath, data: Uint8Array): ReturnType<MemoryVault["write"]> {
     const a = this.armed;
     if (a !== null && path === a.trigger) {
       this.armed = null;
@@ -66,7 +66,7 @@ function device(
 /** Like TypingVault, and the saved file is then held open: unreadable. */
 class TypingAndHoldingVault extends TypingVault {
   heldOpen: VaultPath | null = null;
-  override write(path: VaultPath, data: Uint8Array): Promise<void> {
+  override write(path: VaultPath, data: Uint8Array): ReturnType<MemoryVault["write"]> {
     const target = this.armed?.trigger === path ? this.armed.target : null;
     const done = super.write(path, data);
     if (target !== null) this.heldOpen = target;

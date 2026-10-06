@@ -120,15 +120,21 @@ export class PassphraseModal extends Modal {
   }
 
   /**
-   * Not while the passphrase is being checked. Escape used to close the dialog
-   * and leave the unlock running behind it: a wrong passphrase was reported
-   * into a closed window, and a right one opened a vault the person had just
-   * dismissed (audit №4, B14). Argon2id takes seconds; the button says so.
+   * Closing while the passphrase is being checked ABANDONS the unlock: the
+   * plugin sees `abandoned` and opens nothing. Escape used to close the dialog
+   * and leave the unlock running behind it — a right passphrase opened a vault
+   * the person had just dismissed (audit №4, B14) — so closing was refused
+   * while busy; and then one request that hangs (no transport timeout) left a
+   * dialog nothing could close (ADR-0082).
    */
   override close(): void {
-    if (this.busy) return;
+    if (this.busy) this.abandoned = true;
+    this.busy = false;
     super.close();
   }
+
+  /** The person closed the dialog while it was checking (see close()). */
+  abandoned = false;
 
   /**
    * Close even mid-check: the plugin is unloading and the instance this dialog
@@ -136,8 +142,7 @@ export class PassphraseModal extends Modal {
    * opens nothing.
    */
   dismiss(): void {
-    this.busy = false;
-    super.close();
+    this.close();
   }
 
   override onClose(): void {

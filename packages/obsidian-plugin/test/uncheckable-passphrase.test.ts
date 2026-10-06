@@ -125,7 +125,7 @@ describe("in the plugin", () => {
     };
     await submit(PASS);
     await submit(PASS);
-    expect(spy.mock.calls.map((c) => c.slice(1))).toEqual([
+    expect(spy.mock.calls.map((c) => c.slice(1, 3))).toEqual([
       [false, false],
       [false, true],
     ]);

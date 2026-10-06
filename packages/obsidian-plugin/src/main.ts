@@ -158,6 +158,8 @@ export default class SyncryptPlugin extends Plugin {
   private unverified = false;
   /** Bumped by every storage-settings edit; an unlock that saw an older one is refused (Q6). */
   private storageEpoch = 0;
+  /** A ticket's settings being written; an unlock waits for it (ADR-0082). */
+  private settingsSettled: Promise<unknown> = Promise.resolve();
   /** Set by onunload: nothing opens an engine on an unloaded instance (Q8). */
   private unloaded = false;
   /** Dialogs waiting on a decision; `lock()` closes them as "no" (ADR-0066). */
@@ -567,7 +569,8 @@ export default class SyncryptPlugin extends Plugin {
     const modal = new PassphraseModal(
       this.app,
       async (passphrase, create, confirmed) => {
-        await this.unlock(passphrase, create, confirmed);
+        // Closed while checking: abandoned, nothing opens (ADR-0082).
+        await this.unlock(passphrase, create, confirmed, () => modal.abandoned);
         this.unlockModal = null;
       },
       () => {
@@ -615,6 +618,10 @@ export default class SyncryptPlugin extends Plugin {
    * import and is unit-tested; this supplies the ports.
    */
   async passphraseIsWrong(passphrase: string): Promise<boolean> {
+    // A prefix this build will not use cannot be checked against; the S3
+    // client's refusal would read as "unreachable" (ADR-0081, ADR-0082).
+    const prefix = storagePrefixOf(this.settings);
+    if (prefixHasEmptySegment(prefix)) throw new UnusablePrefix(prefix);
     const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
     return passphraseIsDefinitelyWrong({
       storage: await this.openStorage(),
@@ -655,9 +662,17 @@ export default class SyncryptPlugin extends Plugin {
    * Open the vault. THROWS on failure so the caller — normally the passphrase
    * modal — can keep asking instead of the error only reaching the log.
    */
-  private async unlock(passphrase: string, create = false, confirmed = false): Promise<void> {
+  private async unlock(
+    passphrase: string,
+    create = false,
+    confirmed = false,
+    /** The dialog this unlock answers was closed: open nothing (ADR-0082). */
+    abandoned: () => boolean = () => false,
+  ): Promise<void> {
     if (this.isUnlocked() || this.unloaded) return;
     if (this.foreignProvider !== null) return; // ADR-0075; promptUnlock says why
+    // Settings a ticket is still writing are not settings yet (ADR-0082).
+    await this.settingsSettled;
     // Where this unlock points, as of now (Q6): an edit while the keys are
     // derived is a different location, and the engine must not open the old.
     const epoch = this.storageEpoch;
@@ -736,8 +751,9 @@ export default class SyncryptPlugin extends Plugin {
       // Another path unlocked while this one was deriving keys: theirs stands.
       // Taking over would leave two engines on one vault (ADR-0066).
       if (this.isUnlocked()) return;
-      // Unloaded meanwhile: this instance is gone (Q8).
-      if (this.isUnloaded()) return;
+      // Unloaded meanwhile: this instance is gone (Q8). Or the person closed
+      // the dialog while it checked: they did not ask for this any more.
+      if (this.isUnloaded() || abandoned()) return;
       // The storage settings changed meanwhile: this engine is on the old
       // location under settings showing the new one (Q6, ADR-0065 §4).
       if (this.storageEpoch !== epoch) throw new LocationChanged();
@@ -985,11 +1001,10 @@ export default class SyncryptPlugin extends Plugin {
       if (!(await this.passphraseChecked(engine, abort.signal))) return;
       if (origin === "background") {
         // Nobody to ask: a push Safe Sync holds back waits for the next sync.
-        const pushed = await engine.push(abort.signal);
-        if (session === this.session && pushed.outcome !== "needs-confirmation") {
-          this.lastError = null;
-          this.finishReport(pushed, origin);
-        }
+        // Not a sync: nothing was pulled, so it reports nothing — a push
+        // report has no conflicts and would wipe the ones the last sync
+        // named (ADR-0082). The facts refreshed below show what is pending.
+        await engine.push(abort.signal);
         return;
       }
       let report = await engine.sync(abort.signal);
@@ -1271,7 +1286,7 @@ export default class SyncryptPlugin extends Plugin {
    */
   async reviewManifest(): Promise<void> {
     await this.maintenance(async (engine, current, signal) => {
-      const candidates = await engine.listUncarried();
+      const candidates = await engine.listUncarried(signal);
       if (!current()) return;
       if (candidates.length === 0) {
         new Notice(this.strings.forgetModal.noneFound, 6000);
@@ -1352,7 +1367,7 @@ export default class SyncryptPlugin extends Plugin {
       // From the storage, not from this device's base: another device may have
       // forgotten more since this one last synced, and every copy released
       // has to have been named here first (ADR-0070).
-      const keys = await engine.previewRelease();
+      const keys = await engine.previewRelease(signal);
       const kept = keys.length;
       if (!current()) return;
       const approved = await this.ask<boolean>((resolve) =>
@@ -1396,7 +1411,7 @@ export default class SyncryptPlugin extends Plugin {
     current: () => boolean,
     signal: AbortSignal,
   ): Promise<void> {
-    const plan = await engine.previewReclaim();
+    const plan = await engine.previewReclaim(signal);
     if (!current()) return;
     const approved = await this.ask<boolean>((resolve) =>
       new ReclaimStorageModal(this.app, plan, resolve, this.strings),
@@ -1498,14 +1513,25 @@ export default class SyncryptPlugin extends Plugin {
     if (this.foreignProvider !== null) throw new SettingsReadOnly(this.foreignProvider);
     const previous = structuredClone(this.settings);
     Object.assign(this.settings, structuredClone(next));
+    // A different connection, for an unlock in flight too (Q6) — from the
+    // moment the settings in memory change, not after the save: an unlock
+    // reading them during a save that then failed used to pass (ADR-0082).
+    this.storageEpoch++;
+    if (this.isUnlocked()) this.lock();
+    // An unlock waits for this save (ADR-0082): one that opened the ticket's
+    // location during a save that then failed synced it in — and, the
+    // settings rolled back, the next unlock uploaded those files into the old
+    // vault.
+    const saving = this.saveSettings();
+    this.settingsSettled = saving.catch(() => undefined);
     try {
-      await this.saveSettings();
+      await saving;
     } catch (e) {
+      // No unlock can have opened the ticket's location meanwhile: an unlock
+      // already running saw the epoch move, a new one waited for this save.
       Object.assign(this.settings, previous);
       throw e;
     }
-    this.storageEpoch++; // a different connection, for an unlock in flight too (Q6)
-    if (this.isUnlocked()) this.lock();
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see settings-tab.ts
     this.settingTab?.display();
   }

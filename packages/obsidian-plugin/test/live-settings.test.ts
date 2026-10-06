@@ -17,6 +17,7 @@ import {
   S3_DATA,
   settle,
   unlock,
+  waitFor,
   World,
 } from "./support/plugin-harness.js";
 
@@ -91,18 +92,31 @@ describe("profile edits reach the open vault port (A4/C3)", () => {
 });
 
 describe("a half-typed pattern does not reach a sync (ADR-0081, R5)", () => {
-  it("keystrokes are saved, not applied: a sync mid-typing plans with the old profile", async () => {
+  it("keystrokes stay in the field: neither saved nor applied until it is left", async () => {
     const { me } = await opened();
     renderTab(me);
     await field(T.exclude).type("*"); // on the way to "*.pdf"
     const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
       .vaultPort;
     expect(port.syncable("todo.md")).toBe(true);
-    expect(me.plugin.settings.profile.exclude).toContain("*"); // saved all the same
+    expect(me.plugin.settings.profile.exclude).not.toContain("*"); // nor saved (ADR-0082)
     await field(T.exclude).type("*.pdf");
     field(T.exclude).inputEl.dispatch("blur");
+    await new Promise((r) => setTimeout(r, 0));
     expect(port.syncable("todo.md")).toBe(true);
     expect(port.syncable("scan.pdf")).toBe(false);
+    expect(me.plugin.settings.profile.exclude).toContain("*.pdf");
+  });
+
+  it("a re-render does not drop a pending edit", async () => {
+    const { me } = await opened();
+    renderTab(me);
+    await field(T.exclude).type("Private");
+    renderTab(me); // e.g. the provider row re-draws the tab
+    const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
+      .vaultPort;
+    await waitFor(() => !port.syncable("Private/x.md"), "the pending edit to apply");
+    expect(me.plugin.settings.profile.exclude).toContain("Private");
   });
 
   it("closing the settings tab applies a pending edit", async () => {
@@ -112,7 +126,8 @@ describe("a half-typed pattern does not reach a sync (ADR-0081, R5)", () => {
     tab.hide();
     const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
       .vaultPort;
-    expect(port.syncable("Private/x.md")).toBe(false);
+    await waitFor(() => !port.syncable("Private/x.md"), "the pending edit to apply");
+    expect(me.plugin.settings.profile.exclude).toContain("Private");
   });
 });
 
