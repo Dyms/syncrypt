@@ -22,6 +22,7 @@ import {
   isSyncError,
   MOBILE_MEMORY_BUDGET_KIB,
   openSyncEngine,
+  SyncError,
 } from "@syncrypt/sdk";
 import { S3Storage } from "@syncrypt/provider-s3";
 import { WebDavStorage } from "@syncrypt/provider-webdav";
@@ -362,6 +363,9 @@ export default class SyncryptPlugin extends Plugin {
     // ever stop (ADR-0081, post-fix Q8). An unlock already deriving keys
     // checks `unloaded` before it takes the engine.
     this.unloaded = true;
+    // A profile edit still in its field is the person's edit: saved, not
+    // dropped with the tab (ADR-0083). Best effort — a quit may not wait.
+    void this.settingTab?.commitProfileEdits();
     this.unlockModal?.dismiss();
     this.unlockModal = null;
     this.lock();
@@ -571,7 +575,10 @@ export default class SyncryptPlugin extends Plugin {
       async (passphrase, create, confirmed) => {
         // Closed while checking: abandoned, nothing opens (ADR-0082).
         await this.unlock(passphrase, create, confirmed, () => modal.abandoned);
-        this.unlockModal = null;
+        // Only if it is still this dialog: an abandoned unlock returning late
+        // cleared the NEXT dialog's slot — two dialogs, and one that unload
+        // no longer closed (ADR-0083).
+        if (this.unlockModal === modal) this.unlockModal = null;
       },
       () => {
         this.unlockModal = null;
@@ -697,7 +704,13 @@ export default class SyncryptPlugin extends Plugin {
       // bypasses webview CORS, which is what made Android work at all
       // (RFC-0006 §Injectable transport). A WebDAV server is no likelier to
       // send permissive CORS headers than an S3 one.
-      const storage = await this.openStorage();
+      // Nothing is written for an unlock nobody wants any more (ADR-0083):
+      // an abandoned "Create" used to write the vault's key parameters at the
+      // location the person had just backed out of.
+      const storage = refusingWritesWhen(
+        await this.openStorage(),
+        () => abandoned() || this.isUnloaded(),
+      );
       const vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
       engine = await openSyncEngine({
         storage,
@@ -748,6 +761,11 @@ export default class SyncryptPlugin extends Plugin {
         unchecked = !create && !confirmed;
       }
 
+      // A session opened and was locked while this one derived its keys: its
+      // sync may still be stopping. The wait at the start could not see it
+      // (ADR-0083) — two engines on one vault. (Not while a session is open:
+      // that one stands, below.)
+      if (!this.isUnlocked()) await this.previousSessionStopped();
       // Another path unlocked while this one was deriving keys: theirs stands.
       // Taking over would leave two engines on one vault (ADR-0066).
       if (this.isUnlocked()) return;
@@ -1563,5 +1581,24 @@ function installStore(app: App): InstallStore | null {
     save: (id) => {
       save.call(app, DEVICE_ID_KEY, id);
     },
+  };
+}
+
+/**
+ * The storage, refusing puts once `refused()` says so (ADR-0083): an unlock's
+ * engine creates nothing after its dialog was closed or the plugin unloaded.
+ * Reads go on, and fail nothing.
+ */
+function refusingWritesWhen(storage: StoragePort, refused: () => boolean): StoragePort {
+  const stop = (what: string): Promise<never> =>
+    Promise.reject(new SyncError("Aborted", `${what} refused: the unlock was abandoned`));
+  return {
+    put: (key, data, opts) => (refused() ? stop("put") : storage.put(key, data, opts)),
+    // An unlock deletes nothing; its put is the vault's creation.
+    delete: (key) => storage.delete(key),
+    get: (key) => storage.get(key),
+    stat: (key) => storage.stat(key),
+    list: (prefix) => storage.list(prefix),
+    capabilities: () => storage.capabilities(),
   };
 }

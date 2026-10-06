@@ -43,7 +43,7 @@ export class SyncryptSettingTab extends PluginSettingTab {
     void this.commitProfileEdits();
   }
 
-  private async commitProfileEdits(): Promise<void> {
+  async commitProfileEdits(): Promise<void> {
     const pending = this.pendingProfile;
     this.pendingProfile = [];
     for (const commit of pending) await commit();
