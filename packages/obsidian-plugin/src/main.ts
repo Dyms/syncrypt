@@ -1647,17 +1647,30 @@ function abortingReadsOn(storage: StoragePort, signal: AbortSignal): StoragePort
       );
     });
   };
+  // The re-LIST that confirms a manifest put is part of the write (review
+  // №6, R1): aborted, the generation that landed was never adopted, and the
+  // next sync planned this device's own edits against the old base.
+  let confirming = false;
+  const isManifest = (k: string): boolean => k.includes("manifests/");
   return {
-    put: (key, data, opts) => storage.put(key, data, opts),
+    put: async (key, data, opts) => {
+      const result = await storage.put(key, data, opts);
+      if (isManifest(key)) confirming = true;
+      return result;
+    },
     delete: (key) => storage.delete(key),
     get: (key) => race(storage.get(key)),
     stat: (key) => race(storage.stat(key)),
-    list: (prefix) => ({
-      [Symbol.asyncIterator]: () => {
-        const inner = storage.list(prefix)[Symbol.asyncIterator]();
-        return { next: () => race(inner.next()) };
-      },
-    }),
+    list: (prefix) => {
+      const waited = confirming && isManifest(prefix);
+      if (waited) confirming = false;
+      return {
+        [Symbol.asyncIterator]: () => {
+          const inner = storage.list(prefix)[Symbol.asyncIterator]();
+          return { next: () => (waited ? inner.next() : race(inner.next())) };
+        },
+      };
+    },
     capabilities: () => storage.capabilities(),
   };
 }

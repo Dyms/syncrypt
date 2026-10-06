@@ -753,6 +753,8 @@ class Engine implements SyncEngine {
       // as written by a client older than itself.
       if (this.ctx.clientVersion !== undefined) next.writer = this.ctx.clientVersion;
 
+      // Last stop before the commit point: nothing is published after a Lock (review №6).
+      if (signal?.aborted === true) throw new SyncError("Aborted", "stopped before publishing");
       const published = await publishManifest(this.ctx, next, remote.manifest);
       if (!published.ok) {
         // Someone else moved first; the caller re-lists and tries again.
@@ -825,6 +827,8 @@ class Engine implements SyncEngine {
       }
       if (this.ctx.clientVersion !== undefined) next.writer = this.ctx.clientVersion;
 
+      // Last stop before the commit point: nothing is published after a Lock (review №6).
+      if (signal?.aborted === true) throw new SyncError("Aborted", "stopped before publishing");
       const published = await publishManifest(this.ctx, next, remote.manifest);
       if (!published.ok) return { released: 0, generation: null };
       // No path changed; the base keeps what this device synced (ADR-0080, R1).
@@ -910,32 +914,41 @@ class Engine implements SyncEngine {
   private baseFor(remote: RemoteState): Manifest | null {
     const base = this.base;
     if (base === null || remote.manifest === null) return base;
-    // The winner AT OUR GENERATION, which is the question. Asking it only of
-    // the top generation (what shipped in beta.10) made the repair expire the
-    // moment the winner published anything else — one more push and the
-    // silent overwrite was back (ADR-0040).
-    const winner = remote.winnerAt(base.generation);
-    // Not in storage any more: pruned by reclamation, or a base this device
-    // never published. Nothing to compare against, so nothing to claim.
-    if (winner !== null && winner !== base.device) {
-      this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
-      return null;
-    }
-    // On the line the storage's top descends from? (ADR-0085). A fork's
-    // winner can be built past by its loser's successor, and after an
-    // accepted rollback the same (generation, device) is a different
-    // manifest; in both, the base was trusted and the top's older versions
-    // downloaded over edits only this device had. Not on the line → no base:
-    // differences are conflicts, both kept. Beyond what the line records (or
-    // manifests from a build without lineage): as before.
+    // On the line the storage's top descends from? (ADR-0085). Decisive
+    // whenever the line reaches the base (review №6, R6-1): ids are content
+    // digests and every manifest's ancestors are its exact parent's, so a
+    // match proves the base IS the true line at its generation — even where
+    // a later-landing smaller-id manifest made `winnerAt` name another
+    // device, which used to read as a lost fork (conflicts, revived
+    // deletions). Not on it → no base: differences are conflicts, both kept —
+    // a chain built on a fork's loser, a history regrown after an accepted
+    // rollback, another vault.
     if (base.id !== undefined && remote.manifest.id !== undefined) {
       const line = [remote.manifest.id, ...(remote.manifest.ancestors ?? [])];
       const depth = remote.manifest.generation - base.generation;
-      const onLine = line[depth];
-      if (depth >= 0 && onLine !== undefined && onLine !== base.id) {
-        this.ctx.log.notice({ code: "base-off-line", generation: base.generation });
+      const onLine = depth >= 0 ? line[depth] : undefined;
+      if (onLine !== undefined) {
+        if (onLine === base.id) return withoutForgotten(base, remote.manifest);
+        // Named for what the person can recognise: a lost fork when storage
+        // shows one at that generation, otherwise "not on the line".
+        const other = remote.winnerAt(base.generation);
+        this.ctx.log.notice({
+          code: other !== null && other !== base.device ? "fork-lost" : "base-off-line",
+          generation: base.generation,
+        });
         return null;
       }
+    }
+    // Beyond the line, or manifests without one (older builds): the winner
+    // AT OUR GENERATION, which is the question. Asking it only of the top
+    // generation (what shipped in beta.10) made the repair expire the moment
+    // the winner published anything else (ADR-0040).
+    const winner = remote.winnerAt(base.generation);
+    // Not in storage any more: pruned by reclamation — a forked generation
+    // never is (ADR-0084) — or a base this device never published.
+    if (winner !== null && winner !== base.device) {
+      this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
+      return null;
     }
     return withoutForgotten(base, remote.manifest);
   }
@@ -1306,6 +1319,8 @@ class Engine implements SyncEngine {
       res.uploaded,
       res.tombstoned,
     );
+    // Last stop before the commit point: nothing is published after a Lock (review №6).
+    if (signal?.aborted === true) throw new SyncError("Aborted", "stopped before publishing");
     const published = await publishManifest(this.ctx, next, remote.manifest);
     if (!published.ok) {
       // Lost the race or the fork. Our objects are harmless; nothing committed.
@@ -1468,6 +1483,8 @@ class Engine implements SyncEngine {
           pushRes.uploaded,
           pushRes.tombstoned,
         );
+        // Last stop before the commit point: nothing is published after a Lock (review №6).
+        if (signal?.aborted === true) throw new SyncError("Aborted", "stopped before publishing");
         const published = await publishManifest(this.ctx, next, remote.manifest);
         if (!published.ok) {
           return this.report(startedAt, "pull-first", entries, fromGen, toGen, conflicts);

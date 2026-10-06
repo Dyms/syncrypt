@@ -434,6 +434,9 @@ export async function applyPushOps(
     }
   }
   if (!aborted) await confirmAdopted(ctx, adopted, signal);
+  // A stop during the re-check is a stop (review №6, R2): it used to return
+  // normally and the caller published a generation after the Lock.
+  if (signal?.aborted === true) aborted = true;
   return { entries, uploaded, tombstoned, unreadable, aborted };
 }
 
@@ -469,6 +472,7 @@ async function confirmAdopted(
     try {
       await ctx.storage.stat(ctx.key(objectKey));
     } catch (e) {
+      if (e instanceof SyncError && e.code === "Aborted") return; // the caller sees the signal
       if (!(e instanceof SyncError) || e.code !== "StorageNotFound") continue;
       throw new SyncError(
         "StorageTransient",
