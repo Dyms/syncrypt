@@ -17,6 +17,7 @@ import { ConfirmSyncModal } from "../src/confirm-modal.js";
 import { EN_STRINGS } from "../src/i18n.js";
 import { ReclaimStorageModal } from "../src/reclaim-modal.js";
 import { PassphraseModal } from "../src/unlock.js";
+import { PreviousSessionBusy } from "../src/unlock-error.js";
 import { Modal, Notice, resetStub } from "./support/obsidian-stub.js";
 import {
   engineOf,
@@ -260,7 +261,7 @@ describe("the stopped sync is stopped, and waited for (C5, each half on its own)
     expect(failures(me)).toEqual([]);
   });
 
-  it("the next unlock does not start until the stopped sync has returned", async () => {
+  it("the next unlock does not open beside the stopped sync — refused, not wedged (ADR-0081, Q4)", async () => {
     let release = (): void => undefined;
     let held = false;
     class Gate extends MemoryStorage {
@@ -280,14 +281,17 @@ describe("the stopped sync is stopped, and waited for (C5, each half on its own)
     await unlock(me.plugin);
     await waitFor(() => held, "the pull to be inside a read");
     me.plugin.lock();
-    let reopened = false;
-    const again = unlock(me.plugin).then(() => (reopened = true));
-    // Longer than an unlock takes here (key derivation included).
-    await new Promise((r) => setTimeout(r, 1500));
-    expect(reopened).toBe(false);
+    // The stopped sync is still inside its read: no second engine, and the
+    // unlock says so instead of holding the dialog for as long as it hangs.
+    await expect(unlock(me.plugin)).rejects.toBeInstanceOf(PreviousSessionBusy);
+    expect(me.plugin.isUnlocked()).toBe(false);
     release();
-    await again;
-    expect(reopened).toBe(true);
+    await waitFor(
+      () => (me.plugin as unknown as { running: unknown }).running === null,
+      "the stopped sync to return",
+    );
+    await unlock(me.plugin);
+    expect(me.plugin.isUnlocked()).toBe(true);
     await settle(me.plugin);
     expect(notes(me)).toBe(12);
   });

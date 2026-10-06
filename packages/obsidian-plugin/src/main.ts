@@ -86,11 +86,23 @@ import { PassphraseModal } from "./unlock.js";
 import { UncheckablePassphrase } from "./unlock-flow.js";
 import {
   commandFailureMessage,
+  LocationChanged,
+  prefixHasEmptySegment,
+  PreviousSessionBusy,
+  SettingsReadOnly,
   syncFailureMessage,
   unlockFailureMessage,
+  UnusablePrefix,
 } from "./unlock-error.js";
 import { passphraseIsDefinitelyWrong } from "./passphrase-check.js";
 import { ObsidianVault } from "./vault-adapter.js";
+
+/**
+ * How long an unlock waits for what the previous session left running before
+ * saying so instead (ADR-0081, Q4). The abort is seen between requests; a
+ * healthy one stops well inside this.
+ */
+const PREVIOUS_SESSION_WAIT_MS = 1_000;
 
 /** How many conflicting paths the summary log line names before it counts. */
 /**
@@ -131,6 +143,23 @@ export default class SyncryptPlugin extends Plugin {
    * second one's downloads met the first one's writes as conflicts.
    */
   private running: { abort: AbortController; done: Promise<void> } | null = null;
+  /**
+   * Maintenance commands in flight — reclaim, release, forget, accept — held
+   * like `running`: Lock aborts them and the next unlock waits for them
+   * (ADR-0081, post-fix Q7). They used to run with no signal at all.
+   */
+  private readonly chores = new Set<{ abort: AbortController; done: Promise<void> }>();
+  /**
+   * Unlocked while the storage was unreachable, so the passphrase was never
+   * checked (ADR-0081, post-fix Q3). The first operation that can publish
+   * checks it first, and asks for it again when there is nothing to check
+   * against — ADR-0078's rule, which a network blip used to skip.
+   */
+  private unverified = false;
+  /** Bumped by every storage-settings edit; an unlock that saw an older one is refused (Q6). */
+  private storageEpoch = 0;
+  /** Set by onunload: nothing opens an engine on an unloaded instance (Q8). */
+  private unloaded = false;
   /** Dialogs waiting on a decision; `lock()` closes them as "no" (ADR-0066). */
   private readonly openModals = new Set<{ close(): void }>();
   /**
@@ -212,6 +241,23 @@ export default class SyncryptPlugin extends Plugin {
     } else if (JSON.stringify(loaded) !== JSON.stringify({ ...this.extraData, ...this.settings })) {
       await this.saveSettings();
     }
+    // A sync-state.json from before ADR-0065 describes the location the
+    // settings named WHEN IT WAS WRITTEN — the settings as loaded, before
+    // anything in this session can change them. Handed over at the first
+    // unlock instead, it went to wherever the settings pointed by then: update,
+    // then "Add device" with a ticket for another vault, and vault A's base
+    // became vault B's (post-fix review, Q1; ADR-0081). Not under a newer
+    // build's settings (ADR-0075): their location is not one this build reads.
+    if (this.foreignProvider === null) {
+      const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
+      await adoptLegacyState(
+        adapter,
+        this.paths.stateFile,
+        this.paths.stateFileFor(storageLocationTag(this.settings)),
+      ).catch((e: unknown) => {
+        this.log.warn(this.strings.log.syncFailed(String(e)));
+      });
+    }
 
     this.settingTab = new SyncryptSettingTab(this.app, this);
     this.addSettingTab(this.settingTab);
@@ -292,22 +338,30 @@ export default class SyncryptPlugin extends Plugin {
     });
 
     // Best-effort push on quit — never blocks shutdown (RFC-0004).
+    // Through syncNow like every other sync: held in `running`, so Lock stops
+    // it and the next unlock waits for it (ADR-0081, post-fix Q5). A bare
+    // `engine.push()` here ran outside the lock boundary ADR-0066 drew.
     this.registerDomEvent(window, "beforeunload", () => {
-      if (this.engine !== null && !this.syncing) void this.engine.push();
+      void this.syncNow("background");
     });
 
     // Mobile: best-effort push when the app goes to background (RFC-0004 —
     // no daemon; this is the only "on close" signal Android reliably gives).
     if (Platform.isMobile) {
       this.registerDomEvent(document, "visibilitychange", () => {
-        if (document.visibilityState === "hidden" && this.engine !== null && !this.syncing) {
-          void this.engine.push();
-        }
+        if (document.visibilityState === "hidden") void this.syncNow("background");
       });
     }
   }
 
   override onunload(): void {
+    // The passphrase dialog is not one of `openModals`: closed here, or it
+    // outlives the instance and an answer opens an engine no unload will
+    // ever stop (ADR-0081, post-fix Q8). An unlock already deriving keys
+    // checks `unloaded` before it takes the engine.
+    this.unloaded = true;
+    this.unlockModal?.dismiss();
+    this.unlockModal = null;
     this.lock();
   }
 
@@ -492,8 +546,13 @@ export default class SyncryptPlugin extends Plugin {
     return this.engine !== null;
   }
 
+  /** A method, not the field: it changes across the awaits of an unlock. */
+  private isUnloaded(): boolean {
+    return this.unloaded;
+  }
+
   promptUnlock(): void {
-    if (this.isUnlocked()) return;
+    if (this.isUnlocked() || this.unloaded) return;
     if (this.foreignProvider !== null) {
       new Notice(this.strings.notices.newerData(this.foreignProvider), 8000);
       return;
@@ -597,20 +656,28 @@ export default class SyncryptPlugin extends Plugin {
    * modal — can keep asking instead of the error only reaching the log.
    */
   private async unlock(passphrase: string, create = false, confirmed = false): Promise<void> {
-    if (this.isUnlocked()) return;
+    if (this.isUnlocked() || this.unloaded) return;
     if (this.foreignProvider !== null) return; // ADR-0075; promptUnlock says why
-    // A sync from the session a lock ended is cancelled, not finished: wait
-    // for it to stop before another engine opens this vault (ADR-0066).
-    await this.running?.done;
+    // Where this unlock points, as of now (Q6): an edit while the keys are
+    // derived is a different location, and the engine must not open the old.
+    const epoch = this.storageEpoch;
     let engine: SyncEngine | null = null;
     try {
+      // A sync or command from the session a lock ended is cancelled, not
+      // finished: wait for it to stop before another engine opens this vault
+      // (ADR-0066). Bounded (ADR-0081, post-fix Q4): the abort is seen between
+      // requests, and one request that hangs used to hold the dialog on
+      // "Checking…" with no way to close it. Not opened beside it either —
+      // that is two engines on one vault — so the person is told to retry.
+      await this.previousSessionStopped();
       this.statusEl?.setText(this.strings.status.unlocking);
       const s = this.settings;
       const adapter = this.app.vault.adapter as unknown as DataAdapterLike;
       // One base per storage location (ADR-0065): another vault's base read as
       // this vault's plans its files as edits to overwrite.
       const stateFile = this.paths.stateFileFor(storageLocationTag(s));
-      await adoptLegacyState(adapter, this.paths.stateFile, stateFile);
+      const prefix = storagePrefixOf(s);
+      if (prefixHasEmptySegment(prefix)) throw new UnusablePrefix(prefix);
       // Both providers go through requestUrl(): it issues a NATIVE request and
       // bypasses webview CORS, which is what made Android work at all
       // (RFC-0006 §Injectable transport). A WebDAV server is no likelier to
@@ -645,6 +712,7 @@ export default class SyncryptPlugin extends Plugin {
       // A transient network failure is NOT a reason to refuse the vault: the
       // notes are local, editing must keep working, and the next sync will
       // verify the keys anyway. Only a definitive answer blocks the unlock.
+      let unchecked = false;
       try {
         const vault = await engine.verifyAccess();
         // Nothing published: nothing to check the passphrase against. Unless
@@ -660,15 +728,24 @@ export default class SyncryptPlugin extends Plugin {
           throw e;
         }
         this.log.warn(this.strings.log.verifyOffline);
+        // Not checked; checked before anything is published (Q3). A created or
+        // confirmed passphrase was typed twice already.
+        unchecked = !create && !confirmed;
       }
 
       // Another path unlocked while this one was deriving keys: theirs stands.
       // Taking over would leave two engines on one vault (ADR-0066).
       if (this.isUnlocked()) return;
+      // Unloaded meanwhile: this instance is gone (Q8).
+      if (this.isUnloaded()) return;
+      // The storage settings changed meanwhile: this engine is on the old
+      // location under settings showing the new one (Q6, ADR-0065 §4).
+      if (this.storageEpoch !== epoch) throw new LocationChanged();
       // Only now does this become the session's engine. Assigning it up front
       // meant a FAILED unlock's error path cleared someone else's (B11).
       this.engine = engine;
       this.vaultPort = vaultPort;
+      this.unverified = unchecked;
       this.log.info(this.strings.log.unlocked);
       this.renderStatus();
 
@@ -718,6 +795,7 @@ export default class SyncryptPlugin extends Plugin {
     // after Lock must not act through the keys Lock just dropped (ADR-0016 §1,
     // ADR-0066).
     this.running?.abort.abort();
+    for (const chore of this.chores) chore.abort.abort();
     for (const modal of [...this.openModals]) modal.close();
     this.scheduler?.dispose();
     this.scheduler = null;
@@ -733,10 +811,61 @@ export default class SyncryptPlugin extends Plugin {
     this.session++;
     this.syncing = false;
     this.configPulled = false;
+    this.unverified = false;
     if (this.factsTimer !== null) clearTimeout(this.factsTimer);
     this.factsTimer = null;
     this.renderStatus();
     this.log.info(this.strings.log.locked);
+  }
+
+  /**
+   * Wait for what an ended session left running — the sync and any command —
+   * but not forever (ADR-0081, Q4). Throws PreviousSessionBusy when it has not
+   * stopped in time; the dialog says so and can be closed.
+   */
+  private async previousSessionStopped(): Promise<void> {
+    const pending = [this.running, ...this.chores]
+      .filter((r) => r !== null)
+      .map((r) => r.done);
+    if (pending.length === 0) return;
+    let timedOut = (): void => undefined;
+    const late = new Promise<boolean>((resolve) => (timedOut = () => { resolve(false); }));
+    const timer = setTimeout(timedOut, PREVIOUS_SESSION_WAIT_MS);
+    const stopped = await Promise.race([Promise.all(pending).then(() => true), late]);
+    clearTimeout(timer);
+    if (!stopped) throw new PreviousSessionBusy();
+  }
+
+  /**
+   * Before anything that can publish (Q3): a passphrase taken while the
+   * storage was unreachable is checked now. Nothing published yet → ADR-0078's
+   * question was never asked, so the device locks and asks it; a passphrase
+   * the vault refuses locks too. True when the caller may go on.
+   */
+  private async passphraseChecked(engine: SyncEngine, signal?: AbortSignal): Promise<boolean> {
+    if (!this.unverified) return true;
+    const session = this.session;
+    let published: { generation: number } | null;
+    try {
+      published = await engine.verifyAccess(signal);
+    } catch (e) {
+      if (session === this.session && isSyncError(e, "CryptoAuthError")) {
+        this.lock();
+        new Notice(this.strings.notices.unlockRecheckWrong, 12000);
+        this.promptUnlock();
+        return false;
+      }
+      throw e; // still offline: the caller fails as any sync would
+    }
+    if (session !== this.session) return false;
+    if (published === null) {
+      this.lock();
+      new Notice(this.strings.notices.unlockRecheckUncheckable, 12000);
+      this.promptUnlock();
+      return false;
+    }
+    this.unverified = false;
+    return true;
   }
 
   // -- triggers ---------------------------------------------------------------
@@ -810,7 +939,12 @@ export default class SyncryptPlugin extends Plugin {
 
   // -- sync -----------------------------------------------------------------
 
-  async syncNow(origin: "manual" | "auto" | "startup"): Promise<void> {
+  /**
+   * One sync — or, for "background" (quit, app to background), a push only,
+   * best effort, with no dialog and no notice (RFC-0004). Every one is held in
+   * `running` (ADR-0066, ADR-0081).
+   */
+  async syncNow(origin: "manual" | "auto" | "startup" | "background"): Promise<void> {
     if (this.engine === null) {
       if (origin === "manual") this.promptUnlock();
       return;
@@ -848,6 +982,16 @@ export default class SyncryptPlugin extends Plugin {
     this.scheduler?.noteSyncStarted();
     this.renderStatus();
     try {
+      if (!(await this.passphraseChecked(engine, abort.signal))) return;
+      if (origin === "background") {
+        // Nobody to ask: a push Safe Sync holds back waits for the next sync.
+        const pushed = await engine.push(abort.signal);
+        if (session === this.session && pushed.outcome !== "needs-confirmation") {
+          this.lastError = null;
+          this.finishReport(pushed, origin);
+        }
+        return;
+      }
       let report = await engine.sync(abort.signal);
       if (report.outcome === "needs-confirmation") {
         report = await this.handleConfirmation(engine, session, report, abort.signal);
@@ -870,7 +1014,7 @@ export default class SyncryptPlugin extends Plugin {
       if (session === this.session || !isSyncError(e, "Aborted")) {
         this.log.warn(this.strings.log.syncFailed(String(e)));
       }
-      if (origin !== "auto" && session === this.session) {
+      if (origin !== "auto" && origin !== "background" && session === this.session) {
         new Notice(this.strings.notices.syncFailed(syncFailureMessage(e, this.strings)), 8000);
       }
     } finally {
@@ -1038,7 +1182,7 @@ export default class SyncryptPlugin extends Plugin {
    * reach the screen; these commands used to drop them (audit №4, B9).
    */
   private async maintenance(
-    run: (engine: SyncEngine, current: () => boolean) => Promise<void>,
+    run: (engine: SyncEngine, current: () => boolean, signal: AbortSignal) => Promise<void>,
   ): Promise<void> {
     const engine = this.engine;
     if (engine === null) {
@@ -1047,12 +1191,21 @@ export default class SyncryptPlugin extends Plugin {
     }
     const session = this.session;
     const current = (): boolean => session === this.session && engine === this.engine;
+    // Held like the sync (ADR-0081, Q7): Lock aborts it, the next unlock waits.
+    const abort = new AbortController();
+    let stopped = (): void => undefined;
+    const chore = { abort, done: new Promise<void>((r) => (stopped = r)) };
+    this.chores.add(chore);
     try {
-      await run(engine, current);
+      if (!(await this.passphraseChecked(engine, abort.signal))) return;
+      await run(engine, current, abort.signal);
     } catch (e) {
       if (!current()) return; // the lock already said why
       this.log.warn(this.strings.log.commandFailed(String(e)));
       new Notice(this.strings.notices.commandFailed(commandFailureMessage(e, this.strings)), 10000);
+    } finally {
+      this.chores.delete(chore);
+      stopped();
     }
   }
 
@@ -1117,7 +1270,7 @@ export default class SyncryptPlugin extends Plugin {
    * other devices' profiles, so the judgement is the user's.
    */
   async reviewManifest(): Promise<void> {
-    await this.maintenance(async (engine, current) => {
+    await this.maintenance(async (engine, current, signal) => {
       const candidates = await engine.listUncarried();
       if (!current()) return;
       if (candidates.length === 0) {
@@ -1132,7 +1285,8 @@ export default class SyncryptPlugin extends Plugin {
         this.lockedMeanwhile();
         return;
       }
-      const result = await engine.forgetPaths(chosen);
+      const result = await engine.forgetPaths(chosen, signal);
+      if (!current()) return; // the lock already said so (Q7)
       if (result.generation === null) {
         new Notice(this.strings.forgetModal.raced, 8000);
         return;
@@ -1152,10 +1306,10 @@ export default class SyncryptPlugin extends Plugin {
    * since caught up, and the check costs one manifest read.
    */
   async acceptStorage(): Promise<void> {
-    await this.maintenance(async (engine, current) => {
+    await this.maintenance(async (engine, current, signal) => {
       const { baseGeneration } = await engine.status();
       // No manifest at all is generation 0 — a wiped bucket is a rollback too.
-      const remoteGeneration = (await engine.verifyAccess())?.generation ?? 0;
+      const remoteGeneration = (await engine.verifyAccess(signal))?.generation ?? 0;
       if (!current()) return;
       if (baseGeneration === null || remoteGeneration >= baseGeneration) {
         new Notice(this.strings.notices.notRolledBack, 6000);
@@ -1173,7 +1327,11 @@ export default class SyncryptPlugin extends Plugin {
       // the forget: the storage may have caught up while the dialog was open,
       // and forgetting the base against a storage that is no longer behind
       // brings deleted files back (ADR-0071).
-      if (!(await engine.acceptRolledBack())) {
+      const accepted = await engine.acceptRolledBack(signal);
+      // Locked during the accept: no "accepted", and no follow-up sync — on
+      // a locked device that is a passphrase dialog nobody asked for (Q7).
+      if (!current()) return;
+      if (!accepted) {
         new Notice(this.strings.notices.notRolledBack, 6000);
         return;
       }
@@ -1190,7 +1348,7 @@ export default class SyncryptPlugin extends Plugin {
    * one confirmation stand for two very different decisions.
    */
   async releaseForgotten(): Promise<void> {
-    await this.maintenance(async (engine, current) => {
+    await this.maintenance(async (engine, current, signal) => {
       // From the storage, not from this device's base: another device may have
       // forgotten more since this one last synced, and every copy released
       // has to have been named here first (ADR-0070).
@@ -1205,7 +1363,8 @@ export default class SyncryptPlugin extends Plugin {
         this.lockedMeanwhile();
         return;
       }
-      const result = await engine.releaseForgotten(undefined, keys);
+      const result = await engine.releaseForgotten(signal, keys);
+      if (!current()) return; // the lock already said so (Q7)
       if (result.stale === true) {
         new Notice(this.strings.releaseModal.changed, 8000);
         return;
@@ -1227,12 +1386,16 @@ export default class SyncryptPlugin extends Plugin {
    * engine before anything is deleted, never executed as previewed.
    */
   async reclaimStorage(): Promise<void> {
-    await this.maintenance(async (engine, current) => {
-      await this.reclaimWith(engine, current);
+    await this.maintenance(async (engine, current, signal) => {
+      await this.reclaimWith(engine, current, signal);
     });
   }
 
-  private async reclaimWith(engine: SyncEngine, current: () => boolean): Promise<void> {
+  private async reclaimWith(
+    engine: SyncEngine,
+    current: () => boolean,
+    signal: AbortSignal,
+  ): Promise<void> {
     const plan = await engine.previewReclaim();
     if (!current()) return;
     const approved = await this.ask<boolean>((resolve) =>
@@ -1256,7 +1419,8 @@ export default class SyncryptPlugin extends Plugin {
     const actionable = plan.sweep.length > 0 || plan.prunedManifests.length > 0;
     if (!approved) {
       if (!actionable && plan.waiting > 0 && plan.ripeAt !== null) {
-        await engine.reclaimStorage(undefined, { sweep: [], prunedManifests: [] });
+        await engine.reclaimStorage(signal, { sweep: [], prunedManifests: [] });
+        if (!current()) return;
         new Notice(
           this.strings.reclaimModal.noneYet(new Date(plan.ripeAt * 1000).toLocaleString()),
           8000,
@@ -1264,10 +1428,13 @@ export default class SyncryptPlugin extends Plugin {
       }
       return;
     }
-    const result = await engine.reclaimStorage(undefined, {
+    const result = await engine.reclaimStorage(signal, {
       sweep: plan.sweep,
       prunedManifests: plan.prunedManifests,
     });
+    // Locked mid-sweep: what was deleted before the abort is in the log; a
+    // "done" notice would be said for a session that no longer exists (Q7).
+    if (!current()) return;
     new Notice(
       this.strings.reclaimModal.done(result.deleted.length, formatBytes(result.bytesFreed)),
       8000,
@@ -1307,6 +1474,9 @@ export default class SyncryptPlugin extends Plugin {
    * location with its own base (ADR-0065).
    */
   storageSettingsChanged(): void {
+    // Also seen by an unlock still deriving keys (Q6): it is refused rather
+    // than opened on the location it read before this edit.
+    this.storageEpoch++;
     if (!this.isUnlocked()) return;
     this.lock();
     new Notice(this.strings.notices.storageChangedLocked, 10000);
@@ -1322,6 +1492,10 @@ export default class SyncryptPlugin extends Plugin {
    * not keep running on the old one (W3).
    */
   async replaceSettings(next: SyncryptSettings): Promise<void> {
+    // Read-only under a newer build's data.json (ADR-0075): saveSettings()
+    // writes nothing there and says so in a notice, which let a ticket be
+    // announced as imported while nothing was saved (ADR-0081, Q9).
+    if (this.foreignProvider !== null) throw new SettingsReadOnly(this.foreignProvider);
     const previous = structuredClone(this.settings);
     Object.assign(this.settings, structuredClone(next));
     try {
@@ -1330,6 +1504,7 @@ export default class SyncryptPlugin extends Plugin {
       Object.assign(this.settings, previous);
       throw e;
     }
+    this.storageEpoch++; // a different connection, for an unlock in flight too (Q6)
     if (this.isUnlocked()) this.lock();
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-render; see settings-tab.ts
     this.settingTab?.display();

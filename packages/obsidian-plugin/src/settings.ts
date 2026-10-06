@@ -185,7 +185,11 @@ export function withDefaults(
       raw.language === "en" || raw.language === "ru" || raw.language === "auto"
         ? raw.language
         : DEFAULT_SETTINGS.language,
-    s3: withPrefix({ ...DEFAULT_SETTINGS.s3, ...raw.s3 }),
+    // S3 keeps its prefix as stored: beta.12 used "/notes" and "a//b" as typed,
+    // and S3 holds such keys — normalizing on load moved the vault to an
+    // empty place (post-fix review, R4; ADR-0081). The unlock says why such a
+    // prefix is refused now instead. WebDAV already refused them in beta.12.
+    s3: { ...DEFAULT_SETTINGS.s3, ...raw.s3 },
     // A vault configured before beta.10 has no `provider` and is S3 — the only
     // backend the UI could reach. Anything unrecognized falls back the same
     // way rather than leaving the plugin pointed at nothing.
@@ -313,11 +317,9 @@ export function describeStorageLocation(s: SyncryptSettings): string {
 
 /**
  * A prefix as the storage will use it (ADR-0074): no slash at either end, no
- * empty segment in between. "/notes/", "notes//2026" and " notes " used to be
- * stored as typed; an empty segment is refused locally by the object-key
- * check, before any request, and was reported as "could not reach the
- * storage" (audit №4, A10). Such a prefix never worked, so normalizing one on
- * load cannot move a vault that was in use.
+ * empty segment in between. Applied to what is TYPED, and to a WebDAV prefix
+ * on load (WebDAV refused empty segments in beta.12 already). Not to an S3
+ * prefix on load: there "/notes" was a working vault in beta.12 (ADR-0081).
  */
 export function normalizePrefix(v: string): string {
   return v

@@ -9,9 +9,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { EN_STRINGS, stringsFor } from "../src/i18n.js";
 import { normalizePrefix, withDefaults } from "../src/settings.js";
+import {
+  prefixHasEmptySegment,
+  unlockFailureMessage,
+  UnusablePrefix,
+} from "../src/unlock-error.js";
 import { resetStub, type FakeEl } from "./support/obsidian-stub.js";
 import {
-  engineOf,
   field,
   mainStore,
   makeDevice,
@@ -19,7 +23,6 @@ import {
   renderTab,
   S3_DATA,
   saved,
-  settle,
   unlock,
   World,
 } from "./support/plugin-harness.js";
@@ -51,23 +54,36 @@ describe("prefix (A10)", () => {
     expect(f.getValue()).toBe("vaults/main");
   });
 
-  it("a stored one with a leading slash is normalized on load, and the vault opens", async () => {
+  // ADR-0081: an S3 prefix is kept as stored — beta.12 used it as typed and S3
+  // keeps such keys, so normalizing it on load moved the vault (R4).
+  it("an S3 prefix with an empty part is kept; the unlock says why it is refused", async () => {
     const world = new World();
-    const me = await makeDevice(world, { ...S3_DATA, s3: { ...S3_DATA.s3, prefix: "/vaults/main/" } });
-    expect(me.plugin.settings.s3.prefix).toBe("vaults/main");
-    me.adapter.setFile("a.md", "a");
-    await unlock(me.plugin, PASS, true);
-    await settle(me.plugin);
-    expect(engineOf(me)).toBeDefined();
-    expect(mainStore(world).keys().some((k) => k.startsWith("vaults/main/manifests/"))).toBe(true);
+    const legacy = { ...S3_DATA, s3: { ...S3_DATA.s3, prefix: "/vaults/main" } };
+    const me = await makeDevice(world, legacy);
+    expect(me.plugin.settings.s3.prefix).toBe("/vaults/main");
+    await expect(unlock(me.plugin, PASS, true)).rejects.toBeInstanceOf(UnusablePrefix);
+    expect(unlockFailureMessage(new UnusablePrefix("/vaults/main"), EN_STRINGS)).toBe(
+      EN_STRINGS.unlockModal.prefixUnusable("/vaults/main"),
+    );
+    expect(mainStore(world).keys()).toEqual([]); // nothing created anywhere
   });
 
-  it("withDefaults normalizes both providers' prefixes", () => {
+  it("withDefaults keeps an S3 prefix and normalizes a WebDAV one", () => {
     const s = withDefaults(
       { s3: { prefix: "/a/" }, webdav: { prefix: "b//c" } },
       { mobile: false },
     );
-    expect([s.s3.prefix, s.webdav.prefix]).toEqual(["a", "b/c"]);
+    expect([s.s3.prefix, s.webdav.prefix]).toEqual(["/a/", "b/c"]);
+  });
+
+  it.each([
+    ["/notes", true],
+    ["a//b", true],
+    ["notes/", false],
+    ["notes", false],
+    ["", false],
+  ])("prefixHasEmptySegment(%j) is %s", (prefix, empty) => {
+    expect(prefixHasEmptySegment(prefix)).toBe(empty);
   });
 });
 

@@ -318,6 +318,12 @@ const EN = {
     ticketCopied: "Ticket copied.",
     sharePassphraseWrong:
       "Syncrypt: that passphrase does not open this vault — the ticket would be unusable on the other device.",
+    shareNothingToCheck:
+      "Syncrypt: nothing is synced to this storage yet, so the passphrase cannot be checked. Sync at least one note first, then share the connection.",
+    unlockRecheckWrong:
+      "Syncrypt: the storage was unreachable at unlock; now that it answers, the passphrase does not open this vault. Locked — enter it again.",
+    unlockRecheckUncheckable:
+      "Syncrypt: the storage was unreachable at unlock, and there is nothing published to check the passphrase against. Locked before anything was uploaded — enter it again (twice).",
     ticketRejected: (detail: string) => `Syncrypt: ticket rejected — ${detail}`,
     ticketDidNotOpen:
       "the passphrase does not open it, or the ticket was not copied whole. Nothing was changed.",
@@ -526,6 +532,12 @@ const EN = {
       `The vault at ${location} has nothing in it yet, so this passphrase cannot be checked against it — and a typo would make this device write the vault's first data under a key no other device has.\n\nType the passphrase again to confirm it.`,
     confirmMismatch:
       "The two passphrases did not match, so nothing was opened. Type the passphrase to start again.",
+    prefixUnusable: (prefix: string) =>
+      `The prefix "${prefix}" has an empty part (a "/" at the start or two in a row), and this version no longer reads keys like that. Nothing was changed. If the vault was created with this prefix, its objects are in the bucket under "${prefix}/…": move them to the same name without the empty part and set the prefix to match.`,
+    locationChanged:
+      "The storage settings changed while the vault was being opened, so it was not opened on the old location. Unlock again.",
+    previousBusy:
+      "The previous sync has not stopped yet (a request is still waiting for the storage). Nothing was opened; try again in a moment, or restart Obsidian if it persists.",
     vaultAbsentElsewhere:
       "There is no Syncrypt vault where these settings point, so nothing was created. Check the endpoint, bucket and prefix; to start a new vault there, use Unlock.",
     wrongPassphrase:
@@ -828,6 +840,12 @@ const RU: Strings = {
     ticketCopied: "Тикет скопирован.",
     sharePassphraseWrong:
       "Syncrypt: эта парольная фраза не открывает хранилище — тикет на другом устройстве не заработает.",
+    shareNothingToCheck:
+      "Syncrypt: в хранилище пока ничего не синхронизировано, поэтому парольную фразу не с чем сверить. Сначала синхронизируйте хотя бы одну заметку, потом делитесь подключением.",
+    unlockRecheckWrong:
+      "Syncrypt: при разблокировке хранилище было недоступно; теперь оно отвечает, и парольная фраза его не открывает. Заблокировано — введите её снова.",
+    unlockRecheckUncheckable:
+      "Syncrypt: при разблокировке хранилище было недоступно, а опубликованного, с чем сверить парольную фразу, нет. Заблокировано до любой выгрузки — введите её снова (дважды).",
     ticketRejected: (detail: string) => `Syncrypt: тикет отклонён — ${detail}`,
     ticketDidNotOpen:
       "фраза его не открывает, или тикет скопирован не целиком. Ничего не изменено.",
@@ -1039,6 +1057,12 @@ const RU: Strings = {
       `В хранилище по адресу ${location} пока ничего нет, поэтому эту фразу не с чем сверить — а с опечаткой это устройство записало бы первые данные хранилища ключом, которого нет больше ни у кого.\n\nВведите парольную фразу ещё раз для подтверждения.`,
     confirmMismatch:
       "Фразы не совпали, поэтому ничего не открыто. Введите парольную фразу, чтобы начать заново.",
+    prefixUnusable: (prefix: string) =>
+      `В префиксе «${prefix}» есть пустая часть («/» в начале или два подряд), а эта версия такие ключи больше не читает. Ничего не изменено. Если хранилище создано с этим префиксом, его объекты лежат в бакете под «${prefix}/…»: перенесите их под то же имя без пустой части и укажите такой же префикс.`,
+    locationChanged:
+      "Настройки хранилища изменились, пока оно открывалось, поэтому старое расположение не открыто. Разблокируйте ещё раз.",
+    previousBusy:
+      "Предыдущая синхронизация ещё не остановилась (запрос всё ещё ждёт хранилище). Ничего не открыто; повторите через минуту, а если не проходит — перезапустите Obsidian.",
     vaultAbsentElsewhere:
       "Там, куда указывают эти настройки, нет хранилища Syncrypt, поэтому ничего не создано. Проверьте адрес, бакет и префикс; чтобы создать там новое хранилище, используйте «Разблокировать».",
     wrongPassphrase:

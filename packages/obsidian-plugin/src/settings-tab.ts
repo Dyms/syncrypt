@@ -30,6 +30,12 @@ export class SyncryptSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  /** Closing the tab leaves the profile field too: a pending edit applies (R5). */
+  override hide(): void {
+    super.hide();
+    void this.plugin.applyLiveSettings();
+  }
+
   // display() remains the supported imperative API; the declarative
   // getSettingDefinitions (1.13+) cannot express the unlock flow or the
   // dynamic credential note yet.
@@ -325,10 +331,13 @@ export class SyncryptSettingTab extends PluginSettingTab {
           area.setValue(get().join("\n")).onChange(async (v) => {
             set(v.split("\n").map((l) => l.trim()).filter((l) => l !== ""));
             await this.plugin.saveSettings();
-            // To the open vault port too, between syncs (ADR-0072): "Count
-            // files" already showed the new profile while the sync kept the old.
-            await this.plugin.applyLiveSettings();
           });
+          // To the open vault port too, between syncs (ADR-0072) — but when
+          // the field is left, not per keystroke (ADR-0081, post-fix R5). A
+          // sync that ran at "*" on the way to "*.pdf" planned with it, and
+          // the base dropped every entry the half pattern excluded: the next
+          // edit from another device became a conflict.
+          area.inputEl.addEventListener("blur", () => void this.plugin.applyLiveSettings());
         });
     };
     profileArea(

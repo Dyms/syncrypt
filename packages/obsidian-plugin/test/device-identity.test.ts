@@ -38,14 +38,14 @@ describe("resolveDeviceIdentity", () => {
     });
   });
 
-  it("an upgrade hands data.json's ID over and keeps it", () => {
+  it("an upgrade takes a NEW ID, in silence (ADR-0081: a beta.12 copy looks the same)", () => {
     const st = store();
     expect(resolveDeviceIdentity("dev-old", false, st, gen)).toEqual({
-      deviceId: "dev-old",
+      deviceId: "dev-new",
       installed: true,
       copied: false,
     });
-    expect(st.value).toBe("dev-old");
+    expect(st.value).toBe("dev-new");
   });
 
   it("a folder another installation owns gets a new ID, kept by this one", () => {
@@ -148,15 +148,29 @@ describe("a copied vault folder (ADR-0069)", () => {
     expect(b.plugin.settings.deviceIdInstalled).toBe(true);
   });
 
-  it("an upgraded device keeps the ID it had", async () => {
+  it("an upgraded device gets a new ID and goes on syncing from its base", async () => {
     const world = new World();
     const install = new Map<string, unknown>();
-    const legacy = { ...structuredClone(S3_DATA), deviceId: "dev-legacy" }; // no flag yet
-    const d = await makeDevice(world, legacy, new MockDataAdapter(), install);
-    expect(d.plugin.settings.deviceId).toBe("dev-legacy");
-    expect(install.get(DEVICE_ID_KEY)).toBe("dev-legacy");
+    const legacy = { ...structuredClone(S3_DATA), deviceId: "dev-legacy" }; // beta.12: no flag
+    const before = await makeDevice(world, structuredClone(legacy), new MockDataAdapter());
+    before.adapter.setFile("a.md", "a");
+    // beta.12 had no installation storage: unlock and sync as that build did.
+    await unlock(before.plugin, PASS, true);
+    await settle(before.plugin);
+    expect(before.plugin.settings.deviceId).toBe("dev-legacy");
+    const data = structuredClone((before.plugin as unknown as { data: unknown }).data);
+
+    const after = await makeDevice(world, data, before.adapter, install); // the upgrade
+    expect(after.plugin.settings.deviceId).not.toBe("dev-legacy");
+    expect(install.get(DEVICE_ID_KEY)).toBe(after.plugin.settings.deviceId);
     expect(Notice.shown).toEqual([]);
-    const saved = (d.plugin as unknown as { data: { deviceIdInstalled?: boolean } }).data;
-    expect(saved.deviceIdInstalled).toBe(true);
+    await unlock(after.plugin);
+    await settle(after.plugin);
+    expect((await engineOf(after).status()).baseGeneration).not.toBeNull();
+    after.adapter.now += 1000;
+    after.adapter.setFile("a.md", "a, edited after the upgrade");
+    const report = await engineOf(after).sync();
+    expect(report.outcome).toBe("applied");
+    expect(report.conflicts).toEqual([]);
   });
 });

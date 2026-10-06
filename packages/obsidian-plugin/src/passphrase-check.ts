@@ -22,6 +22,13 @@
 //    rethrown as KdfUnaffordable: reported as "wrong" it rejected the right
 //    passphrase; reported as "not wrong" it would seal a ticket with a
 //    passphrase nothing checked — the defect rule 1 exists to prevent.
+//
+// 4. "Nothing to check against" is neither answer either (ADR-0081, post-fix
+//    Q2). A vault with no keyfile, or a keyfile and nothing published, opens
+//    with any passphrase; "not wrong" sealed a typo into a ticket that the
+//    receiving device takes as confirmed (ADR-0078) and publishes the vault's
+//    first generation under — the sharer is locked out of its own vault.
+//    Rethrown as NothingToCheck: Share asks for a first sync instead.
 
 import type { DeviceId, LogPort, StoragePort, VaultPort } from "@syncrypt/core";
 import { isSyncError, openSyncEngine, vaultHasKeyfile } from "@syncrypt/sdk";
@@ -37,11 +44,19 @@ export interface PassphraseCheckOptions {
   affordability?: { maxMemoryKiB: number };
 }
 
+/** The vault has nothing a passphrase can be checked against (rule 4). */
+export class NothingToCheck extends Error {
+  constructor() {
+    super("nothing published to check the passphrase against");
+    this.name = "NothingToCheck";
+  }
+}
+
 export async function passphraseIsDefinitelyWrong(
   opts: PassphraseCheckOptions,
 ): Promise<boolean> {
   try {
-    if (!(await vaultHasKeyfile(opts.storage, opts.storagePrefix))) return false;
+    if (!(await vaultHasKeyfile(opts.storage, opts.storagePrefix))) throw new NothingToCheck();
     const engine = await openSyncEngine({
       storage: opts.storage,
       vault: opts.vault,
@@ -51,10 +66,10 @@ export async function passphraseIsDefinitelyWrong(
       ...(opts.log !== undefined ? { log: opts.log } : {}),
       ...(opts.affordability !== undefined ? { affordability: opts.affordability } : {}),
     });
-    await engine.verifyAccess();
+    if ((await engine.verifyAccess()) === null) throw new NothingToCheck();
     return false;
   } catch (e) {
-    if (isSyncError(e, "KdfUnaffordable")) throw e;
+    if (e instanceof NothingToCheck || isSyncError(e, "KdfUnaffordable")) throw e;
     return isSyncError(e, "CryptoAuthError");
   }
 }

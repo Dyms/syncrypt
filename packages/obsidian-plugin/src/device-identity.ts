@@ -34,8 +34,12 @@ export const DEVICE_ID_KEY = "syncrypt-device-id";
  *   says (a data.json that another tool keeps in step between two machines
  *   must not make them share an ID, nor flip it on every launch).
  * - No installation ID, and data.json never handed one over: an upgrade from a
- *   build that kept it only in data.json. Keep it — a new ID on an existing
- *   device would orphan nothing, but it is not a copy and must not say so.
+ *   build that kept it only in data.json — or one of two installations that
+ *   already share a copied folder from that build, which looks the same and
+ *   is the defect this fixes (post-fix review, R2; ADR-0081). A NEW ID, in
+ *   silence: it is not a copy to announce, and a new ID orphans nothing — the
+ *   base still names the old one, which `baseFor` finds as the winner of its
+ *   own generation.
  * - No installation ID, and data.json says one was handed over: this folder was
  *   copied from another installation (or this one's local data was wiped). A
  *   new ID. The base stays: with distinct IDs a shared starting point is two
@@ -58,7 +62,7 @@ export function resolveDeviceIdentity(
     store.save(fresh);
     return { deviceId: fresh, installed: true, copied: true };
   }
-  const kept = fromData ?? generate();
-  store.save(kept);
-  return { deviceId: kept, installed: true, copied: false };
+  const fresh = generate();
+  store.save(fresh);
+  return { deviceId: fresh, installed: true, copied: false };
 }

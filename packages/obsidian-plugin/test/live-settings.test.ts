@@ -49,10 +49,11 @@ describe("Safe Sync edits reach the open engine (A3)", () => {
 });
 
 describe("profile edits reach the open vault port (A4/C3)", () => {
-  it("a folder added to Exclude stops uploading at once", async () => {
+  it("a folder added to Exclude stops uploading once the field is left", async () => {
     const { me } = await opened();
     renderTab(me);
     await field(T.exclude).type("Private");
+    field(T.exclude).inputEl.dispatch("blur"); // ADR-0081, R5
     me.adapter.setFile("Private/diary.md", "not for the other devices");
     const report = await engineOf(me).sync();
     expect(report.entries.map((e) => e.path)).not.toContain("Private/diary.md");
@@ -62,6 +63,7 @@ describe("profile edits reach the open vault port (A4/C3)", () => {
     const { me } = await opened();
     renderTab(me);
     await field(T.exclude).type("Private");
+    field(T.exclude).inputEl.dispatch("blur");
     const report = await engineOf(me).sync();
     expect(report.entries.filter((e) => e.kind === "delete-remote")).toEqual([]);
   });
@@ -74,6 +76,7 @@ describe("profile edits reach the open vault port (A4/C3)", () => {
     vi.spyOn(engine, "sync").mockImplementationOnce(async (signal) => {
       renderTab(me);
       await field(T.exclude).type("Private"); // typed while the sync runs
+      field(T.exclude).inputEl.dispatch("blur"); // …and left
       const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
         .vaultPort;
       profileDuring = port.syncable("Private/x.md");
@@ -84,6 +87,32 @@ describe("profile edits reach the open vault port (A4/C3)", () => {
     const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
       .vaultPort;
     expect(port.syncable("Private/x.md")).toBe(false); // applied once it finished
+  });
+});
+
+describe("a half-typed pattern does not reach a sync (ADR-0081, R5)", () => {
+  it("keystrokes are saved, not applied: a sync mid-typing plans with the old profile", async () => {
+    const { me } = await opened();
+    renderTab(me);
+    await field(T.exclude).type("*"); // on the way to "*.pdf"
+    const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
+      .vaultPort;
+    expect(port.syncable("todo.md")).toBe(true);
+    expect(me.plugin.settings.profile.exclude).toContain("*"); // saved all the same
+    await field(T.exclude).type("*.pdf");
+    field(T.exclude).inputEl.dispatch("blur");
+    expect(port.syncable("todo.md")).toBe(true);
+    expect(port.syncable("scan.pdf")).toBe(false);
+  });
+
+  it("closing the settings tab applies a pending edit", async () => {
+    const { me } = await opened();
+    const tab = renderTab(me);
+    await field(T.exclude).type("Private");
+    tab.hide();
+    const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
+      .vaultPort;
+    expect(port.syncable("Private/x.md")).toBe(false);
   });
 });
 

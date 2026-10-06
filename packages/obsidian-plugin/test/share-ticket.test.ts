@@ -10,8 +10,9 @@ import { openConnectionTicket } from "@syncrypt/crypto";
 
 import { EN_STRINGS } from "../src/i18n.js";
 import { DEFAULT_SETTINGS } from "../src/settings.js";
+import { NothingToCheck } from "../src/passphrase-check.js";
 import { ShareConnectionModal } from "../src/ticket-modals.js";
-import { resetStub, Setting, type FakeEl } from "./support/obsidian-stub.js";
+import { Notice, resetStub, Setting, type FakeEl } from "./support/obsidian-stub.js";
 
 beforeEach(() => {
   resetStub();
@@ -59,5 +60,26 @@ describe("share connection", () => {
     if (area === undefined) throw new Error("no ticket");
     expect(checked).toEqual(["vault passphrase"]);
     await expect(openConnectionTicket(area.value, "vault passphrase")).resolves.toBeDefined();
+  });
+
+  it("seals nothing when there is nothing to check the passphrase against (ADR-0081)", async () => {
+    const plugin = {
+      t: () => EN_STRINGS,
+      settings: DEFAULT_SETTINGS,
+      passphraseIsWrong: () => Promise.reject(new NothingToCheck()),
+    };
+    const modal = new ShareConnectionModal({} as never, plugin as never);
+    modal.open();
+    const row = Setting.rows.find((r) => r.name === EN_STRINGS.shareModal.passphrase);
+    const field = row?.texts[0];
+    if (field === undefined) throw new Error("no passphrase field");
+    await field.type("a typo nobody can catch");
+    const content = (modal as unknown as { contentEl: FakeEl }).contentEl;
+    content.button(EN_STRINGS.shareModal.generate).click();
+    for (let i = 0; i < 20 && !Notice.shown.includes(EN_STRINGS.notices.shareNothingToCheck); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(Notice.shown).toContain(EN_STRINGS.notices.shareNothingToCheck);
+    expect(content.all().find((e) => e.tag === "textarea")).toBeUndefined();
   });
 });

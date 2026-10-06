@@ -126,10 +126,14 @@ describe("one base per storage location (ADR-0065, D3)", () => {
     me.adapter.files.delete(tagged);
     me.adapter.files.set(legacy, blob);
 
-    await unlock(me.plugin);
+    // The upgrade: a new build loads over the same vault folder. The legacy
+    // file is handed over at LOAD, to the location the settings name then.
+    const data = structuredClone((me.plugin as unknown as { data: unknown }).data);
+    const upgraded = await makeDevice(world, data, me.adapter);
     expect(me.adapter.files.has(legacy)).toBe(false);
     expect(me.adapter.files.has(tagged)).toBe(true);
-    expect((await engineOf(me).status()).baseGeneration).not.toBeNull();
+    await unlock(upgraded.plugin);
+    expect((await engineOf(upgraded).status()).baseGeneration).not.toBeNull();
   });
 
   it("names a location by where it points, not how it was typed", () => {

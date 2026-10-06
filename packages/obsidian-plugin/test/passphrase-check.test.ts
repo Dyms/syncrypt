@@ -26,7 +26,7 @@ import {
 import { MOBILE_MEMORY_BUDGET_KIB, openSyncEngine } from "@syncrypt/sdk";
 
 import { EN_STRINGS } from "../src/i18n.js";
-import { passphraseIsDefinitelyWrong } from "../src/passphrase-check.js";
+import { NothingToCheck, passphraseIsDefinitelyWrong } from "../src/passphrase-check.js";
 import { unlockFailureMessage } from "../src/unlock-error.js";
 
 const PASSPHRASE = "the vault passphrase";
@@ -99,7 +99,8 @@ describe("the check does not write", () => {
   it("A VAULT WITH NO KEYFILE IS NOT GIVEN ONE", async () => {
     const storage = new MemoryStorage();
 
-    expect(await check(storage, PASSPHRASE)).toBe(false);
+    // Nothing to check against (ADR-0081): neither "wrong" nor "fine".
+    await expect(check(storage, PASSPHRASE)).rejects.toBeInstanceOf(NothingToCheck);
 
     // Nothing at all: no keyfile, no manifest, no object.
     expect(storage.keys()).toEqual([]);
@@ -110,7 +111,7 @@ describe("the check does not write", () => {
     // keyfile must be the desktop-only profile that was configured, not the
     // cross-device default a verification path happened to pass.
     const storage = new MemoryStorage();
-    await check(storage, PASSPHRASE);
+    await check(storage, PASSPHRASE).catch(() => undefined);
 
     await openVaultCrypto({
       storage,
@@ -140,8 +141,10 @@ describe("the check does not write", () => {
     await storage.put(KEYFILE_KEY, serializeKdfParams(generateKdfParams(TEST_PRESET)));
     const params = await storage.get(KEYFILE_KEY);
 
-    // No manifest yet, so verifyAccess returns null: not wrong, nothing written.
-    expect(await check(storage, PASSPHRASE)).toBe(false);
+    // No manifest yet, so verifyAccess returns null: nothing to check against
+    // — for the right passphrase AND a typo (ADR-0081) — and nothing written.
+    await expect(check(storage, PASSPHRASE)).rejects.toBeInstanceOf(NothingToCheck);
+    await expect(check(storage, "a typo")).rejects.toBeInstanceOf(NothingToCheck);
     expect(await storage.get(KEYFILE_KEY)).toEqual(params);
   });
 });

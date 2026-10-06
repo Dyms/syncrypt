@@ -130,6 +130,16 @@ export class PassphraseModal extends Modal {
     super.close();
   }
 
+  /**
+   * Close even mid-check: the plugin is unloading and the instance this dialog
+   * answers to is gone (ADR-0081). The unlock in flight sees the unload and
+   * opens nothing.
+   */
+  dismiss(): void {
+    this.busy = false;
+    super.close();
+  }
+
   override onClose(): void {
     this.passphrase = "";
     this.flow.cancelCreate();

@@ -203,9 +203,26 @@ export class ObsidianVault implements VaultPort {
     }
   }
 
+  /**
+   * null is the same claim as read()'s "not found" — the scan turns it into a
+   * tombstone for every device — so it too is made only on confirmed absence
+   * (ADR-0081, post-fix R3). An adapter that answers null for a file it could
+   * not stat, or throws, fails the sync instead. A path that is now a folder
+   * is confirmed "no file here".
+   */
   async stat(path: VaultPath): Promise<{ size: number; mtime: number } | null> {
-    const stat = await this.adapter.stat(this.toNative(path));
-    if (stat?.type !== "file") return null;
+    const native = this.toNative(path);
+    let stat;
+    try {
+      stat = await this.adapter.stat(native);
+    } catch (e) {
+      throw new SyncError("VaultWriteFailed", `cannot stat ${path}: ${String(e)}`, e);
+    }
+    if (stat === null) {
+      if (await this.confirmedAbsent(native)) return null;
+      throw new SyncError("VaultWriteFailed", `cannot stat ${path}: the file is listed but its size is unavailable`);
+    }
+    if (stat.type !== "file") return null;
     // Sub-second precision keeps the (path,size,mtime) hash-cache key honest.
     return { size: stat.size, mtime: stat.mtime / 1000 };
   }

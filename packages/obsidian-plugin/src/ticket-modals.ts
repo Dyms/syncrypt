@@ -10,6 +10,7 @@ import {
 } from "@syncrypt/crypto";
 
 import type SyncryptPlugin from "./main.js";
+import { NothingToCheck } from "./passphrase-check.js";
 import { applyTicketToSettings, ticketIsCredsLess } from "./ticket-flow.js";
 import { ticketFailureMessage, unlockFailureMessage } from "./unlock-error.js";
 
@@ -60,8 +61,14 @@ export class ShareConnectionModal extends Modal {
     try {
       wrong = await this.plugin.passphraseIsWrong(passphrase);
     } catch (e) {
-      // This device cannot afford the vault's KDF, so it cannot check — and an
-      // unchecked passphrase is not sealed into a ticket (ADR-0063).
+      // Nothing published yet, so nothing can tell a typo from the passphrase
+      // (ADR-0081). Or this device cannot afford the vault's KDF, so it cannot
+      // check (ADR-0063). Either way an unchecked passphrase is not sealed into
+      // a ticket.
+      if (e instanceof NothingToCheck) {
+        new Notice(this.plugin.t().notices.shareNothingToCheck, 12000);
+        return;
+      }
       new Notice(unlockFailureMessage(e, this.plugin.t()), 12000);
       return;
     }

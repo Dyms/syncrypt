@@ -280,6 +280,7 @@ export class PluginSettingTab {
     readonly app: App,
     readonly plugin: unknown,
   ) {}
+  hide(): void {}
 }
 
 export class ItemView {
