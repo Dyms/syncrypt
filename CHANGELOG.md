@@ -7,6 +7,85 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.13] — 2026-10-07
+
+The fourth audit and six independent review passes over its fixes. The last
+pass found no data loss; what it found is fixed. This is the candidate for
+1.0.0.
+
+### Read before updating
+- **Sync every device before the first "Reclaim storage"** after updating.
+  Manifests now carry `id` and `ancestors` (ADR-0085); the format change is
+  additive, so beta.12 still reads them, but it drops the two fields when it
+  publishes, and the device that follows a dropped line falls back to the
+  older, weaker check until the next publish from a new build.
+- **Downgrading to beta.12 renames the sync-state file** (the state is now kept
+  per storage location and per vault, ADR-0065, ADR-0079), so the old build
+  starts from an empty base: one full reconcile, conflicts kept, nothing
+  deleted.
+- A vault with key parameters but nothing published now asks for the
+  passphrase **twice** on unlock (ADR-0078): a typo there used to split the
+  vault in two.
+
+### Fixed — data safety
+- **A base is only trusted on the storage's own line** (ADR-0085, ADR-0086).
+  A base that is not on the top manifest's line — the loser of a fork, a chain
+  regrown after an accepted rollback, another vault's state — is no base:
+  differing files become conflicts with both versions kept. Before, a device
+  could download an older version over an edit only it had.
+- **The base moves only by what was applied** (ADR-0080). A path the pull held
+  back, Forget, and Release no longer advance the base past files they did not
+  sync; downloads are now fetched, then re-checked, then written.
+- **Reclamation never prunes a forked generation** (ADR-0084): those manifests
+  are the only record of who won.
+- **A base belongs to the vault it came from**, in the engine as well as in the
+  plugin (ADR-0079).
+- **Forgetting leaves a marker** (ADR-0082): an unrelated file later created at
+  a forgotten path is a conflict, not an edit.
+- **A file written by a download is not mistaken for a later local edit**
+  (ADR-0082), and a file that cannot be read is not treated as gone.
+- **Accepting a rolled-back storage is checked when it happens** (ADR-0071), and
+  **Release names what it releases**, read from the storage (ADR-0070).
+- **Nothing is published after a stop**; a Lock mid-publish cannot leave a
+  generation that landed but was never adopted (ADR-0086).
+- **Device ID belongs to the installation**, not to the vault folder, so a
+  copied folder no longer gives two computers one ID (ADR-0069).
+- **File names keep the spelling on disk** (NFC/NFD), so a restored file is
+  neither skipped nor tombstoned (ADR-0077).
+- **An older build leaves a newer build's `data.json` alone** (ADR-0075).
+
+### Fixed — plugin
+- Lock now ends everything it should: the sync, maintenance commands, dialogs,
+  and an unlock in flight; the next unlock waits (bounded) for the previous
+  session (ADR-0066, ADR-0081, ADR-0085).
+- Changing storage settings or using a ticket during an unlock refuses that
+  unlock rather than opening the wrong location (ADR-0081, ADR-0082).
+- Share connection seals only a passphrase it could check; an unlock that could
+  not check the passphrase checks it before anything is published (ADR-0081,
+  ADR-0082).
+- Settings edited while unlocked reach the open vault: Safe Sync, include and
+  exclude profile, timers (ADR-0072). Include/exclude drafts survive a redraw
+  and apply when the field is left.
+- Settings fields store what they mean and show what they stored: prefixes,
+  numbers, warnings (ADR-0074). S3 prefix is kept as stored; an empty segment
+  refuses the unlock.
+- The status bar and notices say what happened: an edit is pending until
+  re-read; sync counters are monotonic; stale Safe Sync confirmations are
+  asked again; errors are localized (ADR-0073).
+- Another sync detected in both Obsidian's core and community plugin lists; the
+  periodic pull respects the minimum interval; folder-name check ignores case
+  (ADR-0076).
+
+### Known limits
+- A write that hangs refuses unlocks until it answers or Obsidian restarts
+  (ADR-0081).
+- A device more than 256 generations behind after a rollback or fork has no
+  line to check and falls back to the older winner check (ADR-0085).
+- A storage prefix that itself contains `manifests/` makes one extra list per
+  put non-abortable by Lock; harmless unless the storage hangs.
+- Do not put expiration or archive lifecycle rules on the bucket; see
+  [Configuration](docs/user-guide/configuration.md#bucket-lifecycle-rules).
+
 ## [1.0.0-beta.12] — 2026-09-02
 
 The rest of the second audit pass: the twenty-five findings beta.11 did not

@@ -128,3 +128,26 @@ retained versions, and no further back.
 
 One storage prefix holds one vault. Two vaults sharing a prefix cannot work in
 the first place, and with reclamation they would delete each other's data.
+
+## Bucket lifecycle rules
+
+Do not put an expiration or transition-to-archive rule on the bucket (or on
+the prefix Syncrypt uses). Syncrypt decides what is garbage itself, and only
+**Reclaim storage** deletes anything.
+
+- A rule that expires objects deletes ciphertext that a manifest still points
+  at. The file it belonged to can no longer be downloaded by any device, and
+  nothing in the bucket says why. Expiring `manifests/` is as bad: it looks
+  to every device like the storage went back in time, and they refuse to sync
+  (see [Troubleshooting](troubleshooting.md)).
+- Archive tiers that need a restore request (Glacier-style) make every read of
+  that object fail until the restore finishes, so syncs that need it fail
+  until then. Syncrypt does not special-case archive tiers; keep them off.
+- Rules that only act on **non-current versions** of objects are fine, and a
+  good idea if you keep bucket versioning on: they cap the cost of history
+  without touching the current state.
+- A rule that aborts incomplete multipart uploads is fine and recommended.
+
+If a rule already ran and objects are gone, restore them from a bucket version
+before syncing again; a sync that needs a missing object fails instead of
+skipping it.
