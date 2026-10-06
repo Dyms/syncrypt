@@ -2,7 +2,7 @@
 // (conflict materialization). Every applied change produces a SyncReportEntry
 // with a ReasonCode and a human message; conflict ops NEVER write over a file.
 
-import { SyncError } from "../errors.js";
+import { isSyncError, SyncError } from "../errors.js";
 import type { Operation } from "../plan.js";
 import { ReasonCode } from "../reasons.js";
 import type { EntryDetail, SyncReportEntry } from "../report.js";
@@ -36,6 +36,8 @@ export interface PushApplyResult {
   uploaded: Record<VaultPath, ManifestEntry>;
   /** Paths tombstoned by this push. */
   tombstoned: VaultPath[];
+  /** Paths that could not be read now and sat the run out (ADR-0080). */
+  unreadable: VaultPath[];
   aborted: boolean;
 }
 
@@ -192,9 +194,14 @@ export async function applyPullOps(
         //
         // Asking the filesystem is what makes this exact rather than a guess
         // about case sensitivity, and it costs one stat per created file.
+        //
+        // Fetched FIRST, then checked, then written: the download is the long
+        // part (a large file on a phone link — minutes), and a check made
+        // before it left that whole window open (ADR-0080, P3). Only the
+        // write itself remains, which no check above the filesystem closes.
+        const data = await fetchVerified(ctx, op.path, entry);
         if (op.localHash === undefined && (await ctx.vault.stat(op.path)) !== null) {
           const copyPath = await freeCopyPath(ctx, op.path, remote.device);
-          const data = await fetchVerified(ctx, op.path, entry);
           await writeAndRemember(ctx, copyPath, data, entry.hash);
           conflicts.push(op.path);
           entries.push(
@@ -216,7 +223,6 @@ export async function applyPullOps(
             break;
           }
         }
-        const data = await fetchVerified(ctx, op.path, entry);
         await writeAndRemember(ctx, op.path, data, entry.hash);
         entries.push(reportEntry(op, { bytes: data.length }));
         break;
@@ -225,7 +231,8 @@ export async function applyPullOps(
         // The remote deletion was planned against the version the scan saw;
         // a newer local edit is "edited here, deleted there" — a conflict the
         // next run plans properly — not something to file in the trash as if
-        // it were the old version (ADR-0064). Gone already: nothing to do.
+        // it were the old version (ADR-0064). Gone already: trash() is
+        // idempotent and does nothing.
         if (op.localHash !== undefined) {
           const now = await ctx.vault.stat(op.path);
           if (now !== null && !(await stillAsScanned(ctx, op.path, now, op.localHash))) {
@@ -233,8 +240,17 @@ export async function applyPullOps(
             break;
           }
         }
-        // ADR-0010 §1: through trash, never a hard delete.
-        await ctx.vault.trash(op.path);
+        // ADR-0010 §1: through trash, never a hard delete. A move that fails
+        // (the file is locked) left it where it was: hold it, carry on
+        // (ADR-0080, P4). A failed WRITE is not caught anywhere — it may have
+        // left the file half-written, and holding it would upload that.
+        try {
+          await ctx.vault.trash(op.path);
+        } catch (e) {
+          if (!isSyncError(e, "VaultWriteFailed")) throw e;
+          held.push(op.path);
+          break;
+        }
         ctx.hashCache?.delete(op.path);
         entries.push(reportEntry(op));
         break;
@@ -319,6 +335,7 @@ export async function applyPushOps(
   const entries: SyncReportEntry[] = [];
   const uploaded: Record<VaultPath, ManifestEntry> = {};
   const tombstoned: VaultPath[] = [];
+  const unreadable: VaultPath[] = [];
   /** Objects the dedup probe let us skip uploading — see confirmAdopted. */
   const adopted: { path: VaultPath; objectKey: ObjectKey }[] = [];
   let aborted = false;
@@ -330,7 +347,18 @@ export async function applyPushOps(
     }
     switch (op.kind) {
       case "upload": {
-        const data = await ctx.vault.read(op.path);
+        // A file the scan took from the hash cache was never read; now it is,
+        // and it may be locked (a workbook open in Excel) or gone. That is
+        // this path sitting the run out, as the scan's own unreadable paths
+        // do (ADR-0062) — not a reason to stop every other path (ADR-0080, P4).
+        let data: Uint8Array;
+        try {
+          data = await ctx.vault.read(op.path);
+        } catch (e) {
+          if (!isSyncError(e, "VaultWriteFailed") && !isSyncError(e, "VaultFileNotFound")) throw e;
+          unreadable.push(op.path);
+          continue;
+        }
         // Re-hash the actual bytes read: the file may have changed since the
         // scan, and the manifest must describe exactly what was uploaded.
         const hash = await ctx.crypto.hash(data);
@@ -404,7 +432,7 @@ export async function applyPushOps(
     }
   }
   if (!aborted) await confirmAdopted(ctx, adopted, signal);
-  return { entries, uploaded, tombstoned, aborted };
+  return { entries, uploaded, tombstoned, unreadable, aborted };
 }
 
 /**

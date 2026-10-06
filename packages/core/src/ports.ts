@@ -115,8 +115,9 @@ export interface VaultPort {
    * Read plaintext bytes of a file. Rejects VaultFileNotFound if — and ONLY
    * if — the file is not there: the scan turns that answer into a deletion
    * for every device. Any other failure (permission, lock, I/O, a cloud
-   * placeholder that cannot be fetched) must reject with another code, so the
-   * sync fails instead of publishing a tombstone (ADR-0054 §4, ADR-0062).
+   * placeholder that cannot be fetched) must reject with another code: the
+   * engine then holds that path for the run instead of publishing a tombstone
+   * (ADR-0054 §4, ADR-0062, ADR-0080).
    */
   read(path: VaultPath): Promise<Uint8Array>;
 
@@ -129,7 +130,12 @@ export interface VaultPort {
   /** Hard-delete (used only by GC of the trash itself). */
   delete(path: VaultPath): Promise<void>;
 
-  /** Cheap metadata for incremental hashing (size+mtime cache key). */
+  /**
+   * Cheap metadata for incremental hashing (size+mtime cache key). Null means
+   * "not there" — and, as for `read`, ONLY when that is confirmed: the scan
+   * drops a listed path whose stat is null, and that becomes a deletion for
+   * every device. A failure to stat a file that exists must reject (ADR-0080).
+   */
   stat(path: VaultPath): Promise<{ size: number; mtime: number } | null>;
 
   /** Map canonical ↔ platform-native path (NFD/NFC, case) — ADR-0007. */

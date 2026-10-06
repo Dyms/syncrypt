@@ -528,22 +528,57 @@ class Engine implements SyncEngine {
    * never happened: when the path came back, the device's own version looked
    * like an edit against the OTHER device's, and was uploaded over it.
    */
-  private adoptBase(manifest: Manifest): void {
+  /**
+   * Make `manifest` the base. The base is what this device last SYNCED, so a
+   * path takes the manifest's entry only if this device now holds it (ADR-0080).
+   *
+   * `after` says which operation produced `manifest`, and `planned` is the base
+   * it planned against — `baseFor(remote)`, null after a lost fork. Entries
+   * that are kept are kept from `planned`, never from `this.base`: a lost
+   * fork's base must not survive under the winner's generation (P1).
+   * - A pull applies every path it does not hold: those take the manifest's
+   *   entry; held paths (ADR-0062, ADR-0064) keep their planned entry.
+   * - Anything else — a push, a forget, a release — publishes the storage's
+   *   manifest with its own few changes on top. The base moves by those
+   *   changes only (`changed`) and stays `planned` everywhere else. Adopting
+   *   the whole published manifest claimed this device had synced changes it
+   *   never downloaded, and the next sync uploaded the old files over them
+   *   (P2, R1).
+   * Without `after` (a base loaded from state) only the profile is applied.
+   */
+  private adoptBase(
+    manifest: Manifest,
+    after?:
+      | { pull: true; planned: Manifest | null }
+      | { pull: false; planned: Manifest | null; changed: ReadonlySet<VaultPath> },
+  ): void {
     const syncable = this.ctx.planOptions.syncable;
+    const carried = (path: VaultPath): boolean => syncable === undefined || syncable(path);
     const held = this.held;
-    if (syncable === undefined && held.size === 0) {
+    if (after === undefined && syncable === undefined && held.size === 0) {
       this.base = manifest;
       return;
     }
-    const previous = this.base?.files ?? {};
+    const previous =
+      after !== undefined ? (after.planned?.files ?? {}) : (this.base?.files ?? {});
     const files: Record<VaultPath, ManifestEntry> = {};
-    for (const [path, entry] of Object.entries(manifest.files)) {
-      if (held.has(path)) continue;
-      if (syncable === undefined || syncable(path)) files[path] = entry;
-    }
-    for (const path of held) {
-      const kept = previous[path];
-      if (kept !== undefined) files[path] = kept;
+    if (after === undefined || after.pull) {
+      for (const [path, entry] of Object.entries(manifest.files)) {
+        if (!held.has(path) && carried(path)) files[path] = entry;
+      }
+      for (const path of held) {
+        const kept = previous[path];
+        if (kept !== undefined && carried(path)) files[path] = kept;
+      }
+    } else {
+      // Already profile-filtered when it was adopted; a profile narrowed since
+      // is the planner's business (ADR-0022), not a reason to drop entries.
+      Object.assign(files, previous);
+      for (const path of after.changed) {
+        const entry = manifest.files[path];
+        if (entry !== undefined && carried(path)) files[path] = entry;
+        else delete files[path];
+      }
     }
     this.base = { ...manifest, files };
   }
@@ -718,7 +753,10 @@ class Engine implements SyncEngine {
         // Someone else moved first; the caller re-lists and tries again.
         return { forgotten: [], generation: null };
       }
-      this.adoptBase(next);
+      // The base stays what this device last synced, not what the storage
+      // holds (ADR-0080, R1). Nothing this device carries changed: forgetting is for paths it does
+      // NOT carry, which a profile-filtered base never held.
+      this.adoptBase(next, { pull: false, planned: this.baseFor(remote), changed: new Set() });
       await this.saveState();
       this.ctx.log.notice({
         code: "manifest-entries-forgotten",
@@ -774,7 +812,8 @@ class Engine implements SyncEngine {
 
       const published = await publishManifest(this.ctx, next);
       if (!published.ok) return { released: 0, generation: null };
-      this.adoptBase(next);
+      // No path changed; the base keeps what this device synced (ADR-0080, R1).
+      this.adoptBase(next, { pull: false, planned: this.baseFor(remote), changed: new Set() });
       await this.saveState();
       this.ctx.log.notice({ code: "forgotten-objects-released", count: released, generation });
       return { released, generation };
@@ -873,6 +912,15 @@ class Engine implements SyncEngine {
    * (ADR-0064). They join the paths the scan held, so the base keeps what this
    * device last synced for them and the next run plans from what is there.
    */
+  /**
+   * Paths a push could not read now (ADR-0080, P4). Nothing to hold: a push
+   * moves the base only by what it changed, so theirs stays as it was.
+   */
+  private noteUnreadable(paths: readonly VaultPath[]): void {
+    if (paths.length === 0) return;
+    this.ctx.log.notice({ code: "paths-unreadable", paths: [...paths].sort() });
+  }
+
   private holdChangedDuringApply(paths: readonly VaultPath[]): void {
     if (paths.length === 0) return;
     this.held = new Set([...this.held, ...paths]);
@@ -1108,7 +1156,8 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     this.noteVersionSkew(remote.manifest);
-    const p = plan(local, this.baseFor(remote), remote.manifest, planOptions);
+    const planned = this.baseFor(remote);
+    const p = plan(local, planned, remote.manifest, planOptions);
 
     if (p.requiresConfirmation) {
       // Invariant §8.7: never auto-apply; the caller must confirmAndApply.
@@ -1132,7 +1181,7 @@ class Engine implements SyncEngine {
     if (!res.aborted) {
       // The base advances to what we synced against — including conflict paths
       // (their local resolution is carried forward by the next push, ADR-0012).
-      this.adoptBase(remote.manifest);
+      this.adoptBase(remote.manifest, { pull: true, planned });
       await this.saveState();
     }
     const outcome: SyncOutcome = res.aborted
@@ -1170,7 +1219,8 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
     this.noteVersionSkew(remote.manifest);
-    const p = plan(local, this.baseFor(remote), remote.manifest, planOptions);
+    const planned = this.baseFor(remote);
+    const p = plan(local, planned, remote.manifest, planOptions);
 
     if (p.pullFirst) {
       // ADR-0002 / RFC-0002 FR-8: someone published since our last pull.
@@ -1202,6 +1252,7 @@ class Engine implements SyncEngine {
     }
 
     const res = await applyPushOps(this.ctx, pushOps, local, signal);
+    this.noteUnreadable(res.unreadable);
     if (res.aborted) {
       // Objects may exist in storage but the manifest did not advance —
       // harmless orphans; the next push completes idempotently (RFC-0004).
@@ -1223,7 +1274,11 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "pull-first", [], fromGen, fromGen);
     }
 
-    this.adoptBase(next);
+    this.adoptBase(next, {
+      pull: false,
+      planned,
+      changed: pushedPaths(res.uploaded, res.tombstoned),
+    });
     await this.saveState();
     return this.report(startedAt, "applied", res.entries, fromGen, generation);
   }
@@ -1308,7 +1363,8 @@ class Engine implements SyncEngine {
     if (this.rolledBack(remote)) {
       return this.report(startedAt, "rolled-back", [], fromGen, fromGen);
     }
-    const fresh = plan(local, this.baseFor(remote), remote.manifest, planOptions);
+    const planned = this.baseFor(remote);
+    const fresh = plan(local, planned, remote.manifest, planOptions);
     const confirmedDestructive = new Set(
       confirmed.operations.map(destructiveKey).filter((k) => k !== null),
     );
@@ -1324,13 +1380,14 @@ class Engine implements SyncEngine {
       return this.report(startedAt, "needs-confirmation", [], fromGen, fromGen);
     }
 
-    return this.applyFull(startedAt, fresh, remote, local, signal);
+    return this.applyFull(startedAt, fresh, planned, remote, local, signal);
   }
 
   /** Apply pull side, then push side + publish — used by confirmAndApply. */
   private async applyFull(
     startedAt: number,
     p: SyncPlan,
+    planned: Manifest | null,
     remote: RemoteState,
     local: Awaited<ReturnType<typeof scanVault>>,
     signal?: AbortSignal,
@@ -1347,14 +1404,17 @@ class Engine implements SyncEngine {
       if (pullRes.aborted) {
         return this.report(startedAt, "aborted", entries, fromGen, fromGen, conflicts);
       }
-      this.adoptBase(remote.manifest);
+      this.adoptBase(remote.manifest, { pull: true, planned });
       await this.saveState();
     }
+    // The push half plans from where the pull half left the base.
+    const plannedForPush = remote.manifest !== null ? this.base : planned;
 
     const pushOps = p.operations.filter(isPushOp);
     let toGen = remote.manifest === null ? fromGen : remote.generation;
     if (pushOps.length > 0) {
       const pushRes = await applyPushOps(this.ctx, pushOps, local, signal);
+      this.noteUnreadable(pushRes.unreadable);
       entries = [...entries, ...pushRes.entries];
       if (pushRes.aborted) {
         return this.report(startedAt, "aborted", entries, fromGen, toGen, conflicts);
@@ -1371,7 +1431,11 @@ class Engine implements SyncEngine {
       if (!published.ok) {
         return this.report(startedAt, "pull-first", entries, fromGen, toGen, conflicts);
       }
-      this.adoptBase(next);
+      this.adoptBase(next, {
+        pull: false,
+        planned: plannedForPush,
+        changed: pushedPaths(pushRes.uploaded, pushRes.tombstoned),
+      });
       await this.saveState();
       toGen = generation;
     }
@@ -1421,4 +1485,12 @@ function sameKeys(a: readonly ObjectKey[], b: readonly ObjectKey[]): boolean {
   const x = new Set(a);
   const y = new Set(b);
   return x.size === y.size && [...x].every((k) => y.has(k));
+}
+
+/** The paths a push changed: what it uploaded and what it tombstoned. */
+function pushedPaths(
+  uploaded: Readonly<Record<VaultPath, ManifestEntry>>,
+  tombstoned: readonly VaultPath[],
+): ReadonlySet<VaultPath> {
+  return new Set([...Object.keys(uploaded), ...tombstoned]);
 }
