@@ -240,23 +240,18 @@ describe("engine state blob", () => {
     const afterPush = a.state.saves;
     expect(afterPush).toBeGreaterThan(0);
 
-    // The first pull sees the push's generation won, and records that once
-    // (ADR-0083). After that nothing changes anywhere: the bytes would be
-    // identical, so they are not written. On a big vault this blob is the
-    // largest file we touch.
-    await a.engine.pull();
-    const vouched = a.state.saves;
-    expect(vouched).toBe(afterPush + 1);
+    // Nothing changed anywhere: the bytes would be identical, so they are not
+    // written. On a big vault this blob is the largest file we touch.
     await a.engine.pull();
     await a.engine.pull();
-    expect(a.state.saves).toBe(vouched);
+    expect(a.state.saves).toBe(afterPush);
 
     // A real change still lands.
     a.vault.now += 60;
     a.clock.advance(60);
     a.vault.setFile("note.md", "HELLO");
     await a.engine.push();
-    expect(a.state.saves).toBe(vouched + 1);
+    expect(a.state.saves).toBe(afterPush + 1);
   });
 
   it("an unreadable hash list never costs us the base manifest", async () => {

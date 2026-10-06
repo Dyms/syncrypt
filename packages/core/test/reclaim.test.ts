@@ -130,6 +130,29 @@ describe("reachability", () => {
     expect(plan.prunedManifests).toEqual([]);
     expect(plan.sweep).toEqual([]); // generation 6 still points at it
   });
+
+  it("a forked generation below the cut is never pruned (ADR-0084)", () => {
+    // Its two manifests are the only record of who won it: a loser that has
+    // not synced since must still be able to see that its base lost.
+    expect([...retainedGenerations([9, 8, 3, 3, 2], 2)].sort()).toEqual([3, 8, 9]);
+    const plan = run({
+      generationsToKeep: 1,
+      manifests: [
+        manifestAt({ generation: 9, device: "dev-a", files: [`${OBJECTS_PREFIX}new`] }),
+        manifestAt({ generation: 3, device: "dev-a", files: [`${OBJECTS_PREFIX}win`] }),
+        manifestAt({ generation: 3, device: "dev-b", files: [`${OBJECTS_PREFIX}lose`] }),
+        manifestAt({ generation: 2, device: "dev-a", files: [`${OBJECTS_PREFIX}two`] }),
+      ],
+      objects: [obj(`${OBJECTS_PREFIX}lose`), obj(`${OBJECTS_PREFIX}two`)],
+      mark: {
+        version: 1,
+        updatedAt: 0,
+        unreachableSince: { [`${OBJECTS_PREFIX}lose`]: 0, [`${OBJECTS_PREFIX}two`]: 0 },
+      },
+    });
+    expect(plan.prunedManifests).toEqual(["manifests/000000002-dev-a.json"]);
+    expect(plan.sweep).toEqual([`${OBJECTS_PREFIX}two`]); // the loser's edit stays
+  });
 });
 
 describe("mark, wait, sweep", () => {

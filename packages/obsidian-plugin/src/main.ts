@@ -707,9 +707,14 @@ export default class SyncryptPlugin extends Plugin {
       // Nothing is written for an unlock nobody wants any more (ADR-0083):
       // an abandoned "Create" used to write the vault's key parameters at the
       // location the person had just backed out of.
+      // Only until the engine is the session's (ADR-0084): the dialog stays
+      // busy through the migration preflight, and a close then set
+      // `abandoned` for an engine already taken — an unlocked session whose
+      // every put was refused, publishing nothing until a re-lock.
+      let taken = false;
       const storage = refusingWritesWhen(
         await this.openStorage(),
-        () => abandoned() || this.isUnloaded(),
+        () => !taken && (abandoned() || this.isUnloaded()),
       );
       const vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
       engine = await openSyncEngine({
@@ -780,6 +785,7 @@ export default class SyncryptPlugin extends Plugin {
       this.engine = engine;
       this.vaultPort = vaultPort;
       this.unverified = unchecked;
+      taken = true;
       this.log.info(this.strings.log.unlocked);
       this.renderStatus();
 

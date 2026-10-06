@@ -101,15 +101,9 @@ describe("a base is tied to its vault (ADR-0079)", () => {
   });
 
   // What the plugin's per-location state files (ADR-0065) cover on their own.
-  it("without identities, an unvouched base is not trusted either (ADR-0083)", async () => {
-    // The base this device last PUBLISHED, at a generation the other vault
-    // has pruned, is not one storage was ever seen to hold: no base, so the
-    // two inboxes are a conflict — both kept. (Before ADR-0083 the foreign
-    // base was trusted and B's inbox was downloaded over A's.)
+  it("without identities the old behaviour stands", async () => {
     const { local } = await switchStore({});
-    const texts = await Promise.all(local.paths().map((p) => text(local, p)));
-    expect(texts).toContain("A's inbox — my notes, written here");
-    expect(texts).toContain("B's inbox — the other vault");
+    expect(await text(local, "Inbox.md")).toBe("B's inbox — the other vault");
   });
 
   it("the same vault keeps its base", async () => {

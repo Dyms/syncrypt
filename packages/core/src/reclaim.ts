@@ -145,7 +145,19 @@ export function retainedGenerations(
   keep: number,
 ): Set<number> {
   const distinct = [...new Set(generations)].sort((a, b) => b - a);
-  return new Set(distinct.slice(0, Math.max(1, keep)));
+  const retained = new Set(distinct.slice(0, Math.max(1, keep)));
+  // A FORKED generation is never pruned (ADR-0084). Its manifests are the only
+  // record of who won it: once they were gone, a loser that had not synced
+  // since — or a device that pulled the loser's manifest — could no longer
+  // tell its base had lost (ADR-0040), trusted it, and the winner's older
+  // version downloaded over an edit only the loser had. Forks are rare, and a
+  // manifest is small; the objects they keep alive are the loser's edit.
+  const seen = new Set<number>();
+  for (const g of generations) {
+    if (seen.has(g)) retained.add(g);
+    seen.add(g);
+  }
+  return retained;
 }
 
 export interface ReclaimInput {

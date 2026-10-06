@@ -433,14 +433,6 @@ class Engine implements SyncEngine {
   private readonly ctx: EngineContext;
   private readonly statePort: StateStorePort | undefined;
   private base: Manifest | null = null;
-  /**
-   * Storage has been seen holding the base as the winner at its generation
-   * (ADR-0083). A base this device published itself is not, until a later
-   * listing shows it won: a fork it lost without seeing it, then pruned by
-   * reclamation, left no trace — and the dead base was trusted, and the
-   * winner's older version downloaded over this device's edit.
-   */
-  private baseVouched = true;
   /** Paths the last scan saw and could not sync this run (ADR-0062). */
   private held: ReadonlySet<VaultPath> = new Set();
   private readonly cache: HashCache = new Map();
@@ -567,11 +559,6 @@ class Engine implements SyncEngine {
       this.base = manifest;
       return;
     }
-    if (after !== undefined && after.pull && syncable === undefined && held.size === 0) {
-      this.base = manifest;
-      this.baseVouched = true;
-      return;
-    }
     const previous =
       after !== undefined ? (after.planned?.files ?? {}) : (this.base?.files ?? {});
     const files: Record<VaultPath, ManifestEntry> = {};
@@ -594,9 +581,6 @@ class Engine implements SyncEngine {
       }
     }
     this.base = { ...manifest, files };
-    // Pulled: storage presented it as the winner. Published by us: not yet
-    // seen to have won (ADR-0083).
-    if (after !== undefined) this.baseVouched = after.pull;
   }
 
   private async loadStateOnce(): Promise<void> {
@@ -630,8 +614,6 @@ class Engine implements SyncEngine {
         // Filtered on the way in too: state written before ADR-0025, or under
         // a wider profile, must not resurrect the defect on this run.
         this.adoptBase(parseManifest(new TextEncoder().encode(JSON.stringify(baseRaw))));
-        // Absent in state written before ADR-0083: vouched, as it was treated.
-        this.baseVouched = (raw as { baseUnvouched?: unknown }).baseUnvouched !== true;
       }
     } catch (e) {
       // Corrupt state is discarded: base=null forces a safe full reconcile.
@@ -654,7 +636,6 @@ class Engine implements SyncEngine {
       version: 2,
       ...(vault !== undefined ? { vault } : {}),
       base: this.base,
-      ...(this.baseVouched ? {} : { baseUnvouched: true }),
       hashes: encodeHashCache(this.cache, this.ctx.clock.now()),
     });
     // A quiet sync produces byte-identical state. Rewriting it would put a
@@ -938,14 +919,6 @@ class Engine implements SyncEngine {
     // never published. Nothing to compare against, so nothing to claim.
     if (winner !== null && winner !== base.device) {
       this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
-      return null;
-    }
-    if (winner === null && !this.baseVouched) {
-      // Pruned before this device ever saw whether its own publish won. A lost
-      // fork looks exactly like this; planning from no base makes every
-      // difference a conflict — both kept — instead of a download over an
-      // edit nobody else has (ADR-0083).
-      this.ctx.log.notice({ code: "base-unverifiable", generation: base.generation });
       return null;
     }
     return withoutForgotten(base, remote.manifest);
