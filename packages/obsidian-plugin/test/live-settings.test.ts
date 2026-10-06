@@ -108,14 +108,17 @@ describe("a half-typed pattern does not reach a sync (ADR-0081, R5)", () => {
     expect(me.plugin.settings.profile.exclude).toContain("*.pdf");
   });
 
-  it("a re-render does not drop a pending edit", async () => {
+  it("a re-render does not drop a pending edit — it carries it, uncommitted (ADR-0085)", async () => {
     const { me } = await opened();
     renderTab(me);
     await field(T.exclude).type("Private");
     renderTab(me); // e.g. the provider row re-draws the tab
     const port = (me.plugin as unknown as { vaultPort: { syncable(p: string): boolean } })
       .vaultPort;
-    await waitFor(() => !port.syncable("Private/x.md"), "the pending edit to apply");
+    expect(field(T.exclude).getValue()).toBe("Private"); // still in the field
+    expect(port.syncable("Private/x.md")).toBe(true); // not applied yet
+    field(T.exclude).inputEl.dispatch("blur");
+    await waitFor(() => !port.syncable("Private/x.md"), "the edit to apply when left");
     expect(me.plugin.settings.profile.exclude).toContain("Private");
   });
 

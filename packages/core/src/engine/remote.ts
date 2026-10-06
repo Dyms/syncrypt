@@ -3,6 +3,8 @@
 
 import { SyncError } from "../errors.js";
 import {
+  LINEAGE_DEPTH,
+  lineageFree,
   MANIFESTS_PREFIX,
   manifestKey,
   parseManifest,
@@ -98,7 +100,10 @@ export type PublishResult =
 export async function publishManifest(
   ctx: EngineContext,
   manifest: Manifest,
+  /** The manifest this one was built on (ADR-0085); null for the first. */
+  parent: Manifest | null,
 ): Promise<PublishResult> {
+  await stampLineage(ctx, manifest, parent);
   const blob = await ctx.crypto.encrypt("manifest", serializeManifest(manifest));
   const key = ctx.key(manifestKey(manifest.generation, ctx.deviceId));
   const conditional = ctx.storage.capabilities().conditionalWrites;
@@ -126,4 +131,29 @@ export async function publishManifest(
     return { ok: false, reason: "lost-fork" };
   }
   return { ok: true };
+}
+
+/**
+ * Give `manifest` its id and its line of ancestors, IN PLACE (ADR-0085) — in
+ * place because the caller adopts this same object as its base, and a base
+ * must carry the id it was published under. A parent with no id (published
+ * by an older build) starts a new line.
+ */
+async function stampLineage(
+  ctx: EngineContext,
+  manifest: Manifest,
+  parent: Manifest | null,
+): Promise<void> {
+  delete manifest.id;
+  delete manifest.ancestors;
+  const ancestors =
+    parent?.id !== undefined ? [parent.id, ...(parent.ancestors ?? [])].slice(0, LINEAGE_DEPTH) : [];
+  manifest.id = await manifestId(ctx, manifest);
+  if (ancestors.length > 0) manifest.ancestors = ancestors;
+}
+
+/** A digest of the manifest's content without its lineage fields. */
+export async function manifestId(ctx: EngineContext, manifest: Manifest): Promise<string> {
+  const digest = await ctx.crypto.hash(serializeManifest(lineageFree(manifest)));
+  return digest.slice(-32);
 }

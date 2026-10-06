@@ -161,6 +161,8 @@ export default class SyncryptPlugin extends Plugin {
   private storageEpoch = 0;
   /** A ticket's settings being written; an unlock waits for it (ADR-0082). */
   private settingsSettled: Promise<unknown> = Promise.resolve();
+  /** Aborts the session engine's pending storage READS on Lock (ADR-0085). */
+  private sessionReads: AbortController | null = null;
   /** Set by onunload: nothing opens an engine on an unloaded instance (Q8). */
   private unloaded = false;
   /** Dialogs waiting on a decision; `lock()` closes them as "no" (ADR-0066). */
@@ -683,6 +685,10 @@ export default class SyncryptPlugin extends Plugin {
     // Where this unlock points, as of now (Q6): an edit while the keys are
     // derived is a different location, and the engine must not open the old.
     const epoch = this.storageEpoch;
+    // A Lock while this unlock runs is a Lock (ADR-0085): it ends this attempt
+    // too, not only the session it found. An Add-device connect has no
+    // dialog to close; Lock is the person's only way to say "stop".
+    const lockedAt = this.session;
     let engine: SyncEngine | null = null;
     try {
       // A sync or command from the session a lock ended is cancelled, not
@@ -712,9 +718,18 @@ export default class SyncryptPlugin extends Plugin {
       // `abandoned` for an engine already taken — an unlocked session whose
       // every put was refused, publishing nothing until a re-lock.
       let taken = false;
-      const storage = refusingWritesWhen(
-        await this.openStorage(),
-        () => !taken && (abandoned() || this.isUnloaded()),
+      // Reads end with the session (ADR-0085): one GET that never answers
+      // (requestUrl has no timeout and cannot be aborted) kept a locked
+      // session's sync "stopping" for ever, and every unlock was refused.
+      // Writes are still waited for: a put that lands after a new session
+      // published could overwrite what that session wrote.
+      const sessionReads = new AbortController();
+      const storage = abortingReadsOn(
+        refusingWritesWhen(
+          await this.openStorage(),
+          () => !taken && (abandoned() || this.isUnloaded()),
+        ),
+        sessionReads.signal,
       );
       const vaultPort = new ObsidianVault(adapter, s.profile, s.configSync, this.paths);
       engine = await openSyncEngine({
@@ -776,7 +791,10 @@ export default class SyncryptPlugin extends Plugin {
       if (this.isUnlocked()) return;
       // Unloaded meanwhile: this instance is gone (Q8). Or the person closed
       // the dialog while it checked: they did not ask for this any more.
-      if (this.isUnloaded() || abandoned()) return;
+      if (this.isUnloaded() || abandoned() || this.session !== lockedAt) {
+        this.renderStatus(); // not "unlocking…" for an unlock nobody waits for (ADR-0085)
+        return;
+      }
       // The storage settings changed meanwhile: this engine is on the old
       // location under settings showing the new one (Q6, ADR-0065 §4).
       if (this.storageEpoch !== epoch) throw new LocationChanged();
@@ -785,6 +803,7 @@ export default class SyncryptPlugin extends Plugin {
       this.engine = engine;
       this.vaultPort = vaultPort;
       this.unverified = unchecked;
+      this.sessionReads = sessionReads;
       taken = true;
       this.log.info(this.strings.log.unlocked);
       this.renderStatus();
@@ -836,6 +855,8 @@ export default class SyncryptPlugin extends Plugin {
     // ADR-0066).
     this.running?.abort.abort();
     for (const chore of this.chores) chore.abort.abort();
+    this.sessionReads?.abort();
+    this.sessionReads = null;
     for (const modal of [...this.openModals]) modal.close();
     this.scheduler?.dispose();
     this.scheduler = null;
@@ -1605,6 +1626,38 @@ function refusingWritesWhen(storage: StoragePort, refused: () => boolean): Stora
     get: (key) => storage.get(key),
     stat: (key) => storage.stat(key),
     list: (prefix) => storage.list(prefix),
+    capabilities: () => storage.capabilities(),
+  };
+}
+
+/**
+ * The storage, whose pending and future READS reject once `signal` aborts
+ * (ADR-0085). Puts and deletes are untouched: they are waited for.
+ */
+function abortingReadsOn(storage: StoragePort, signal: AbortSignal): StoragePort {
+  const aborted = (): SyncError => new SyncError("Aborted", "the session was locked");
+  const race = <T>(p: Promise<T>): Promise<T> => {
+    if (signal.aborted) return Promise.reject(aborted());
+    return new Promise<T>((resolve, reject) => {
+      const stop = (): void => { reject(aborted()); };
+      signal.addEventListener("abort", stop, { once: true });
+      p.then(
+        (v) => { signal.removeEventListener("abort", stop); resolve(v); },
+        (e: unknown) => { signal.removeEventListener("abort", stop); reject(e instanceof Error ? e : new Error(String(e))); },
+      );
+    });
+  };
+  return {
+    put: (key, data, opts) => storage.put(key, data, opts),
+    delete: (key) => storage.delete(key),
+    get: (key) => race(storage.get(key)),
+    stat: (key) => race(storage.stat(key)),
+    list: (prefix) => ({
+      [Symbol.asyncIterator]: () => {
+        const inner = storage.list(prefix)[Symbol.asyncIterator]();
+        return { next: () => race(inner.next()) };
+      },
+    }),
     capabilities: () => storage.capabilities(),
   };
 }

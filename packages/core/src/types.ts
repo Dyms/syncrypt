@@ -72,4 +72,17 @@ export interface Manifest {
    * outlives the release of the copies; a marker is a path and a number.
    */
   forgottenPaths?: Record<VaultPath, number>;
+  /**
+   * This manifest's identity: a digest of its content without `id` and
+   * `ancestors` (ADR-0085). (generation, device) is not an identity: after an
+   * accepted rollback the same device republishes the same numbers, and a
+   * fork's loser can be built on.
+   */
+  id?: string;
+  /**
+   * The ids of the manifests this one descends from, newest first:
+   * `ancestors[0]` is the parent at generation - 1 (ADR-0085). Capped at
+   * LINEAGE_DEPTH. A base is trusted only if it is on this line.
+   */
+  ancestors?: string[];
 }

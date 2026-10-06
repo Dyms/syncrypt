@@ -100,10 +100,14 @@ describe("a base is tied to its vault (ADR-0079)", () => {
     expect(log.notices.map((n) => n.code)).toContain("base-other-vault");
   });
 
-  // What the plugin's per-location state files (ADR-0065) cover on their own.
-  it("without identities the old behaviour stands", async () => {
-    const { local } = await switchStore({});
-    expect(await text(local, "Inbox.md")).toBe("B's inbox — the other vault");
+  // Without vault identities the lineage catches it too (ADR-0085): the
+  // other vault's top does not descend from this base. Before it, B's inbox
+  // was downloaded over A's.
+  it("without identities, a base off the storage's line is not used either", async () => {
+    const { local, log } = await switchStore({});
+    expect(await text(local, "Inbox.md")).toBe("A's inbox — my notes, written here");
+    expect(local.paths().some((p) => p.startsWith("Inbox") && p.includes("conflict"))).toBe(true);
+    expect(log.notices.map((n) => n.code)).toContain("base-off-line");
   });
 
   it("the same vault keeps its base", async () => {

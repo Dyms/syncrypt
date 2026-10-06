@@ -753,7 +753,7 @@ class Engine implements SyncEngine {
       // as written by a client older than itself.
       if (this.ctx.clientVersion !== undefined) next.writer = this.ctx.clientVersion;
 
-      const published = await publishManifest(this.ctx, next);
+      const published = await publishManifest(this.ctx, next, remote.manifest);
       if (!published.ok) {
         // Someone else moved first; the caller re-lists and tries again.
         return { forgotten: [], generation: null };
@@ -825,7 +825,7 @@ class Engine implements SyncEngine {
       }
       if (this.ctx.clientVersion !== undefined) next.writer = this.ctx.clientVersion;
 
-      const published = await publishManifest(this.ctx, next);
+      const published = await publishManifest(this.ctx, next, remote.manifest);
       if (!published.ok) return { released: 0, generation: null };
       // No path changed; the base keeps what this device synced (ADR-0080, R1).
       this.adoptBase(next, { pull: false, planned: this.baseFor(remote), changed: new Set() });
@@ -920,6 +920,22 @@ class Engine implements SyncEngine {
     if (winner !== null && winner !== base.device) {
       this.ctx.log.notice({ code: "fork-lost", generation: base.generation });
       return null;
+    }
+    // On the line the storage's top descends from? (ADR-0085). A fork's
+    // winner can be built past by its loser's successor, and after an
+    // accepted rollback the same (generation, device) is a different
+    // manifest; in both, the base was trusted and the top's older versions
+    // downloaded over edits only this device had. Not on the line → no base:
+    // differences are conflicts, both kept. Beyond what the line records (or
+    // manifests from a build without lineage): as before.
+    if (base.id !== undefined && remote.manifest.id !== undefined) {
+      const line = [remote.manifest.id, ...(remote.manifest.ancestors ?? [])];
+      const depth = remote.manifest.generation - base.generation;
+      const onLine = line[depth];
+      if (depth >= 0 && onLine !== undefined && onLine !== base.id) {
+        this.ctx.log.notice({ code: "base-off-line", generation: base.generation });
+        return null;
+      }
     }
     return withoutForgotten(base, remote.manifest);
   }
@@ -1290,7 +1306,7 @@ class Engine implements SyncEngine {
       res.uploaded,
       res.tombstoned,
     );
-    const published = await publishManifest(this.ctx, next);
+    const published = await publishManifest(this.ctx, next, remote.manifest);
     if (!published.ok) {
       // Lost the race or the fork. Our objects are harmless; nothing committed.
       this.ctx.log.notice({ code: "pull-first" });
@@ -1452,7 +1468,7 @@ class Engine implements SyncEngine {
           pushRes.uploaded,
           pushRes.tombstoned,
         );
-        const published = await publishManifest(this.ctx, next);
+        const published = await publishManifest(this.ctx, next, remote.manifest);
         if (!published.ok) {
           return this.report(startedAt, "pull-first", entries, fromGen, toGen, conflicts);
         }
@@ -1532,6 +1548,10 @@ function withoutForgotten(base: Manifest, remote: Manifest): Manifest {
     // A base at or past the forget was synced after it: its entry, if any,
     // is a re-added one and stands.
     if (base.generation >= marker || !(path in base.files)) continue;
+    // The same bytes re-added (ADR-0027) are not the "unrelated file" the
+    // marker guards against (ADR-0082): the entry stands, so a deletion made
+    // here meanwhile still propagates instead of downloading back (ADR-0085).
+    if (remote.files[path]?.hash === base.files[path]?.hash) continue;
     files ??= { ...base.files };
     delete files[path];
   }

@@ -269,6 +269,8 @@ const EN = {
       `Another device is running ${writer === undefined || writer === "" ? "an older Syncrypt" : `Syncrypt ${writer}`}; this one is running ${self}. Syncing works, but until every device is updated they do not all behave the same way — update the others when you can.`,
     forkLost: (generation: number) =>
       `Two devices published generation ${String(generation)} at the same moment, and this one did not win (ADR-0006 §4). Its own view of that generation is not what the others will read, so this sync compares against the published version instead of it. Files that differ come back as conflicts with both versions kept — nothing is overwritten, and nothing you deleted around then stays deleted.`,
+    baseOffLine: (generation: number) =>
+      `This device's last sync (generation ${String(generation)}) is not part of the history the storage now holds — a lost race or an accepted rollback. Planned from no base: every difference is kept as a conflict copy, nothing is overwritten; deletions made around then may come back.`,
     pathsNotDistinct: (paths: string[]) =>
       `${String(paths.length)} vault path${paths.length === 1 ? " is" : "s are"} the name of two different local files once names are normalized the same way (ADR-0007), and the vault index has room for one of them: ${paths.join(", ")}. Nothing was lost and nothing was uploaded for ${paths.length === 1 ? "it" : "them"} — rename one file of each pair and both will sync.`,
     pathsChangedDuringSync: (paths: string[]) =>
@@ -790,6 +792,8 @@ const RU: Strings = {
       `На другом устройстве ${writer === undefined || writer === "" ? "более старый Syncrypt" : `Syncrypt ${writer}`}, на этом — ${self}. Синхронизация работает, но пока обновлены не все устройства, ведут себя они по-разному — обнови остальные, когда сможешь.`,
     forkLost: (generation: number) =>
       `Два устройства опубликовали поколение ${String(generation)} в один момент, и это устройство не выиграло (ADR-0006 §4). Его собственная версия этого поколения — не та, которую прочитают остальные, поэтому синхронизация сверяется с опубликованной, а не с ней. Расходящиеся файлы вернутся конфликтами, обе версии сохранятся; ничего не перезаписывается, но и удаления, сделанные примерно тогда же, могут вернуться.`,
+    baseOffLine: (generation: number) =>
+      `Последняя синхронизация этого устройства (поколение ${String(generation)}) не входит в историю, которая сейчас в хранилище — проигранная гонка или принятый откат. План без базы: каждое расхождение сохраняется как копия конфликта, ничего не перезаписывается; удаления того периода могут вернуться.`,
     pathsNotDistinct: (paths: string[]) =>
       `После одинаковой нормализации имён (ADR-0007) на один и тот же путь хранилища претендуют по два разных локальных файла, а место в индексе есть только для одного. Таких путей: ${String(paths.length)} — ${paths.join(", ")}. Ничего не потеряно и ничего не выгружено: переименуйте по одному файлу из каждой пары, и синхронизироваться будут оба.`,
     pathsChangedDuringSync: (paths: string[]) =>

@@ -82,6 +82,16 @@ function canonicalJson(value: unknown): string {
   return `{${entries.join(",")}}`;
 }
 
+/** How many ancestor ids a manifest carries (ADR-0085). */
+export const LINEAGE_DEPTH = 256;
+const MANIFEST_ID_RE = /^[0-9a-f]{32}$/;
+
+/** The manifest's content without its lineage fields — what its id digests. */
+export function lineageFree(manifest: Manifest): Manifest {
+  const { id: _id, ancestors: _ancestors, ...rest } = manifest;
+  return rest;
+}
+
 export function serializeManifest(manifest: Manifest): Uint8Array {
   return textEncoder.encode(canonicalJson(manifest));
 }
@@ -230,6 +240,23 @@ export function parseManifest(bytes: Uint8Array): Manifest {
     // Sorted and deduplicated so two devices that forget the same entry
     // publish the same bytes.
     if (forgotten.length > 0) manifest.forgotten = [...new Set(forgotten)].sort();
+  }
+
+  // Lineage (ADR-0085). Malformed is corrupt, not dropped: these decide
+  // whether a base is trusted, and a dropped one would silently trust it.
+  if (raw.id !== undefined) {
+    if (typeof raw.id !== "string" || !MANIFEST_ID_RE.test(raw.id)) throw corrupt("invalid id");
+    manifest.id = raw.id;
+  }
+  if (raw.ancestors !== undefined) {
+    if (
+      !Array.isArray(raw.ancestors) ||
+      raw.ancestors.length > LINEAGE_DEPTH ||
+      !raw.ancestors.every((a) => typeof a === "string" && MANIFEST_ID_RE.test(a))
+    ) {
+      throw corrupt("invalid ancestors");
+    }
+    if (raw.ancestors.length > 0) manifest.ancestors = raw.ancestors as string[];
   }
 
   if (raw.forgottenPaths !== undefined) {

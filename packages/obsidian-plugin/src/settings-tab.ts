@@ -30,12 +30,15 @@ export class SyncryptSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  /** Closing the tab leaves the profile field too: a pending edit applies (R5). */
   /**
-   * Profile edits not yet committed (R5, ADR-0082): typed into a field that
-   * has not been left. Committed on blur, on close, and before a re-render.
+   * Profile edits not yet committed (R5, ADR-0082), by field: typed into a
+   * field that has not been left. Committed on blur, on close and on unload.
+   * A re-render carries them into the new field instead (ADR-0085): it used
+   * to commit them — the "Sync now" button re-renders when its sync ends, so
+   * "*" on the way to "*.pdf" was saved and applied with the cursor still in
+   * the field, and the new field no longer held what was being typed.
    */
-  private pendingProfile: (() => Promise<void>)[] = [];
+  private readonly drafts = new Map<string, { value: string; commit: (v: string) => Promise<void> }>();
 
   /** Closing the tab leaves the profile field too: a pending edit commits (R5). */
   override hide(): void {
@@ -44,17 +47,15 @@ export class SyncryptSettingTab extends PluginSettingTab {
   }
 
   async commitProfileEdits(): Promise<void> {
-    const pending = this.pendingProfile;
-    this.pendingProfile = [];
-    for (const commit of pending) await commit();
+    const pending = [...this.drafts.values()];
+    this.drafts.clear();
+    for (const d of pending) await d.commit(d.value);
   }
 
   // display() remains the supported imperative API; the declarative
   // getSettingDefinitions (1.13+) cannot express the unlock flow or the
   // dynamic credential note yet.
   display(): void {
-    // A re-render drops the fields; what was typed into them is not dropped.
-    void this.commitProfileEdits();
     const { containerEl } = this;
     containerEl.empty();
     const s = this.plugin.settings;
@@ -354,23 +355,20 @@ export class SyncryptSettingTab extends PluginSettingTab {
           // keystroke (R5), and then still reached a sync through the
           // after-sync re-apply of another field's edit (ADR-0082). So the
           // keystrokes stay in the field; leaving it saves and applies.
-          let draft: string | null = null;
-          const commit = async (): Promise<void> => {
-            if (draft === null) return;
-            const value = draft;
-            draft = null;
+          const commit = async (value: string): Promise<void> => {
             set(value.split("\n").map((l) => l.trim()).filter((l) => l !== ""));
             await this.plugin.saveSettings();
             // To the open vault port too, between syncs (ADR-0072).
             await this.plugin.applyLiveSettings();
           };
-          area.setValue(get().join("\n")).onChange((v) => {
-            if (draft === null) this.pendingProfile.push(commit);
-            draft = v;
+          area.setValue(this.drafts.get(name)?.value ?? get().join("\n")).onChange((v) => {
+            this.drafts.set(name, { value: v, commit });
           });
           area.inputEl.addEventListener("blur", () => {
-            this.pendingProfile = this.pendingProfile.filter((c) => c !== commit);
-            void commit();
+            const d = this.drafts.get(name);
+            if (d === undefined) return;
+            this.drafts.delete(name);
+            void d.commit(d.value);
           });
         });
     };
