@@ -301,14 +301,47 @@ export class Plugin {
   async saveData(d: unknown): Promise<void> {
     this.data = JSON.parse(JSON.stringify(d));
   }
-  addCommand(_c: unknown): void {}
+  /** Every command the plugin registered, so a test can run one. */
+  commands: { id: string; name: string; callback?: () => unknown }[] = [];
+  addCommand(c: { id: string; name: string; callback?: () => unknown }): void {
+    this.commands.push(c);
+  }
   addSettingTab(_t: unknown): void {}
   registerView(): void {}
   addStatusBarItem(): FakeEl {
     return new FakeEl();
   }
   registerDomEvent(): void {}
-  registerEvent(): void {}
+  registerEvent(_ref?: unknown): void {}
+}
+
+export class TFile {
+  constructor(readonly path: string) {}
+}
+
+/** A context menu: items are recorded so a test can read their titles and click them. */
+export class Menu {
+  items: { title: string; icon: string; click: () => unknown }[] = [];
+  addItem(build: (item: any) => unknown): this {
+    const rec = { title: "", icon: "", click: (): unknown => undefined };
+    const item = {
+      setTitle(t: string) {
+        rec.title = t;
+        return item;
+      },
+      setIcon(i: string) {
+        rec.icon = i;
+        return item;
+      },
+      onClick(fn: () => unknown) {
+        rec.click = fn;
+        return item;
+      },
+    };
+    build(item);
+    this.items.push(rec);
+    return this;
+  }
 }
 
 export const Platform = { isMobile: false };

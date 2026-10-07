@@ -7,6 +7,7 @@
   [Cryptography choices](./security/cryptography.md) ·
   [Privacy policy](./security/privacy-policy.md)
 - **User guide:** [Configuration](./user-guide/configuration.md) ·
+  [File history and compare](./user-guide/file-history.md) ·
   [FAQ](./user-guide/faq.md) ·
   [Troubleshooting](./user-guide/troubleshooting.md) ·
   [Migration from LiveSync](./user-guide/migration-from-livesync.md) ·

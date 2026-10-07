@@ -4,7 +4,9 @@
 
 import { Modal, type App } from "obsidian";
 
-import type { SyncPlan } from "@syncrypt/core";
+import type { Operation, SyncPlan } from "@syncrypt/core";
+
+import { requestForOperation } from "./compare-loader.js";
 
 import { EN_STRINGS, type Strings } from "./i18n.js";
 
@@ -16,6 +18,8 @@ export class ConfirmSyncModal extends Modal {
     private readonly plan: SyncPlan,
     private readonly onDecision: (approved: boolean) => void,
     private readonly t: Strings = EN_STRINGS,
+    /** Opens a read-only comparison for one line (RFC-0010). */
+    private readonly onCompare?: (op: Operation) => void,
   ) {
     super(app);
   }
@@ -38,6 +42,11 @@ export class ConfirmSyncModal extends Modal {
         op.kind === "delete-remote" ||
         (op.kind === "download" && op.localHash !== undefined),
     );
+    const compare = this.onCompare;
+    if (compare !== undefined && destructive.some((op) => requestForOperation(op) !== null)) {
+      const hint = this.contentEl.createEl("p", { text: this.t.confirmModal.compareHint });
+      hint.style.opacity = "0.8";
+    }
     const listEl = this.contentEl.createEl("div", { cls: "syncrypt-confirm-list" });
     listEl.style.maxHeight = "40vh";
     listEl.style.overflow = "auto";
@@ -50,6 +59,11 @@ export class ConfirmSyncModal extends Modal {
       const row = listEl.createEl("div");
       row.createEl("code", { text: op.path });
       row.createSpan({ text: ` — ${labels[op.kind] ?? op.kind}` });
+      if (compare !== undefined && requestForOperation(op) !== null) {
+        const btn = row.createEl("button", { text: this.t.confirmModal.compare });
+        btn.style.marginLeft = "0.6em";
+        btn.addEventListener("click", () => { compare(op); });
+      }
     }
 
     const buttons = this.contentEl.createEl("div");

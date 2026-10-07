@@ -20,7 +20,8 @@ which is one more reason to keep bucket versioning on.
 **A "conflicted copy" file appeared.**
 You (or another device) edited the same note on both sides. Syncrypt kept both
 versions instead of guessing. Open both, merge what you want into the canonical
-file, delete the conflicted copy, then sync.
+file, delete the conflicted copy, then sync. To see the difference line by line,
+use **File history** on the note ([guide](./file-history.md)).
 
 **Decryption failed / "authentication tag mismatch".**
 Either the passphrase is wrong, or an object was corrupted/tampered in storage.

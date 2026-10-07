@@ -366,6 +366,7 @@ const EN = {
     releaseForgotten: "Release the copies kept for forgotten entries",
     reclaimStorage: "Reclaim storage (delete unreferenced objects)",
     acceptStorage: "Accept the storage as it is (after restoring a backup)",
+    fileHistory: "File history (versions kept in storage)",
   },
 
   settings: {
@@ -567,6 +568,54 @@ const EN = {
     overwriteLocal: "overwrite local file",
     cancel: "Cancel (do nothing)",
     apply: "Apply changes",
+    compare: "Compare",
+    compareHint:
+      "\u201cCompare\u201d shows what is in the file now and what the sync would leave, line by line. It changes nothing.",
+  },
+
+  compareModal: {
+    title: (path: string) => `Compare: ${path}`,
+    loading: "Loading\u2026",
+    failed: (msg: string) => `Could not load the comparison: ${msg}`,
+    gone: "Storage no longer holds that version (it was replaced or aged out).",
+    sideLeft: "Left",
+    sideRight: "Right",
+    local: "this device",
+    stored: "in storage",
+    absent: "no file",
+    meta: (size: string, date: string) => `${size}, ${date}`,
+    legend: "\u2212 only on the left, + only on the right",
+    summary: (added: number, removed: number) =>
+      `+${String(added)} / \u2212${String(removed)} lines`,
+    identical: "The two are identical.",
+    formatOnly:
+      "The text is the same: only line endings, the final newline or a byte-order mark differ.",
+    binary: "Not a text file \u2014 its contents are not shown. Compare the sizes and dates above.",
+    tooLargeBytes: "Too large to compare here (over 1 MB). Compare the sizes and dates above.",
+    tooLargeLines: "Too many lines to compare here. Compare the sizes and dates above.",
+    tooLargeEdits: "Too many differences to list here \u2014 these are largely different files.",
+    close: "Close",
+  },
+
+  historyModal: {
+    title: (path: string) => `History: ${path}`,
+    menuItem: "Syncrypt: file history",
+    noActiveFile: "Syncrypt: open a file first to see its history.",
+    empty: "Storage holds no version of this file.",
+    deleted:
+      "This file is deleted in storage. Its last stored versions are below; \u201cRestore as copy\u201d brings one back.",
+    intro:
+      "Versions of this file kept in storage. Nothing here changes your file: restoring writes a copy beside it.",
+    current: "current in storage",
+    earlier: "earlier version",
+    localNow: "This device now",
+    compareLocal: "Compare with this device",
+    whatChanged: "What changed",
+    restore: "Restore as copy",
+    close: "Close",
+    restored: (path: string) => `Syncrypt: restored as ${path}`,
+    restoreFailed: (msg: string) => `Syncrypt: could not restore \u2014 ${msg}`,
+    loadFailed: (msg: string) => `Could not read the history: ${msg}`,
   },
 
   shareModal: {
@@ -893,6 +942,7 @@ const RU: Strings = {
     releaseForgotten: "Освободить копии, сохранённые ради забытых записей",
     reclaimStorage: "Освободить место в хранилище (удалить ненужные объекты)",
     acceptStorage: "Принять хранилище как есть (после восстановления из бэкапа)",
+    fileHistory: "История файла (версии в хранилище)",
   },
 
   settings: {
@@ -1096,6 +1146,54 @@ const RU: Strings = {
     overwriteLocal: "перезаписать локальный файл",
     cancel: "Отмена (ничего не делать)",
     apply: "Применить изменения",
+    compare: "Сравнить",
+    compareHint:
+      "«Сравнить» показывает по строкам, что в файле сейчас и что останется после синхронизации. Ничего не меняет.",
+  },
+
+  compareModal: {
+    title: (path: string) => `Сравнение: ${path}`,
+    loading: "Загрузка\u2026",
+    failed: (msg: string) => `Не удалось загрузить сравнение: ${msg}`,
+    gone: "В хранилище этой версии больше нет (её заменили или она вышла за глубину истории).",
+    sideLeft: "Слева",
+    sideRight: "Справа",
+    local: "это устройство",
+    stored: "в хранилище",
+    absent: "файла нет",
+    meta: (size: string, date: string) => `${size}, ${date}`,
+    legend: "\u2212 только слева, + только справа",
+    summary: (added: number, removed: number) =>
+      `+${String(added)} / \u2212${String(removed)} строк`,
+    identical: "Содержимое одинаковое.",
+    formatOnly:
+      "Текст одинаковый: отличаются только концы строк, последний перевод строки или BOM.",
+    binary: "Это не текстовый файл \u2014 содержимое не показывается. Сравни размеры и даты выше.",
+    tooLargeBytes: "Слишком большой файл для сравнения здесь (больше 1 МБ). Сравни размеры и даты выше.",
+    tooLargeLines: "Слишком много строк для сравнения здесь. Сравни размеры и даты выше.",
+    tooLargeEdits: "Слишком много отличий для списка \u2014 это в основном разные файлы.",
+    close: "Закрыть",
+  },
+
+  historyModal: {
+    title: (path: string) => `История: ${path}`,
+    menuItem: "Syncrypt: история файла",
+    noActiveFile: "Syncrypt: сначала открой файл, чтобы увидеть его историю.",
+    empty: "В хранилище нет ни одной версии этого файла.",
+    deleted:
+      "Этот файл удалён в хранилище. Его последние версии ниже; «Восстановить копией» вернёт одну из них.",
+    intro:
+      "Версии этого файла, сохранённые в хранилище. Ничего из этого не меняет твой файл: восстановление записывает копию рядом.",
+    current: "текущая в хранилище",
+    earlier: "прежняя версия",
+    localNow: "Это устройство сейчас",
+    compareLocal: "Сравнить с этим устройством",
+    whatChanged: "Что изменилось",
+    restore: "Восстановить копией",
+    close: "Закрыть",
+    restored: (path: string) => `Syncrypt: восстановлено как ${path}`,
+    restoreFailed: (msg: string) => `Syncrypt: не удалось восстановить \u2014 ${msg}`,
+    loadFailed: (msg: string) => `Не удалось прочитать историю: ${msg}`,
   },
 
   shareModal: {

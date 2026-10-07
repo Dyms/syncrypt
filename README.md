@@ -60,6 +60,7 @@ Full setup guide: [docs/install.md](./docs/install.md) ·
 | Migrating from Self-hosted LiveSync | [docs/user-guide/migration-from-livesync.md](./docs/user-guide/migration-from-livesync.md) |
 | FAQ | [docs/user-guide/faq.md](./docs/user-guide/faq.md) |
 | Troubleshooting | [docs/user-guide/troubleshooting.md](./docs/user-guide/troubleshooting.md) |
+| File history and compare | [docs/user-guide/file-history.md](./docs/user-guide/file-history.md) |
 | Recover your data without Syncrypt | [docs/user-guide/manual-recovery.md](./docs/user-guide/manual-recovery.md) |
 | Plans | [ROADMAP.md](./ROADMAP.md) |
 

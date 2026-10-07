@@ -10,12 +10,20 @@ import {
   Notice,
   Platform,
   Plugin,
+  TFile,
   type App,
   type EventRef,
   type WorkspaceLeaf,
 } from "obsidian";
 
-import type { StoragePort, SyncEngine, SyncOutcome, SyncReport } from "@syncrypt/sdk";
+import type {
+  FileVersion,
+  Operation,
+  StoragePort,
+  SyncEngine,
+  SyncOutcome,
+  SyncReport,
+} from "@syncrypt/sdk";
 import {
   CROSS_DEVICE_KDF_PRESET,
   DESKTOP_KDF_PRESET,
@@ -28,11 +36,19 @@ import { S3Storage } from "@syncrypt/provider-s3";
 import { WebDavStorage } from "@syncrypt/provider-webdav";
 
 import type { DataAdapterLike } from "./adapter-types.js";
+import { CompareModal } from "./compare-modal.js";
+import {
+  loadComparison,
+  requestForOperation,
+  restoredCopyPath,
+  type CompareRequest,
+} from "./compare-loader.js";
 import { ConfirmSyncModal } from "./confirm-modal.js";
 import { conflictCopyFor, shortlist } from "./conflict-report.js";
 import { AcceptStorageModal } from "./accept-storage-modal.js";
 import { ForgetPathsModal } from "./forget-modal.js";
 import { formatBytes } from "./format-bytes.js";
+import { HistoryModal } from "./history-modal.js";
 import { ReclaimStorageModal } from "./reclaim-modal.js";
 import { ReleaseForgottenModal } from "./release-modal.js";
 import {
@@ -335,6 +351,23 @@ export default class SyncryptPlugin extends Plugin {
       name: this.strings.commands.acceptStorage,
       callback: () => void this.acceptStorage(),
     });
+    this.addCommand({
+      id: "file-history",
+      name: this.strings.commands.fileHistory,
+      callback: () => void this.fileHistory(),
+    });
+    // The same from a file's context menu (RFC-0010).
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu, file) => {
+        if (!(file instanceof TFile)) return;
+        menu.addItem((item) =>
+          item
+            .setTitle(this.strings.historyModal.menuItem)
+            .setIcon("history")
+            .onClick(() => void this.fileHistory(file.path)),
+        );
+      }),
+    );
 
     // Pull on start (RFC-0004 §Triggers) — once the user unlocks.
     this.app.workspace.onLayoutReady(() => {
@@ -1196,7 +1229,9 @@ export default class SyncryptPlugin extends Plugin {
     const plan = await engine.dryRun(signal);
     if (session !== this.session) return original;
     const approved = await this.ask<boolean>((resolve) =>
-      new ConfirmSyncModal(this.app, plan, resolve, this.strings),
+      new ConfirmSyncModal(this.app, plan, resolve, this.strings, (op) => {
+        this.compareOperation(op);
+      }),
     );
     if (!approved || session !== this.session) {
       this.log.info(this.strings.log.bulkCancelled);
@@ -1266,6 +1301,112 @@ export default class SyncryptPlugin extends Plugin {
     } finally {
       this.chores.delete(chore);
       stopped();
+    }
+  }
+
+  // -- file history and compare (RFC-0010) ---------------------------------------
+
+  /** The "Compare" button of the Safe-Sync dialog. Read-only; decides nothing. */
+  private compareOperation(op: Operation): void {
+    const req = requestForOperation(op);
+    if (req !== null) void this.openComparison(req);
+  }
+
+  private async openComparison(req: CompareRequest): Promise<void> {
+    await this.maintenance(async (engine, current, signal) => {
+      const vault = this.vaultPort;
+      if (vault === null || !current()) return;
+      const deps = {
+        localStat: (p: string) => vault.stat(p),
+        readLocal: (p: string) => vault.read(p),
+        listVersions: (p: string, s?: AbortSignal) => engine.listFileVersions(p, s),
+        readStored: (p: string, h: string, s?: AbortSignal) => engine.readFileVersion(p, h, s),
+      };
+      await this.ask<null>(
+        (resolve) =>
+          new CompareModal(
+            this.app,
+            req.path,
+            () => loadComparison(req, deps, signal),
+            () => { resolve(null); },
+            this.strings,
+          ),
+      );
+    });
+  }
+
+  /**
+   * The versions storage keeps of one file, with compare and restore-as-copy.
+   * Restoring never writes over anything: the copy gets its own name.
+   */
+  async fileHistory(nativePath?: string): Promise<void> {
+    const native = nativePath ?? this.app.workspace.getActiveFile()?.path;
+    if (native === undefined) {
+      new Notice(this.strings.historyModal.noActiveFile, 6000);
+      return;
+    }
+    await this.maintenance(async (engine, current, signal) => {
+      const vault = this.vaultPort;
+      if (vault === null) return;
+      const path = vault.fromNative(native);
+      const history = await engine.listFileVersions(path, signal);
+      if (!current()) return;
+      if (history.versions.length === 0) {
+        new Notice(this.strings.historyModal.empty, 6000);
+        return;
+      }
+      await this.ask<null>(
+        (resolve) =>
+          new HistoryModal(
+            this.app,
+            path,
+            history,
+            {
+              compareLocal: (v: FileVersion) => {
+                void this.openComparison({
+                  path,
+                  left: { kind: "local" },
+                  right: { kind: "stored", hash: v.hash },
+                });
+              },
+              whatChanged: (older: FileVersion, newer: FileVersion) => {
+                void this.openComparison({
+                  path,
+                  left: { kind: "stored", hash: older.hash },
+                  right: { kind: "stored", hash: newer.hash },
+                });
+              },
+              restore: (v: FileVersion) => this.restoreVersion(engine, current, signal, path, v),
+            },
+            () => { resolve(null); },
+            this.strings,
+          ),
+      );
+    });
+  }
+
+  private async restoreVersion(
+    engine: SyncEngine,
+    current: () => boolean,
+    signal: AbortSignal,
+    path: string,
+    version: FileVersion,
+  ): Promise<string> {
+    const vault = this.vaultPort;
+    try {
+      if (vault === null || !current()) throw new Error(this.strings.notices.lockedMeanwhile);
+      const data = await engine.readFileVersion(path, version.hash, signal);
+      if (!current()) throw new Error(this.strings.notices.lockedMeanwhile);
+      const target = await restoredCopyPath(path, version.mtime, (candidate) =>
+        this.app.vault.adapter.exists(vault.toNative(candidate)),
+      );
+      await vault.write(target, data);
+      new Notice(this.strings.historyModal.restored(target), 10000);
+      return target;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      new Notice(this.strings.historyModal.restoreFailed(message), 10000);
+      throw e;
     }
   }
 

@@ -31,7 +31,8 @@ when they're safe.
 ## Next
 
 - Community-store submission once the beta has soaked.
-- Point-in-time recovery UI (the storage format already retains history).
+- Whole-vault point-in-time recovery (per-file history and compare shipped in
+  beta.16).
 - Scheduled local backups — sync is not a backup, so let's make backups easy
   too.
 

@@ -7,6 +7,20 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **File history and compare** (RFC-0010). Each line of the Safe-Sync confirmation
+  that would overwrite or delete a file now has a **Compare** button: a read-only,
+  line-by-line view of what is in the file now against what the sync would leave
+  (before, you got a list of paths and a question). New command **File history**
+  (also in a file's context menu) lists the versions storage keeps of one file,
+  compares any of them with this device or with the next one, and **restores one as
+  a copy** beside the file, never over it. Text only, up to 1 MB per side; larger
+  or binary files show sizes and dates, and are not downloaded just to say so. The
+  engine gained two read-only methods, `listFileVersions()` and `readFileVersion()`
+  (the hash must be one the manifest names for that path; the object is verified).
+  There is no merge and no format change. See the new
+  [guide](./docs/user-guide/file-history.md).
+
 ## [1.0.0-beta.15] — 2026-10-07
 
 WebDAV is marked experimental. The live check on R2 still needs repeating on a

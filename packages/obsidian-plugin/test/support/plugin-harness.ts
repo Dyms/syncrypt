@@ -98,7 +98,21 @@ export async function makeDevice(
         this.handlers.get(ref.name)?.delete(ref.fn);
       },
     },
-    workspace: { onLayoutReady: () => undefined, getLeavesOfType: () => [] },
+    workspace: {
+      onLayoutReady: () => undefined,
+      getLeavesOfType: () => [],
+      // The one file the user has open (a test sets it), and the context-menu
+      // handlers the plugin registered (a test fires them).
+      activeFile: null as { path: string } | null,
+      getActiveFile() {
+        return this.activeFile;
+      },
+      fileMenu: [] as ((menu: unknown, file: unknown) => void)[],
+      on(name: string, fn: (menu: unknown, file: unknown) => void) {
+        if (name === "file-menu") this.fileMenu.push(fn);
+        return { name };
+      },
+    },
   };
   if (install !== undefined) {
     app.loadLocalStorage = (k: string) => install.get(k) ?? null;

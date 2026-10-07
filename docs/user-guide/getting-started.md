@@ -53,10 +53,12 @@ Ideas.md                 changed on both sides          → CONFLICT (see confli
 
 Open it with **Syncrypt: Show sync log**. If a sync would delete or overwrite
 many files at once, Syncrypt pauses and shows the full list first — read it
-before confirming.
+before confirming. Each line has a **Compare** button that shows, line by line,
+what is in the file now and what the sync would leave
+([details](./file-history.md)).
 
 ## Where next
 
-[Configuration](./configuration.md) · [FAQ](./faq.md) ·
+[Configuration](./configuration.md) · [File history](./file-history.md) · [FAQ](./faq.md) ·
 [Troubleshooting](./troubleshooting.md) ·
 [Recover without Syncrypt](./manual-recovery.md)

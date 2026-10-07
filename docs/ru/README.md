@@ -12,6 +12,7 @@
 
 - [Быстрый старт](./user-guide/getting-started.md)
 - [Конфигурация](./user-guide/configuration.md)
+- [История файла и сравнение](./user-guide/file-history.md)
 - [FAQ](./user-guide/faq.md)
 - [Устранение неполадок](./user-guide/troubleshooting.md)
 - [Переход с LiveSync](./user-guide/migration-from-livesync.md)

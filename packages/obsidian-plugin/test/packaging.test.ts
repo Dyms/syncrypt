@@ -101,6 +101,7 @@ describe("release bundle", () => {
           cb(); // settings incomplete → log-info path
         },
         getLeavesOfType: () => [],
+        on: () => ({}),
         getRightLeaf: () => null,
         revealLeaf: () => Promise.resolve(),
       },
@@ -165,5 +166,6 @@ function mkEl() {
   };
   return el;
 }
-module.exports = { Plugin, Modal, PluginSettingTab, ItemView, Setting, Notice, Platform, requestUrl, Events };
+class TFile { constructor(path) { this.path = path; } }
+module.exports = { Plugin, Modal, PluginSettingTab, ItemView, Setting, Notice, Platform, requestUrl, Events, TFile };
 `;

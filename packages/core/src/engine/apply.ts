@@ -60,7 +60,7 @@ export function conflictedCopyPath(
 }
 
 /** Download + decrypt + VERIFY one manifest entry. Fail-closed on mismatch. */
-async function fetchVerified(
+export async function fetchVerified(
   ctx: EngineContext,
   path: VaultPath,
   entry: ManifestEntry,

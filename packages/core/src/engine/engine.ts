@@ -33,7 +33,7 @@ import type {
 } from "../types.js";
 import { markAfterSweep, type ReclaimPlan } from "../reclaim.js";
 import { versionSkew } from "../version.js";
-import { applyPullOps, applyPushOps, buildNextManifest } from "./apply.js";
+import { applyPullOps, applyPushOps, buildNextManifest, fetchVerified } from "./apply.js";
 import { computeReclaimPlan, listObjects, writeGcMark } from "./reclaim-io.js";
 import type { EngineContext } from "./context.js";
 import { publishManifest, readRemote, type RemoteState } from "./remote.js";
@@ -243,6 +243,22 @@ export interface SyncEngine {
   forgetPaths(paths: VaultPath[], signal?: AbortSignal): Promise<ForgetResult>;
 
   /**
+   * The versions storage holds for one path (RFC-0010): the current one first,
+   * then the retained ones, newest first. Reads the manifest only — no object
+   * is fetched, nothing is published.
+   */
+  listFileVersions(path: VaultPath, signal?: AbortSignal): Promise<FileVersions>;
+
+  /**
+   * The bytes of one stored version of `path`, identified by its hash
+   * (RFC-0010). The hash must be one the manifest names for that path — the
+   * current entry or a retained one — so this cannot be used to fetch an
+   * arbitrary object. Decrypted and VERIFIED against the hash, like a
+   * download. Writes nothing, to the vault or to storage.
+   */
+  readFileVersion(path: VaultPath, hash: Hash, signal?: AbortSignal): Promise<Uint8Array>;
+
+  /**
    * Let go of the objects kept for forgotten entries (ADR-0055).
    *
    * Forgetting an entry keeps its ciphertext reachable, because the judgement
@@ -329,6 +345,23 @@ export interface UncarriedEntry {
   /** Epoch seconds, as recorded by whichever device last published it. */
   mtime: number;
   hash: Hash;
+}
+
+/** One stored version of a path — enough to recognize it without fetching it. */
+export interface FileVersion {
+  hash: Hash;
+  size: number;
+  /** Epoch seconds, as recorded by whichever device published it. */
+  mtime: number;
+  /** True for the version the top manifest lists as live; false for a retained one. */
+  current: boolean;
+}
+
+export interface FileVersions {
+  /** The top manifest has a tombstone for the path and no live entry. */
+  deleted: boolean;
+  /** Current first (when there is one), then retained, newest first. */
+  versions: FileVersion[];
 }
 
 export interface ForgetResult {
@@ -687,6 +720,46 @@ class Engine implements SyncEngine {
       }
       out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
       return out;
+    });
+  }
+
+  listFileVersions(path: VaultPath, signal?: AbortSignal): Promise<FileVersions> {
+    return this.exclusive(async () => {
+      const remote = await readRemote(this.ctx);
+      throwIfAborted(signal, "listFileVersions");
+      const manifest = remote.manifest;
+      if (manifest === null) return { deleted: false, versions: [] };
+      const out: FileVersion[] = [];
+      const live = manifest.files[path];
+      if (live !== undefined) {
+        out.push({ hash: live.hash, size: live.size, mtime: live.mtime, current: true });
+      }
+      for (const v of manifest.history?.[path] ?? []) {
+        // A retained copy equal to the live one is the same bytes twice.
+        if (v.hash === live?.hash) continue;
+        out.push({ hash: v.hash, size: v.size, mtime: v.mtime, current: false });
+      }
+      return { deleted: live === undefined && manifest.tombstones[path] !== undefined, versions: out };
+    });
+  }
+
+  readFileVersion(path: VaultPath, hash: Hash, signal?: AbortSignal): Promise<Uint8Array> {
+    return this.exclusive(async () => {
+      const remote = await readRemote(this.ctx);
+      throwIfAborted(signal, "readFileVersion");
+      const manifest = remote.manifest;
+      const live = manifest?.files[path];
+      const candidates = [...(live !== undefined ? [live] : []), ...(manifest?.history?.[path] ?? [])];
+      const entry = candidates.find((e) => e.hash === hash);
+      if (entry === undefined) {
+        throw new SyncError(
+          "StorageNotFound",
+          `storage holds no version of "${path}" with that hash (it may have been replaced or aged out)`,
+        );
+      }
+      const data = await fetchVerified(this.ctx, path, entry);
+      throwIfAborted(signal, "readFileVersion");
+      return data;
     });
   }
 

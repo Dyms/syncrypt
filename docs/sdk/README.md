@@ -65,8 +65,12 @@ handle; most of them mean *nothing was applied*:
 | `aborted` | The `AbortSignal` you passed fired. Every operation takes one. |
 
 Other operations: `status()`, `verifyAccess()`, `forgetBase()`, `acceptRolledBack()`,
-`setSafeSync()`, `listUncarried()`, `forgetPaths()`, `previewRelease()`,
+`setSafeSync()`, `listUncarried()`, `forgetPaths()`, `listFileVersions()`,
+`readFileVersion()`, `previewRelease()`,
 `releaseForgotten()`, `previewReclaim()`, `reclaimStorage()`, `forgetHashCache()`.
+`listFileVersions(path)` lists the versions storage holds for one path (current,
+then retained, newest first) and `readFileVersion(path, hash)` returns one,
+decrypted and verified; both only read.
 `reclaimStorage()` is the only operation that deletes from storage, in two steps
 separated by a safety window; show the preview first.
 

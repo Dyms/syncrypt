@@ -62,6 +62,7 @@ Syncrypt делает одно и хорошо: переносит файлы м
 | Миграция с Self-hosted LiveSync | [docs/ru/user-guide/migration-from-livesync.md](./docs/ru/user-guide/migration-from-livesync.md) |
 | FAQ | [docs/ru/user-guide/faq.md](./docs/ru/user-guide/faq.md) |
 | Решение проблем | [docs/ru/user-guide/troubleshooting.md](./docs/ru/user-guide/troubleshooting.md) |
+| История файла и сравнение | [docs/ru/user-guide/file-history.md](./docs/ru/user-guide/file-history.md) |
 | Восстановление данных без Syncrypt | [docs/ru/user-guide/manual-recovery.md](./docs/ru/user-guide/manual-recovery.md) |
 | Планы | [ROADMAP.md](./ROADMAP.md) |
 
