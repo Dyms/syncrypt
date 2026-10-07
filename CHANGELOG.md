@@ -7,6 +7,11 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.14] — 2026-10-07
+
+Storage-response checks, hash-cache and glob fixes, and a documentation pass.
+The live check done on beta.13 needs repeating on this build before 1.0.0.
+
 ### Fixed
 - **S3 / S3-compatible storage: a stored object is confirmed, not assumed.** A
   `PUT` answered 2xx without an `ETag` (some proxies) is now checked with a
