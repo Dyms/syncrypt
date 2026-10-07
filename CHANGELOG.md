@@ -7,6 +7,11 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.16] — 2026-10-07
+
+File history and compare. The live check on R2 still needs repeating on a build
+with the beta.14, beta.15 and beta.16 changes before 1.0.0.
+
 ### Added
 - **File history and compare** (RFC-0010). Each line of the Safe-Sync confirmation
   that would overwrite or delete a file now has a **Compare** button: a read-only,
