@@ -11,13 +11,14 @@ when they're safe.
   Property-based tests assert *no data loss* and *no silent overwrite* over
   randomized sync histories.
 - **End-to-end encryption**: Argon2id + AES-256-GCM, keys only in memory,
-  documented format with tested recovery scripts —
+  documented format with a tested recovery script —
   [how security works](./docs/security.md).
 - **Storage backends**: any S3-compatible service and WebDAV — both pass the
   same conformance test suite against real servers.
 - **Obsidian plugin**: desktop (Windows/macOS) and Android, with a readable
-  sync log, dry-run, Safe-Sync confirmations, migration warnings, and
-  battery/data-friendly mobile defaults.
+  sync log, Safe-Sync confirmations with a preview of the plan, migration warnings, and
+  battery/data-friendly mobile defaults, and optional sync of chosen Obsidian
+  settings (off by default, with safety rails for secrets).
 
 ## Now (beta)
 
@@ -30,8 +31,6 @@ when they're safe.
 
 - Community-store submission once the beta has soaked.
 - Point-in-time recovery UI (the storage format already retains history).
-- Optional sync for chosen Obsidian settings (with safety rails for secrets
-  and device-specific files).
 - Scheduled local backups — sync is not a backup, so let's make backups easy
   too.
 

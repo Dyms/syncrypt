@@ -45,7 +45,7 @@ only honest proof that "you own your data" isn't a slogan.
 - Client-side end-to-end encryption; storage sees only ciphertext.
 - Work with storage you already own: any S3-compatible service or any WebDAV
   server.
-- Make every action visible and explainable (sync log, dry-run).
+- Make every action visible and explainable (sync log, plan preview before large changes).
 - Be safe by default: local trash for deletions, version retention,
   confirmation before bulk changes.
 - Stay small enough that one person can read and audit the whole thing.

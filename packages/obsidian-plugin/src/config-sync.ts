@@ -57,7 +57,7 @@ export const DEFAULT_CONFIG_SYNC: ConfigSyncSettings = {
 };
 
 /** Syncrypt's own id — its data.json holds storage keys (ADR-0016). */
-export const SYNCRYPT_PLUGIN_ID = "syncrypt";
+const SYNCRYPT_PLUGIN_ID = "syncrypt";
 
 /**
  * Every path rule that depends on the config folder's NAME, built once from

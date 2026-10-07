@@ -1,8 +1,10 @@
 # FAQ
 
 **Is this real-time like Obsidian Sync or LiveSync?**
-No, by design. Sync happens on open/close/manual. If you almost never edit the
-same note on two devices at once, you won't notice — and you gain a simpler,
+No, by design. Sync runs a little after you stop editing (default 15 seconds),
+on a periodic pull while Obsidian is open, and on **Sync now**. After each
+restart of Obsidian you unlock with your passphrase first; until then nothing
+syncs. If you almost never edit the same note on two devices at once, you won't notice — and you gain a simpler,
 safer, inspectable system.
 
 **What if I edit the same note on two devices?**

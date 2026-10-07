@@ -106,8 +106,25 @@ export class S3Storage implements StoragePort {
         },
         body: data,
       });
-      return { etag: res.header("etag") ?? "" };
+      return { etag: res.header("etag") ?? (await this.confirmStored(key, data.length)) };
     }, this.retryOpts);
+  }
+
+  /**
+   * A PUT answered 2xx with no ETag is not proof that anything was stored: a
+   * captive portal or a proxy answers 200 with a page. Ask the storage — the
+   * object must exist, at the length that was sent. The same rule WebDAV applies
+   * to a PUT without an ETag. Returns the ETag the storage reports.
+   */
+  private async confirmStored(key: ObjectKey, size: number): Promise<string> {
+    const stat = await this.stat(key);
+    if (stat.size !== size) {
+      throw new SyncError(
+        "StorageTransient",
+        `S3 put "${key}": the storage holds ${String(stat.size)} bytes after a ${String(size)}-byte upload`,
+      );
+    }
+    return stat.etag;
   }
 
   /**
@@ -180,7 +197,7 @@ export class S3Storage implements StoragePort {
           throw normalizeS3Error(res.status, embedded, key, "multipart-complete");
         }
         const m = /<ETag>([^<]+)<\/ETag>/.exec(text);
-        return { etag: m?.[1]?.replaceAll("&quot;", '"') ?? "" };
+        return { etag: m?.[1]?.replaceAll("&quot;", '"') ?? (await this.confirmStored(key, data.length)) };
       }, this.retryOpts);
     } catch (e) {
       // Best-effort abort so incomplete parts do not linger (and bill).

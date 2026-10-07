@@ -22,7 +22,7 @@ import {
 import { WebDavClient, normalizeDavError } from "./client.js";
 import { WEBDAV_DEFAULTS, type WebDavConfig } from "./config.js";
 import { withRetry, type RetryOptions } from "./retry.js";
-import { parseMultistatus, PROPFIND_BODY, type DavEntry } from "./xml.js";
+import { isWholeMultistatus, parseMultistatus, PROPFIND_BODY, type DavEntry } from "./xml.js";
 
 export class WebDavStorage implements StoragePort {
   private readonly client: WebDavClient;
@@ -164,7 +164,17 @@ export class WebDavStorage implements StoragePort {
         throw normalizeDavError(res.status, collection, "list");
       }
       if (!res.ok) throw normalizeDavError(res.status, collection, "list");
-      const entries: DavEntry[] = parseMultistatus(res.text());
+      const body = res.text();
+      // A whole multistatus document or nothing: a proxy page answered with 200
+      // is an EMPTY listing, and a body cut off keeps its first entries. Neither
+      // may be read as "that is what is there".
+      if (!isWholeMultistatus(body)) {
+        throw new SyncError(
+          "StorageTransient",
+          `WebDAV list "${collection}": the response is not a complete multistatus document (a proxy page or a cut-off body)`,
+        );
+      }
+      const entries: DavEntry[] = parseMultistatus(body);
       for (const entry of entries) {
         const key = this.client.keyFor(entry.path);
         // Not inside our collection, or a traversing path: the server's

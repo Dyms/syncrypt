@@ -153,7 +153,7 @@ async function stampLineage(
 }
 
 /** A digest of the manifest's content without its lineage fields. */
-export async function manifestId(ctx: EngineContext, manifest: Manifest): Promise<string> {
+async function manifestId(ctx: EngineContext, manifest: Manifest): Promise<string> {
   const digest = await ctx.crypto.hash(serializeManifest(lineageFree(manifest)));
   return digest.slice(-32);
 }

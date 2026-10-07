@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizePath,
-  detectCaseCollisions,
   isCanonicalPath,
   SyncError,
 } from "../src/index.js";
@@ -33,14 +32,5 @@ describe("canonicalizePath (ADR-0007)", () => {
     expect(isCanonicalPath("dir\\note.md")).toBe(false);
     expect(isCanonicalPath("resumé.md")).toBe(false);
     expect(isCanonicalPath("")).toBe(false);
-  });
-});
-
-describe("detectCaseCollisions", () => {
-  it("groups case-only collisions and ignores distinct paths", () => {
-    expect(
-      detectCaseCollisions(["Note.md", "note.md", "other.md", "NOTE.md"]),
-    ).toEqual([["NOTE.md", "Note.md", "note.md"]]);
-    expect(detectCaseCollisions(["a.md", "b.md"])).toEqual([]);
   });
 });

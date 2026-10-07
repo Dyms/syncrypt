@@ -38,7 +38,9 @@ Files in storage get meaningless names derived through a keyed hash — no
 filenames, no folder structure visible.
 
 **What your storage provider can see:** how many objects you store, their
-sizes, and when you sync. **What it cannot see:** any content, any filename,
+sizes, and when you sync. It also sees the names of manifest objects
+(`manifests/<generation>-<device id>.json`), so the number of generations and
+the IDs of your devices, and the unencrypted key parameters file. **What it cannot see:** any content, any filename,
 any folder name, or which note changed.
 
 ## What protects your notes when things go wrong

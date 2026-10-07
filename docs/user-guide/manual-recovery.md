@@ -4,10 +4,12 @@ This is the concrete proof of **"user owns the data"**: given your passphrase an
 the documented on-storage format, you can decrypt your manifest and every file
 with a short, dependency-light script — no Syncrypt install required.
 
-> Status: **shipped and tested.** The crypto format is versioned; the scripts
-> below target crypto format **version 1**. The Node script
-> ([`recover.mjs`](./recover.mjs)) is exercised in CI against a real encrypted
-> vault on every test run.
+> Status: **shipped.** The crypto format is versioned; the scripts below target
+> crypto format **version 1**. The Node script ([`recover.mjs`](./recover.mjs)) is
+> exercised in CI against a real encrypted vault on every test run. The Python
+> script below is run from this document by the same test suite when `python3`
+> with `argon2-cffi` and `cryptography` is installed (it is skipped otherwise);
+> either way, try it on a copy of your vault before the day you need it.
 
 ## What you need
 
@@ -116,7 +118,9 @@ manifest = json.loads(decrypt(open(os.path.join(ROOT, "manifests", newest), "rb"
 for path, entry in manifest["files"].items():
     blob = open(os.path.join(ROOT, entry["objectKey"]), "rb").read()
     data = decrypt(blob, content_key)
-    dest = os.path.join(OUT, path)
+    dest = os.path.abspath(os.path.join(OUT, path))
+    if not dest.startswith(os.path.abspath(OUT) + os.sep):
+        raise SystemExit("refusing path outside the output folder: " + path)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     open(dest, "wb").write(data)
     print("restored", path)
@@ -124,13 +128,18 @@ for path, entry in manifest["files"].items():
 print("done ->", OUT)  # ASCII on purpose: Windows consoles with legacy code pages
 ```
 
-> Verified against real Syncrypt output: both scripts restore a vault
+> `recover.mjs` is verified against real Syncrypt output: it restores a vault
 > byte-identically, including non-ASCII paths and superseded generations.
+
+Both scripts restore the **live files of the newest manifest**. Earlier versions
+of a file are not restored automatically: the decrypted manifest lists them under
+`history[<path>]`, each with its own `objectKey` — decrypt that object with the
+content key exactly as above.
 
 ## Why this matters
 
 If Syncrypt is ever unavailable, abandoned, or you simply distrust it, your data
-is still fully recoverable with ~30 lines of standard code and your passphrase.
+is still fully recoverable with about fifty lines of standard code and your passphrase.
 No lock-in, no proprietary format, no hidden database — as promised.
 
 > This is a sensitive operation: keep your passphrase out of shell history (use an

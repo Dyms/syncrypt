@@ -17,7 +17,6 @@ import {
   DESKTOP_KDF_PRESET,
   generateKdfParams,
   KEYFILE_KEY,
-  MOBILE_KDF_PRESET,
   openVaultCrypto,
   parseKdfParams,
   serializeKdfParams,
@@ -45,7 +44,6 @@ describe("KdfParams (de)serialization", () => {
   it("presets are valid; cross-device is THE default (ADR-0018)", () => {
     expect(() => serializeKdfParams(generateKdfParams(DESKTOP_KDF_PRESET))).not.toThrow();
     expect(() => serializeKdfParams(generateKdfParams(CROSS_DEVICE_KDF_PRESET))).not.toThrow();
-    expect(MOBILE_KDF_PRESET).toBe(CROSS_DEVICE_KDF_PRESET);
     const defaulted = generateKdfParams();
     expect(defaulted.memoryKiB).toBe(CROSS_DEVICE_KDF_PRESET.memoryKiB);
     expect(defaulted.iterations).toBe(CROSS_DEVICE_KDF_PRESET.iterations);

@@ -1,4 +1,4 @@
-// Migration preflight (M6): detect another sync system pointed at this vault
+// Migration preflight: detect another sync system pointed at this vault
 // or leftover LiveSync artifacts, and WARN — never auto-fix (prime directive:
 // no surprises; the user decides). See docs/user-guide/migration-from-livesync.md.
 

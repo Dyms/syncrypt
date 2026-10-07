@@ -40,9 +40,6 @@ export const CROSS_DEVICE_KDF_PRESET: KdfPreset = {
   parallelism: 1,
 };
 
-/** Alias kept for API continuity (ADR-0018). */
-export const MOBILE_KDF_PRESET: KdfPreset = CROSS_DEVICE_KDF_PRESET;
-
 /**
  * Heavier desktop profile — EXPLICIT OPT-IN only ("desktop-only vault",
  * ADR-0018): mobile devices will refuse to join a vault created with it.

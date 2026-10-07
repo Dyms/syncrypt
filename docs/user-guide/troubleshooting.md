@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**"Sync stopped. Please pull first."**
+**"Sync stopped. Pull first — someone else published a newer version."**
 Another device published a newer manifest since your last pull. Run a **pull**
 (or Sync now), then push. This is the safety mechanism, not an error.
 
@@ -34,14 +34,21 @@ report it with the two exact filenames (their byte encodings) so we can reproduc
 
 **Initial upload is slow.**
 The first sync encrypts and uploads the whole vault. Subsequent syncs transfer
-only changes. Large attachments use multipart upload.
+only changes. On S3, large attachments use multipart upload; over WebDAV every
+file is one request, so very large files (above ~2 GiB) are advised against.
 
 **Nothing syncs on Android in the background.**
-Expected. Android restricts background execution; sync runs on open/close/manual.
+Expected. Android restricts background execution. Syncing happens while
+Obsidian is open and in use: after edits (debounced), on the periodic pull, and
+on **Sync now**. After every restart of Obsidian you must **Unlock** with your
+passphrase before anything syncs.
 
 **How do I see exactly what happened?**
-Read the sync log — every applied change has a one-sentence reason. For a preview
-without changing anything, use **dry-run**.
+Open the log with **Show sync log** — every applied change has a one-sentence
+reason. The log is kept in memory (the last 500 entries) and is gone when
+Obsidian restarts, so copy it before closing Obsidian if you want to report a
+problem. A sync that would change many files shows you its plan and waits for
+confirmation before touching anything.
 
 **A sync wanted to delete/overwrite lots of files and paused.**
 That's the **bulk-change circuit breaker** (Safe Sync). Review the list it shows.
@@ -49,21 +56,27 @@ If it's expected (e.g. you reorganized a big folder), confirm. If not, cancel �
 nothing was changed — and investigate (wrong profile, wrong device, etc.).
 
 **I lost a file after a sync deleted it.**
-Check `.obsidian/sync-trash/` on the device where it disappeared — Safe Sync keeps
-a local copy before deleting. Retained previous versions and the remote tombstone
+Check `sync-trash/` inside your Obsidian config folder (`.obsidian/sync-trash/`
+unless you renamed the config folder) on the device where it disappeared — Safe
+Sync keeps a local copy before deleting, and nothing ever empties it. Retained previous versions and the remote tombstone
 grace window are additional recovery paths.
 
 **"Unauthorized" from storage although the credentials are correct.**
-SigV4 signing is clock-sensitive: a device clock skewed by more than a few
+On S3, SigV4 signing is clock-sensitive: a device clock skewed by more than a few
 minutes makes every request fail authentication. Fix the device's date/time
 (enable automatic time), then retry. If the error mentions
 `SignatureDoesNotMatch`, also re-check the secret key for stray whitespace.
+Over WebDAV, "Unauthorized" means the username or password is wrong, or the
+account cannot write to that folder.
 
-**My phone refuses to unlock the vault ("above this device's memory budget").**
+**My phone refuses to unlock the vault ("needs more memory than this device can safely use").**
 The vault was created with the **desktop-only** KDF profile (128 MiB Argon2id),
-which mobile devices refuse rather than crash. Unlock on a desktop,
-or recreate the vault with the default cross-device profile (same passphrase;
-the data re-uploads on the next sync).
+which mobile devices refuse rather than crash. Your passphrase was not checked and
+nothing is wrong with it. Unlock on a desktop, or recreate the vault with the
+cross-device profile. Recreating means starting from an empty storage prefix: the
+storage will not create new key parameters over an existing vault. Clear the prefix
+yourself (after you are sure every device has everything), create the vault again
+with the same passphrase, and re-join the other devices through a new ticket.
 
 **Status bar says "waiting for Wi-Fi".**
 You are on cellular and **Wi-Fi only** is enabled (the default on mobile).
@@ -79,3 +92,25 @@ yourself; see [the migration guide](./migration-from-livesync.md).
 Make sure you run the current plugin build: storage requests must go through
 Obsidian's native transport (webview `fetch` is blocked by CORS on S3/MinIO
 and most WebDAV servers). Current builds do this automatically.
+
+**A notice says "Two devices published generation N at the same moment" (fork-lost).**
+Two devices pushed at once and this one did not win. Nothing is overwritten:
+files that differ come back as conflicted copies with both versions, and nothing
+you deleted around then stays deleted. Merge the conflicted copies and sync.
+
+**A notice says "This device's last sync … is not part of the history the storage now holds" (base-off-line).**
+The storage went back in time or the devices raced, so this device cannot trust
+its record of what it last synced. It plans from no record: every difference is
+kept as a conflicted copy, and deletions made around then may come back. Nothing
+is overwritten. Sync every device afterwards, and be careful with **Reclaim
+storage** until they have.
+
+**"Local sync state unreadable — reconciling from scratch".**
+The cache of what this device last synced was damaged. It is discarded and the
+next sync compares both sides from scratch: slower, safe, and anything that
+differs is kept as a conflicted copy. Your notes are untouched.
+
+**A file will not download and the log says the storage cannot find its object.**
+Something deleted ciphertext a manifest still points at — most often a bucket
+lifecycle rule. Restore the object from a bucket version. See
+[Bucket lifecycle rules](./configuration.md#bucket-lifecycle-rules).

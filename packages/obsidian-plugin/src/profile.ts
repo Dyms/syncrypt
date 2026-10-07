@@ -1,6 +1,8 @@
 // Sync profile: include/exclude patterns deciding what is synced (RFC-0002
 // FR-1..3, ADR-0010 defaults). Minimal glob support — no dependencies:
 //   **  any characters, including "/"
+//   **/ at the start of a pattern or after a "/" matches zero or more folders,
+//       so "**/*.md" matches "note.md" at the vault root as well (ADR-0088)
 //   *   any characters except "/"
 //   ?   one character except "/"
 
@@ -24,8 +26,14 @@ function globToRegExp(pattern: string): RegExp {
     const ch = pattern[i];
     if (ch === "*") {
       if (pattern[i + 1] === "*") {
-        out += "[\\s\\S]*";
-        i++;
+        const folders = pattern[i + 2] === "/" && (i === 0 || pattern[i - 1] === "/");
+        if (folders) {
+          out += "(?:[\\s\\S]*/)?";
+          i += 2;
+        } else {
+          out += "[\\s\\S]*";
+          i++;
+        }
       } else {
         out += "[^/]*";
       }

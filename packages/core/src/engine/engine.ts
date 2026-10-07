@@ -63,12 +63,6 @@ export interface SyncEngineConfig {
    */
   clientVersion?: string;
   safeSync?: SafeSyncOptions;
-  network?: {
-    // resource-aware auto-sync (RFC-0004); consumed by clients, not the engine
-    wifiOnly?: boolean;
-    minAutoSyncIntervalSec?: number;
-    debounceSec?: number;
-  };
 }
 
 /**
@@ -954,11 +948,6 @@ class Engine implements SyncEngine {
   }
 
   /**
-   * Files the user changed while the pull was applying were left alone
-   * (ADR-0064). They join the paths the scan held, so the base keeps what this
-   * device last synced for them and the next run plans from what is there.
-   */
-  /**
    * Paths a push could not read now (ADR-0080, P4). Nothing to hold: a push
    * moves the base only by what it changed, so theirs stays as it was.
    */
@@ -967,6 +956,11 @@ class Engine implements SyncEngine {
     this.ctx.log.notice({ code: "paths-unreadable", paths: [...paths].sort() });
   }
 
+  /**
+   * Files the user changed while the pull was applying were left alone
+   * (ADR-0064). They join the paths the scan held, so the base keeps what this
+   * device last synced for them and the next run plans from what is there.
+   */
   private holdChangedDuringApply(paths: readonly VaultPath[]): void {
     if (paths.length === 0) return;
     this.held = new Set([...this.held, ...paths]);
@@ -1164,6 +1158,7 @@ class Engine implements SyncEngine {
       signal,
       ambiguous,
       unreadable,
+      () => this.ctx.clock.now(),
     );
     this.held = new Set([...ambiguous, ...unreadable]);
     if (ambiguous.size === 0 && unreadable.size === 0) {

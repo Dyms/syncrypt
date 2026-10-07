@@ -134,6 +134,15 @@ export function parseMultistatus(xml: string): DavEntry[] {
   return entries;
 }
 
+/** Opens and closes a multistatus element (any namespace prefix). */
+export function isWholeMultistatus(xml: string): boolean {
+  const open = /<(?:[A-Za-z0-9_-]+:)?multistatus[\s>/]/i.test(xml);
+  const closed =
+    /<\/(?:[A-Za-z0-9_-]+:)?multistatus\s*>\s*$/i.test(xml) ||
+    /<(?:[A-Za-z0-9_-]+:)?multistatus[^>]*\/>\s*$/i.test(xml);
+  return open && closed;
+}
+
 export const PROPFIND_BODY =
   '<?xml version="1.0" encoding="utf-8"?>' +
   '<propfind xmlns="DAV:"><prop>' +

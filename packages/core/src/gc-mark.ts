@@ -1,4 +1,4 @@
-// meta/gc-mark.json — serialization only (ADR-0030).
+// meta/gc-mark-<device>.json — serialization only (ADR-0030, ADR-0049).
 //
 // Fails CLOSED like the manifest does: a mark that does not parse is treated as
 // absent, which costs one more grace window and never a premature delete.

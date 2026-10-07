@@ -31,6 +31,15 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Install
         run: npm ci
+      # The Python script in the manual-recovery guide is run from the document
+      # itself (packages/crypto/test/recovery.test.ts). Without these packages
+      # that one test skips; it never fails the build.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python packages for the recovery-guide test
+        continue-on-error: true
+        run: python -m pip install argon2-cffi cryptography
       - name: Typecheck
         run: npm run typecheck
       - name: Lint

@@ -53,7 +53,7 @@ interface SafeSyncNumbers {
 }
 
 /** The backends the plugin can talk to (ADR-0033). */
-export type StorageProviderKind = "s3" | "webdav";
+type StorageProviderKind = "s3" | "webdav";
 
 export interface SyncryptSettings {
   /** UI language; "auto" follows Obsidian's own setting (ADR-0021). */

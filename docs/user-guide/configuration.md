@@ -1,117 +1,141 @@
 # Configuration
 
-Syncrypt syncs what a **sync profile** tells it to. A profile is a small YAML
-document with `include` / `exclude` glob rules. This gives fine control and keeps
-volatile machine-specific state out of sync.
+Everything below is in **Settings → Syncrypt**. Settings are per device and
+live in the plugin's `data.json`; nothing here is stored in your vault's notes.
 
-## Three categories of data
+## What gets synced
 
-**1. Content — always synced**
+Syncrypt syncs the contents of your vault: notes, attachments, folders. Two
+fields under **What gets synced** narrow that down; leave them alone unless you
+have a reason.
 
-```
-*.md
-Attachments/
-Canvas/       (*.canvas)
-Excalidraw/
-```
+- **Include** — path patterns, one per line. Default: `**` (everything).
+- **Exclude** — path patterns to skip, one per line, applied after Include.
+  Default: `.*`, `.*/**`, `**/.DS_Store`.
 
-**2. Configuration — selective (opt in)**
+Rules:
 
-Useful to keep consistent across devices, but only chosen files:
+- `exclude` wins over `include`. Excluding a folder excludes what is inside it.
+- Patterns: `**` any characters including `/`; `*` any characters except `/`;
+  `?` one character except `/`. A leading `**/` (or `**/` after a `/`) matches
+  zero or more folders, so `**/*.md` matches `Note.md` at the vault root as well
+  as `Projects/Note.md`. There is no `[a-z]` or `{a,b}` syntax.
+- Paths are matched after Unicode normalization.
+- **Anything whose path has a segment starting with a dot is never synced** —
+  that includes `.obsidian`. This is not a pattern you can switch off in
+  Include. The settings inside `.obsidian` travel only through
+  [Obsidian settings sync](#obsidian-settings-sync).
+- **Count files** shows what the current patterns match without syncing.
 
-```
-.obsidian/snippets/**
-.obsidian/community-plugins.json
-.obsidian/plugins/dataview/**
-.obsidian/plugins/templater-obsidian/**
-```
+Examples:
 
-**3. Excluded — never synced**
+| Goal | Include | Exclude |
+|---|---|---|
+| Everything (default) | `**` | (default) |
+| Notes only | `**/*.md` | (default) |
+| One folder | `Projects/**` | (default) |
+| Skip a folder | `**` | `Archive` or `Archive/**` |
+| Skip PDFs | `**` | `**/*.pdf` |
 
-Volatile or device-specific; syncing these causes churn and conflicts:
+Narrowing the profile never deletes anything: a file that stops matching is
+simply left alone, locally and in storage.
 
-```
-.obsidian/cache/**
-.obsidian/workspace.json
-.obsidian/workspaces.json
-.obsidian/app.json          # if it holds device-specific settings
-```
+## Obsidian settings sync
 
-## Example profile
+Off by default. When on, the settings you choose travel with your notes,
+encrypted like everything else. Plugin **code** is never synced — install each
+plugin on every device yourself; this carries only its settings. A restart of
+Obsidian is needed on the receiving device before changed settings take effect.
 
-```yaml
-# syncrypt.profile.yaml
-version: 1
-name: default
+Items, each its own switch: **Appearance** (`appearance.json`), **Editor and
+files** (`app.json`, off by default — some values are device-specific),
+**Hotkeys**, **Themes**, **CSS snippets**, **Core plugins list**, **Community
+plugins list**, and per-plugin **Plugin settings** (only that plugin's
+`data.json`). A plugin known to keep API keys or passwords is marked: if you
+choose it, those secrets are uploaded (encrypted) and land on your other devices.
 
-sync:
-  include:
-    - "**/*.md"
-    - "Attachments/**"
-    - "**/*.canvas"
-    - ".obsidian/snippets/**"
-    - ".obsidian/community-plugins.json"
-    - ".obsidian/plugins/dataview/**"
-    - ".obsidian/plugins/templater-obsidian/**"
+Never synced, whatever you pick (ADR-0016): Syncrypt's own settings (`data.json`
+holds your storage keys), your window layout (`workspace*.json`), and the
+sync-trash.
 
-  exclude:
-    - ".obsidian/cache/**"
-    - ".obsidian/workspace.json"
-    - ".obsidian/workspaces.json"
-    - ".obsidian/app.json"
-    - ".obsidian/plugins/**"      # anything not explicitly included above
-    - ".obsidian/sync-trash/**"   # local Safe Sync trash — never sync
-```
+The passphrase is never written to disk at all: it is entered at unlock and
+kept in memory only.
 
-Rules: `exclude` wins over `include`. Paths are matched after Unicode
-normalization (ADR-0007).
+## Safe Sync
 
-## Credential safety (unconditional)
+Safe Sync is always on. When the engine is unsure it stops and asks rather than
+doing something destructive. Its guard rails:
 
-Independently of your profile, Syncrypt **always hard-excludes its own settings
-file** — `.obsidian/plugins/syncrypt/data.json`, which holds your S3 credentials —
-from sync. Even if you add plugin data to `include`, those credentials never leave
-the device through Syncrypt (ADR-0016). The passphrase is never written to disk at
-all: it is entered at unlock and kept in memory only.
+- **Trash.** A file deleted by a sync goes to `<config folder>/sync-trash/`
+  (local, never synced), not into oblivion. Syncrypt never empties it; clear it
+  yourself when you are sure.
+- **Versions to keep** (default 3): prior encrypted versions kept per changed file.
+- **Forget a deletion after (days)** (default 30): how long the manifest
+  remembers that a file was deleted. Shorten it and a device that has been
+  offline longer than that brings its copies of those files back; 0 means never
+  forget.
+- **Bulk-change circuit breaker.** A sync that would delete or overwrite an
+  unusually large number of files pauses for your confirmation. It fires when
+  the count is above **Confirmation floor** (default 5) **and** at least
+  **Always confirm at** (default 20) files **or** at least **Vault fraction**
+  (default 0.1 = 10%) of the vault. Raising these weakens the breaker; a floor of
+  0 makes it strict (any destructive change above 0 can prompt).
+- **Deletion burst window** (default 300 s). The breaker judges the burst at the
+  source, not the size of one sync: deleting thirty notes one at a time over an
+  afternoon on your phone does not stop your desktop when it finally catches up.
+  Thirty deletions written at once still stop it, because that is what an
+  accident looks like.
 
-## Hotkeys and per-device settings
+When the breaker pauses a sync you see the plan, and **Sync now** applies it
+only after you confirm.
 
-Some `.obsidian` files are best kept **per device** (e.g. `hotkeys.json` if your
-Mac and PC use different shortcuts). Leave those out of `include`. When in doubt,
-keep it out of sync — you can always add it later.
+Other settings in this section: **Reclaim safety window (hours)** (default 24,
+minimum 1) and **Manifest generations to keep** (default 10) — see
+[Reclaiming storage](#reclaiming-storage).
 
-## Safe Mode
+## Auto-sync
 
-Safe Mode is **on by default**: when the engine is unsure, it stops and asks
-rather than performing a destructive action. It also enables **Safe Sync** guard
-rails (ADR-0010):
+- **Sync while editing** (default on): a debounced sync once edits settle.
+  **Sync now** always works.
+- **Debounce (seconds)** (default 15): quiet time after the last edit.
+- **Minimum interval (seconds)** (default 30; 120 on mobile): at most one
+  auto-sync per this many seconds.
+- **Pull every (seconds)** (default 900; 1800 on mobile; 0 = off): while
+  Obsidian is open, look for other devices' changes even if nothing changed here.
+- **Wi-Fi only** (default off; on for mobile): skip automatic syncs on cellular.
 
-- deleted files are moved to a local `.obsidian/sync-trash/` (never synced), not
-  hard-deleted;
-- remote deletions are deferred via tombstones, which the manifest remembers for
-  **30 days** by default and then forgets. Shorten that window and a device that
-  has been offline longer than it will bring its copies of those files back;
-  set it to 0 and the manifest remembers every deletion for ever;
-- the last few versions of changed files are retained;
-- a **bulk-change circuit breaker** pauses for your confirmation if a sync would
-  delete or overwrite an unusually large number of files (default > 20 files or
-  > 10% of the vault).
+Nothing syncs until you have entered the passphrase after starting Obsidian
+(**Unlock**). **Lock** forgets the keys; edits stay local and sync waits.
 
-The breaker judges the *burst at the source*, not the size of one sync. Deleting
-thirty notes one at a time over an afternoon on your phone does not stop your
-desktop when it finally catches up — the deletions arrived at the pace of
-someone working. Thirty deletions written at once still stop it, because that is
-what an accident looks like. The window that separates the two is
-**Deletion burst window** (default 300 s).
+## Vault creation
 
-Keep Safe Mode on unless you have a specific reason not to.
+**Vault KDF profile** matters only on the device that creates the vault.
+**Cross-device** (default) can be joined from phones; **Desktop-only** (128 MiB
+Argon2id) is stronger, but a phone refuses to join it. Choose it before you press
+Create vault; it cannot be changed afterwards without recreating the vault.
+
+## Device ID
+
+Each installation has a stable **Device ID** (`dev-` and 16 hex digits) used in
+manifests and in the names of conflicted copies. It belongs to the installation,
+not to the vault folder: on Obsidian 1.8.7 or newer, a vault folder copied with
+its plugin settings to another computer gets a new ID there, with a notice. On
+older Obsidian a copied folder keeps the copied ID, which breaks sync between the
+two computers — install the plugin fresh on the second one and connect it with a
+connection ticket instead of copying the folder. Do not edit the ID by hand.
 
 ## Reclaiming storage
 
 Nothing in your bucket is deleted as a side effect of syncing. Replaced
-versions past the retention depth, the ciphertext of deleted files, and entries
-you forgot with **Review manifest entries** all keep costing storage until you
-run **Reclaim storage** from the command palette.
+versions past the retention depth and the ciphertext of deleted files keep
+costing storage until you run **Reclaim storage** from the command palette.
+
+Entries you stop carrying on a device are a separate, two-step matter.
+**Review manifest entries this device does not carry** lets you *forget* entries
+that fall outside this device's profile. Forgetting touches no file, records no
+deletion and keeps the stored copy, so it stays undoable. The kept copies are
+freed only by **Release the copies kept for forgotten entries**, and only after
+that can **Reclaim storage** delete them.
 
 It is the one thing Syncrypt does that nothing undoes — a deleted object has no
 trash, no retained version, and no other device that puts it back — so it works

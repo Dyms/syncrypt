@@ -14,8 +14,8 @@ import { argon2id } from "hash-wasm";
 
 import { SyncError, type KdfParams } from "@syncrypt/core";
 
-export const MASTER_KEY_LENGTH = 32;
-export const SUBKEY_LENGTH = 32;
+const MASTER_KEY_LENGTH = 32;
+const SUBKEY_LENGTH = 32;
 
 export const HKDF_INFO_CONTENT = "syncrypt/content";
 export const HKDF_INFO_MANIFEST = "syncrypt/manifest";

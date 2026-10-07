@@ -11,10 +11,10 @@ import { cpus } from "node:os";
 const candidates = [
   { label: "OWASP minimum", memoryKiB: 19456, iterations: 2, parallelism: 1 },
   { label: "32 MiB / t=3", memoryKiB: 32768, iterations: 3, parallelism: 1 },
-  { label: "32 MiB / t=4 (mobile candidate)", memoryKiB: 32768, iterations: 4, parallelism: 1 },
+  { label: "32 MiB / t=4 (cross-device default)", memoryKiB: 32768, iterations: 4, parallelism: 1 },
   { label: "64 MiB / t=2", memoryKiB: 65536, iterations: 2, parallelism: 1 },
-  { label: "64 MiB / t=3 (desktop candidate)", memoryKiB: 65536, iterations: 3, parallelism: 1 },
-  { label: "128 MiB / t=3", memoryKiB: 131072, iterations: 3, parallelism: 1 },
+  { label: "64 MiB / t=3", memoryKiB: 65536, iterations: 3, parallelism: 1 },
+  { label: "128 MiB / t=3 (desktop-only preset)", memoryKiB: 131072, iterations: 3, parallelism: 1 },
   { label: "256 MiB / t=3", memoryKiB: 262144, iterations: 3, parallelism: 1 },
 ];
 

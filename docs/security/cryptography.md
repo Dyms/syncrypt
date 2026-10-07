@@ -24,7 +24,7 @@ Principle: **boring, vetted primitives; never roll our own.**
   them), so the creation default must be affordable on the weakest device the
   user owns — low-end Android webviews (ADR-0018). The heavier desktop-only
   profile is an explicit opt-in; mobile clients refuse vaults above their
-  affordability ceiling (128 MiB) fail-closed instead of OOM-crashing. Unlock
+  affordability ceiling (64 MiB) fail-closed instead of OOM-crashing. Unlock
   happens once per session. Re-run `node scripts/bench-argon2id.mjs` to
   re-tune.
   Implementations MUST reject out-of-range parameters from a poisoned keyfile,
@@ -55,4 +55,12 @@ Principle: **boring, vetted primitives; never roll our own.**
 
 ### Content hashing — BLAKE3
 - **Why:** very fast, parallel, modern; used for change detection (over plaintext)
-  and, keyed (HMAC-style), for object keys. Fast hashing matters when sc
+  and, keyed (HMAC-style), for object keys. Fast hashing matters when scanning a large vault for changes on every sync.
+
+### Passphrase input
+- The passphrase goes into Argon2id as **UTF-8 in Unicode NFC**. The same
+  characters typed on two devices can be different byte strings (a composed
+  accent versus a combining one); normalizing in one place keeps both devices on
+  one key. A vault created before this rule keeps working: the client that opens
+  it tries the legacy byte forms and accepts one only if it decrypts the published
+  manifest.

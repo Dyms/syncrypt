@@ -135,7 +135,6 @@ export {
   CROSS_DEVICE_KDF_PRESET,
   MOBILE_MEMORY_BUDGET_KIB,
   DESKTOP_KDF_PRESET,
-  MOBILE_KDF_PRESET,
   SyncryptCrypto,
   openVaultCrypto,
   keyfilePathFor,

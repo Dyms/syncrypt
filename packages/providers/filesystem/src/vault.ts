@@ -1,5 +1,5 @@
 // FilesystemVault — VaultPort over a plain directory. The headless test/CLI
-// vault adapter (the Obsidian adapter arrives in M4).
+// vault adapter (the Obsidian adapter is in @syncrypt/obsidian-plugin).
 //
 // - Paths are canonicalized (NFC, POSIX) at the boundary (ADR-0007).
 // - trash() moves files into the Safe-Sync trash folder, never hard-deletes

@@ -808,7 +808,7 @@ export default class SyncryptPlugin extends Plugin {
       this.log.info(this.strings.log.unlocked);
       this.renderStatus();
 
-      // Migration preflight (M6): warn about competing sync systems — never
+      // Migration preflight: warn about competing sync systems — never
       // auto-fix (docs/user-guide/migration-from-livesync.md).
       // Warnings only, and it must never cost an unlock the vault already
       // proved open: `verifyAccess` succeeded above, so an adapter hiccup in a

@@ -7,7 +7,8 @@
 // send permissive CORS headers).
 //
 // The types are shared across providers and live in @syncrypt/core;
-// re-exported here for API continuity.
+// re-exported here because the plugin and other clients import them from the
+// provider they build the transport for.
 
 export type { HttpRequest, HttpResponse, HttpTransport } from "@syncrypt/core";
 import type { HttpTransport } from "@syncrypt/core";

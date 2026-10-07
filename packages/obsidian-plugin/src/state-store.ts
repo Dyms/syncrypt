@@ -7,7 +7,7 @@ import type { StateStorePort } from "@syncrypt/core";
 
 import type { DataAdapterLike } from "./adapter-types.js";
 
-export const DEFAULT_STATE_PATH = ".obsidian/plugins/syncrypt/sync-state.json";
+const DEFAULT_STATE_PATH = ".obsidian/plugins/syncrypt/sync-state.json";
 
 export class AdapterStateStore implements StateStorePort {
   constructor(

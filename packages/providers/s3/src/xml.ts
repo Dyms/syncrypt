@@ -3,6 +3,8 @@
 // request `encoding-type=url`, so keys arrive URL-encoded and XML entities in
 // them are a non-issue after unescaping the five standard entities.
 
+import { SyncError } from "@syncrypt/core";
+
 export function xmlUnescape(s: string): string {
   return s
     .replaceAll("&lt;", "<")
@@ -12,7 +14,7 @@ export function xmlUnescape(s: string): string {
     .replaceAll("&amp;", "&"); // last, so "&amp;lt;" round-trips correctly
 }
 
-export function xmlEscape(s: string): string {
+function xmlEscape(s: string): string {
   return s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -68,8 +70,32 @@ export interface ListObjectsV2Page {
   nextContinuationToken: string | null;
 }
 
+/**
+ * A listing is believed only if it is a whole ListBucketResult document.
+ *
+ * A captive portal or a proxy answers a LIST with 200 and an HTML page; a body
+ * cut off mid-stream keeps its first rows and loses the rest. Parsed as
+ * written, the first is an EMPTY complete listing and the second a SHORTER
+ * one, with no error — and what reads a listing is "which generations exist"
+ * and "what is garbage". An incomplete answer is a transient failure, never a
+ * shorter list.
+ */
+function assertWholeListing(xml: string): void {
+  const open = /<(?:[A-Za-z0-9_-]+:)?ListBucketResult[\s>/]/.test(xml);
+  const closed =
+    /<\/(?:[A-Za-z0-9_-]+:)?ListBucketResult\s*>\s*$/.test(xml) ||
+    /<(?:[A-Za-z0-9_-]+:)?ListBucketResult[^>]*\/>\s*$/.test(xml);
+  if (!open || !closed) {
+    throw new SyncError(
+      "StorageTransient",
+      "S3 list: the response is not a complete ListBucketResult document (a proxy page or a cut-off body)",
+    );
+  }
+}
+
 /** Parse a ListObjectsV2 response requested with encoding-type=url. */
 export function parseListObjectsV2(xml: string): ListObjectsV2Page {
+  assertWholeListing(xml);
   const contents: ListedObject[] = [];
   for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
     const block = m[1] ?? "";

@@ -272,4 +272,16 @@ describe("the periodic pull respects the minimum interval (ADR-0076)", () => {
     timers.advance(1);
     expect(fired).toBe(1);
   });
+
+  it("a wall clock stepped backwards does not freeze auto-sync", () => {
+    const timers = new FakeTimers();
+    let fired = 0;
+    const s = new AutoSyncScheduler(() => fired++, OPTS, timers);
+    timers.current = 10_000_000;
+    s.noteSyncStarted();
+    timers.current = 1_000; // clock jumped back ~2.5 h
+    s.noteChange();
+    timers.advance(15_000);
+    expect(fired).toBe(1); // not re-armed for hours
+  });
 });

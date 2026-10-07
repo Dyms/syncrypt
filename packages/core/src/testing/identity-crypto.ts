@@ -1,5 +1,5 @@
-// M1 CryptoPort: encryption is a pass-through identity (M2 brings AES-256-GCM,
-// RFC-0005); the content hash is REAL BLAKE3 so change detection and
+// Test CryptoPort: encryption is a pass-through identity (the real AES-256-GCM
+// one is @syncrypt/crypto, RFC-0005); the content hash is REAL BLAKE3 so change detection and
 // content-addressed object keys behave exactly as in production.
 //
 // @noble/hashes is pure TypeScript with no Node-only APIs (Android-safe).

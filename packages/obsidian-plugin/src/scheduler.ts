@@ -92,7 +92,14 @@ export class AutoSyncScheduler {
     if (this.timer !== null) this.host.clear(this.timer); // coalesce bursts
     this.timer = this.host.set(() => {
       this.timer = null;
-      const sinceLast = this.host.now() - this.lastSyncAt;
+      let sinceLast = this.host.now() - this.lastSyncAt;
+      if (sinceLast < 0) {
+        // The wall clock moved backwards (NTP step, manual change, DST bug):
+        // a negative gap would re-arm for hours. The guard only exists to
+        // space syncs, and we cannot know the real gap, so forget the last one.
+        this.lastSyncAt = -Infinity;
+        sinceLast = Infinity;
+      }
       if (sinceLast < this.opts.minIntervalMs) {
         // Too soon — re-arm for the remainder instead of dropping the change.
         this.schedule(this.opts.minIntervalMs - sinceLast);

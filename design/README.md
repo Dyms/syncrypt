@@ -1,3 +1,3 @@
 # Design
 
-Design notes, UX sketches, and brand assets (logo, wordmark).
+Reserved for design notes and brand assets. Empty for now.

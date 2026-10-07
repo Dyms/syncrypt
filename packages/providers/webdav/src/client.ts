@@ -12,7 +12,7 @@ import {
 import type { WebDavConfig } from "./config.js";
 import { decodePath } from "./xml.js";
 
-/** Local default transport (same shape as provider-s3's; providers stay independent). */
+/** Default transport: plain `fetch`. The HttpTransport shape lives in @syncrypt/core. */
 export const fetchTransport: HttpTransport = async (req) => {
   const res = await fetch(req.url, {
     method: req.method,

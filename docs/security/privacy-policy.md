@@ -11,7 +11,7 @@ This is a hard product principle (RFC-0001), not a toggle.
 ## What leaves your device
 
 - **Encrypted** file objects and an **encrypted** manifest, sent only to the
-  S3-compatible (or future) storage endpoint **you** specify.
+  S3-compatible or WebDAV storage endpoint **you** specify.
 - KDF parameters and a salt (non-secret) needed to re-derive your key on another
   of your devices.
 
@@ -20,8 +20,9 @@ Your passphrase and encryption keys **never** leave the device in any form.
 ## What the storage provider can see
 
 Because encryption is client-side, your provider sees ciphertext. It can still
-observe object sizes, counts, and timing (see the
-threat model). Choose a provider you are
+observe object sizes, counts, timing, and the names of manifest objects (which
+include a generation number and a device ID) — see
+[how security works](../security.md). Choose a provider you are
 comfortable with on that basis.
 
 ## Third parties

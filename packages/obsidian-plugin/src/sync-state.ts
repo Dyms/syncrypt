@@ -44,7 +44,7 @@ export interface SyncStateInput {
   counts: SyncCounts | null;
 }
 
-export type SyncStateKind =
+type SyncStateKind =
   | "locked"
   | "syncing"
   | "offline"

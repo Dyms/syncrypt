@@ -1,5 +1,5 @@
 # Scripts
 
-Developer and maintenance scripts (build, release, manifest inspection, GC,
-manual recovery). Kept small and dependency-light so they double as documentation
-of the on-storage formats.
+Maintenance scripts. Currently one: `bench-argon2id.mjs`, the benchmark behind
+the Argon2id presets (run `node scripts/bench-argon2id.mjs`). The manual
+recovery script is [docs/user-guide/recover.mjs](../docs/user-guide/recover.mjs).

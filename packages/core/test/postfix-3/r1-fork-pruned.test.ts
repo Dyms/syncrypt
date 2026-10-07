@@ -63,7 +63,7 @@ it("control: the same fork without the reclaim keeps the loser's edit (ADR-0040)
   expect([...everywhere(a), ...everywhere(b)]).toContain("B's edit (only copy)");
 });
 
-it("an honest device whose generation won and was pruned still downloads, no conflict (ADR-0083)", async () => {
+it("an honest device whose generation won and was pruned still downloads, no conflict (ADR-0084)", async () => {
   const storage = new InterleavingStorage();
   const a = device(storage, "dev-a");
   const b = device(storage, "dev-b");
@@ -84,7 +84,7 @@ it("an honest device whose generation won and was pruned still downloads, no con
   expect(b.vault.getText("note.md")).toBe("a's edit of b's note, longer");
 });
 
-it("a base pulled after an unverifiable one is vouched again (ADR-0083)", async () => {
+it("a base pulled after an unverifiable one is trusted again (on the line, ADR-0085)", async () => {
   const storage = new InterleavingStorage();
   const a = device(storage, "dev-a");
   const b = device(storage, "dev-b");

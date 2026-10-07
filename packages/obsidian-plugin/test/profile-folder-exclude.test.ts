@@ -111,15 +111,49 @@ describe("nothing else moved", () => {
     expect(m.matches("Archive/note.md")).toBe(false);
   });
 
-  it("PRE-EXISTING GLOB WART, pinned so a future change is deliberate", () => {
-    // "**/*.md" compiles to a pattern requiring a slash, so it does NOT match
-    // a note at the vault root. Nothing to do with folder excludes; noted here
-    // because somebody writing this include would quietly not sync root notes.
-    const m = new ProfileMatcher({ include: ["**/*.md"], exclude: [] });
-    expect(m.matches("root-note.md")).toBe(false);
-    expect(m.matches("folder/note.md")).toBe(true);
-    // The spelling that does what people mean:
-    expect(new ProfileMatcher({ include: ["**"], exclude: [] }).matches("root-note.md")).toBe(true);
+  it("`**/` matches zero or more folders, so root files are matched too (ADR-0088)", () => {
+    // It used to compile to a pattern requiring a slash: "**/*.md" skipped a
+    // note at the vault root, and "**/*.tmp" in an exclude list left a root
+    // .tmp file syncing.
+    const inc = new ProfileMatcher({ include: ["**/*.md"], exclude: [] });
+    expect(inc.matches("root-note.md")).toBe(true);
+    expect(inc.matches("folder/note.md")).toBe(true);
+    expect(inc.matches("a/b/c/note.md")).toBe(true);
+    expect(inc.matches("note.pdf")).toBe(false);
+    expect(inc.matches("folder/note.pdf")).toBe(false);
+
+    const exc = new ProfileMatcher({ include: ["**"], exclude: ["**/*.tmp"] });
+    expect(exc.matches("x.tmp")).toBe(false);
+    expect(exc.matches("dir/x.tmp")).toBe(false);
+    expect(exc.matches("x.md")).toBe(true);
+    // It is "zero or more FOLDERS", not "any prefix": a name that merely ends
+    // the same way is not matched.
+    expect(new ProfileMatcher({ include: ["**/notes.md"], exclude: [] }).matches("my-notes.md")).toBe(false);
+    expect(new ProfileMatcher({ include: ["**/notes.md"], exclude: [] }).matches("notes.md")).toBe(true);
+    expect(new ProfileMatcher({ include: ["**/notes.md"], exclude: [] }).matches("a/notes.md")).toBe(true);
+  });
+
+  it("`**` elsewhere keeps its meaning: any characters, slashes included", () => {
+    const m = new ProfileMatcher({ include: ["Projects/**", "a**b.md", "**"], exclude: [] });
+    expect(m.matches("Projects/x/y.md")).toBe(true);
+    expect(new ProfileMatcher({ include: ["a**b.md"], exclude: [] }).matches("aXX/Yb.md")).toBe(true);
+    expect(new ProfileMatcher({ include: ["Projects/**"], exclude: [] }).matches("Other/x.md")).toBe(false);
+    expect(new ProfileMatcher({ include: ["Projects/**/x.md"], exclude: [] }).matches("Projects/x.md")).toBe(true);
+    expect(new ProfileMatcher({ include: ["Projects/**/x.md"], exclude: [] }).matches("Projects/a/b/x.md")).toBe(true);
+    // "**/" is the folder form only at the start or after a slash; glued to
+    // other characters it is plain `**` followed by a slash, which needs one.
+    const glued = new ProfileMatcher({ include: ["a**/b.md"], exclude: [] });
+    expect(glued.matches("ab.md")).toBe(false);
+    expect(glued.matches("aX/b.md")).toBe(true);
+  });
+
+  it("a folder exclude written with `**/` prunes the walk like the plain one", () => {
+    const m = new ProfileMatcher({ include: ["**"], exclude: ["**/Archive"] });
+    expect(m.folderExcluded("Archive")).toBe(true);
+    expect(m.folderExcluded("notes/Archive")).toBe(true);
+    expect(m.matches("Archive/old.md")).toBe(false);
+    expect(m.matches("notes/Archive/old.md")).toBe(false);
+    expect(m.matches("notes/old.md")).toBe(true);
   });
 });
 

@@ -33,22 +33,3 @@ export function isCanonicalPath(p: string): boolean {
     return false;
   }
 }
-
-/**
- * Group paths that collide case-insensitively (e.g. "Note.md" vs "note.md").
- * Returns only groups with 2+ members; the caller surfaces them as conflicts.
- */
-export function detectCaseCollisions(paths: Iterable<VaultPath>): VaultPath[][] {
-  const byFolded = new Map<string, VaultPath[]>();
-  for (const p of paths) {
-    const folded = p.toLowerCase();
-    const group = byFolded.get(folded);
-    if (group) group.push(p);
-    else byFolded.set(folded, [p]);
-  }
-  const collisions: VaultPath[][] = [];
-  for (const group of byFolded.values()) {
-    if (group.length > 1) collisions.push([...group].sort());
-  }
-  return collisions.sort((a, b) => ((a[0] ?? "") < (b[0] ?? "") ? -1 : 1));
-}

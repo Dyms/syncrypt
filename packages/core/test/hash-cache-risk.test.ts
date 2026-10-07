@@ -164,3 +164,53 @@ describe("the cache cannot cause a wrong sync on its own", () => {
     expect(vault.trashed).toEqual([]);
   });
 });
+
+// ADR-0089. The "same tick" hazard is not only a restore: a save that lands in
+// the same timestamp tick as the scan's read, with the same length, leaves
+// (size, mtime) as it was. The old guard kept such an entry out of the file on
+// disk only at the moment of writing — the in-memory entry stayed, and the next
+// save, minutes later, persisted it with an mtime that had by then aged.
+describe("a file touched in the tick of the read is not trusted (racy clean)", () => {
+  it("scanVault does not cache a hash for a file whose mtime is within the window", async () => {
+    const vault = new MemoryVault();
+    const cache: HashCache = new Map();
+    vault.setFile("fresh.md", "aaaaa"); // mtime = vault.now
+    const now = vault.now;
+    await scanVault(vault, new IdentityCrypto(), cache, undefined, undefined, undefined, () => now);
+    expect(cache.has("fresh.md")).toBe(false);
+
+    // The same-tick, same-length overwrite is therefore seen on the next scan.
+    vault.setFile("fresh.md", "bbbbb");
+    const second = await scanVault(vault, new IdentityCrypto(), cache, undefined, undefined, undefined, () => now);
+    const expected = await new IdentityCrypto().hash(new TextEncoder().encode("bbbbb"));
+    expect(second[0]?.hash).toBe(expected);
+  });
+
+  it("a file whose mtime has aged past the window is cached as before", async () => {
+    const vault = new MemoryVault();
+    const cache: HashCache = new Map();
+    vault.setFile("old.md", "aaaaa");
+    const later = vault.now + 5;
+    await scanVault(vault, new IdentityCrypto(), cache, undefined, undefined, undefined, () => later);
+    expect(cache.has("old.md")).toBe(true);
+    vault.reads.length = 0;
+    await scanVault(vault, new IdentityCrypto(), cache, undefined, undefined, undefined, () => later);
+    expect(vault.reads).toEqual([]);
+  });
+
+  it("the engine scans with its own clock: a same-tick edit is uploaded, not missed", async () => {
+    const storage = new MemoryStorage();
+    const vault = new MemoryVault();
+    const state = new MemoryStateStore();
+    const clock = new FixedClock();
+    const engine = engineFor(storage, vault, state, clock);
+
+    vault.now = clock.now(); // the file is written in the tick the engine reads it
+    vault.setFile("note.md", "aaaaa");
+    await engine.sync();
+
+    vault.setFile("note.md", "bbbbb"); // same length, same mtime tick
+    const report = await engine.sync();
+    expect(report.entries.map((e) => e.path)).toContain("note.md");
+  });
+});

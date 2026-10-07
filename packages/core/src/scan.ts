@@ -39,6 +39,13 @@ export type HashCache = Map<VaultPath, HashCacheEntry>;
  * be read (ADR-0062). Same treatment, same reason: left out of the result and
  * excluded from the plan, never reported as absent. Without the set, such a
  * read fails the scan, as it always did.
+ *
+ * `now`, when given, is the clock the vault's mtimes come from (epoch
+ * seconds). A hash is cached only for a file whose mtime is older than the
+ * racy window (ADR-0089): a write that lands in the same timestamp tick as this
+ * read leaves (size, mtime) unchanged, and a hash cached for it would outlive
+ * the session — it is persisted as soon as the mtime has aged. Without `now`
+ * every hash is cached, as before.
  */
 export async function scanVault(
   vault: VaultPort,
@@ -47,6 +54,7 @@ export async function scanVault(
   signal?: AbortSignal,
   ambiguous?: Set<VaultPath>,
   unreadable?: Set<VaultPath>,
+  now?: () => number,
 ): Promise<FileDescriptor[]> {
   const found = new Map<VaultPath, FileDescriptor>();
   const collided = new Set<VaultPath>();
@@ -103,7 +111,10 @@ export async function scanVault(
         continue;
       }
       hash = await crypto.hash(data);
-      cache?.set(path, { size: stat.size, mtime: stat.mtime, hash });
+      // Racily clean (git's term): not trusted until the mtime has aged.
+      if (now === undefined || stat.mtime + RACY_WINDOW_SECONDS <= now()) {
+        cache?.set(path, { size: stat.size, mtime: stat.mtime, hash });
+      }
     }
     found.set(path, { path, hash, size: stat.size, mtime: stat.mtime });
   }

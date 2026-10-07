@@ -3,15 +3,58 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/); versioning follows
 [Semantic Versioning](https://semver.org/) once code ships. Until then, the
-*specification* is versioned separately (see `PROJECT.md`).
+*specification* is versioned separately.
 
 ## [Unreleased]
 
+### Fixed
+- **S3 / S3-compatible storage: a stored object is confirmed, not assumed.** A
+  `PUT` answered 2xx without an `ETag` (some proxies) is now checked with a
+  `HEAD` for the expected size before it counts as stored; a listing that is not a
+  whole XML document (an HTML error page, a cut-off body) is a transient error
+  instead of an empty bucket (ADR-0090).
+- **WebDAV: a listing that is not a whole `multistatus` document** is a
+  transient error too, not "no files".
+- **Hash cache and files written in the same second.** A file whose mtime is too
+  close to "now" is hashed again on the next scan, so an edit made right after a
+  scan cannot be mistaken for the old content (ADR-0089).
+- **Auto-sync after the system clock steps backwards** no longer waits for
+  hours: the interval guard forgets the last sync instead of computing a negative gap.
+- The manual-recovery Python script in the docs is now run by the test suite
+  (and by CI when Python is available), including the NFC passphrase rule.
+
+### Changed
+- **`**/` in a profile pattern matches zero or more folders** (ADR-0088).
+  `**/*.md` used to skip notes at the vault root, and `**/*.tmp` in Exclude left
+  root `.tmp` files syncing. Both now behave as written. Files that newly match
+  Include are uploaded on the next sync; files that newly match Exclude are left
+  alone where they are, nothing is deleted.
+- **The SDK no longer exports `MOBILE_KDF_PRESET`** (ADR-0087), an alias of
+  `CROSS_DEVICE_KDF_PRESET` that nothing used. The unused `network` field of
+  `SyncEngineConfig` and the unused `detectCaseCollisions` helper are gone too.
+- Documentation: the configuration guide, the SDK guide and the known limitations
+  now describe what the code does (the profile is two glob fields, not a YAML
+  document; there is no "Safe Mode" switch; there is no dry-run command).
+
+### Known limits (found in review, not fixed in this build)
+- **WebDAV `PUT` is not atomic on every server.** A connection cut mid-upload can
+  leave a truncated object that the dedup `stat` trusts (it checks existence, not
+  size). Detected by the content hash on read, not on write.
+- **Two devices editing the shared Obsidian-settings profile at once**: the
+  loser's edit is dropped silently (last writer wins).
+- `trash()` on the filesystem provider can stall when `sync-trash/<name>` is a
+  file and `<name>` later becomes a folder.
+- iOS: "Wi-Fi only" cannot be enforced by the plugin.
+- The key-derivation parameters in a share ticket are not authenticated.
+- A missing root folder of the filesystem provider reads as an empty vault.
+- Two devices creating the key file on WebDAV at the same moment can race.
+- Very large files are read whole; there is no size cap.
+
 ## [1.0.0-beta.13] — 2026-10-07
 
-The fourth audit and six independent review passes over its fixes. The last
-pass found no data loss; what it found is fixed. This is the candidate for
-1.0.0.
+The third and fourth audits and six independent review passes over their fixes.
+The last pass found no data loss; what it found is fixed. This is the candidate
+for 1.0.0.
 
 ### Read before updating
 - **Sync every device before the first "Reclaim storage"** after updating.
@@ -54,6 +97,47 @@ pass found no data loss; what it found is fixed. This is the candidate for
   neither skipped nor tombstoned (ADR-0077).
 - **An older build leaves a newer build's `data.json` alone** (ADR-0075).
 
+### Fixed — vault integrity (third audit, ADR-0049…0061)
+Between beta.12 and beta.13 the third audit's findings landed too; they were not
+in a release before.
+- **Two ways a vault could be made unreadable outright.** The reclamation grace
+  window used one shared mark written with whichever device's clock ran last: a
+  phone three days behind made every object look ripe, so the window was zero for
+  the whole vault. The mark is now per device (ADR-0049). And a single "not found"
+  on the key-parameters file was taken as proof that the vault was new: on WebDAV,
+  which has no conditional writes, a fresh salt could be written over the only
+  copy, making everything stored unreadable with the right passphrase. The salt is
+  now created once, after a second look, and never where `manifests/` or
+  `objects/` already hold anything (ADR-0050).
+- **An adopted object is confirmed before the manifest names it** (ADR-0051).
+  Deduplication skips uploading content that is already stored; the push then
+  published a manifest naming an object that could be gone, and every device's
+  pull died on it.
+- **The S3 provider got the hardening WebDAV had received** (ADR-0052): a query
+  signed differently from how it was sent (non-ASCII prefixes), and three others.
+- **One path, two files** (ADR-0053): two local files that normalize to one
+  vault path (`café` composed and decomposed) no longer race to be the one
+  uploaded; both are kept, a download never overwrites a file that appeared after
+  the scan, and names differing only in case become a conflicted copy.
+- **Zero means the same rule** (ADR-0054), **forgetting keeps the copy and
+  releasing it is a second act** (ADR-0055, with the new command "Release the
+  copies kept for forgotten entries"), **the capability probe is written inside
+  the vault's prefix** (ADR-0056), so a key scoped to `bucket/prefix/*` works.
+- **The passphrase has a spelling** (ADR-0057): UTF-8 in NFC. Two devices typing
+  the same characters used to derive two vaults. Vaults created earlier keep
+  their own form.
+- **A phone that cannot afford the key is told so**, not that the passphrase is
+  wrong (ADR-0060, ADR-0063); **a cancelled read is not a shorter plan**, so
+  cancelling no longer shows a mass-deletion plan; **a file you cannot read is not
+  a file that is gone** (ADR-0062), so an OneDrive placeholder or a locked file is
+  no longer tombstoned for every device; **an edit saved while a pull is applying
+  is not written over** (ADR-0064); and **a base belongs to one storage
+  location** (ADR-0065), so retyping the bucket no longer applies another vault's
+  base.
+- **What the reclaim dialog showed is a ceiling** and closing it deletes nothing
+  (ADR-0067); **the shared settings profile is read only after a pull**, so a
+  failed first sync no longer publishes defaults over it (ADR-0068).
+
 ### Fixed — plugin
 - Lock now ends everything it should: the sync, maintenance commands, dialogs,
   and an unlock in flight; the next unlock waits (bounded) for the previous
@@ -80,7 +164,9 @@ pass found no data loss; what it found is fixed. This is the candidate for
 - A write that hangs refuses unlocks until it answers or Obsidian restarts
   (ADR-0081).
 - A device more than 256 generations behind after a rollback or fork has no
-  line to check and falls back to the older winner check (ADR-0085).
+  line to check and falls back to the pre-beta.13 winner check, which can trust
+  a base it should not after a fork (ADR-0085). Sync every device after
+  restoring the bucket.
 - A storage prefix that itself contains `manifests/` makes one extra list per
   put non-abortable by Lock; harmless unless the storage hangs.
 - Do not put expiration or archive lifecycle rules on the bucket; see

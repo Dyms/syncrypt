@@ -21,8 +21,8 @@ you can always understand — and, if everything else fails, repair by hand.
 ## What makes it different
 
 - **No surprises.** Every change Syncrypt applies is written to a
-  human-readable sync log with a one-sentence reason. Want to see what a sync
-  *would* do first? There's a dry-run.
+  human-readable sync log with a one-sentence reason. A sync that would touch an
+  unusually large number of files shows you the plan and waits for you.
 - **Conflicts are kept, not guessed.** If a note changed on two devices, you
   get *both* versions side by side. Deletions go to a local trash folder, never
   straight to oblivion. A sync that would touch an unusually large number of
@@ -32,7 +32,7 @@ you can always understand — and, if everything else fails, repair by hand.
 - **Your keys, your data.** Encryption keys come from your passphrase and
   never leave your device. The passphrase is never written to disk.
 - **No lock-in, no server, no telemetry.** There is no Syncrypt service to
-  trust or to die. With your passphrase and a ~40-line script you can decrypt
+  trust or to die. With your passphrase and a short script you can decrypt
   your entire vault without Syncrypt installed —
   [see for yourself](./docs/user-guide/manual-recovery.md).
 - **Boring, vetted cryptography.** Argon2id, AES-256-GCM, nothing invented
@@ -65,55 +65,54 @@ Full setup guide: [docs/install.md](./docs/install.md) ·
 
 ## Known limitations
 
-An audit before 1.0 found defects that break promises made further up this
-page. Every one below is **reproduced**, not suspected, and each is being
-fixed. They are listed here because "beta" in a version number is not a
-warning — this is.
+Audits before 1.0 found defects that broke promises made further up this page.
+The data-loss ones are fixed as of 1.0.0-beta.13 and each has a regression test;
+the full list is in the [changelog](./CHANGELOG.md). What is left is below.
 
-Data loss, in order of how likely you are to meet it:
+Fixed, kept here so you know what an older build does:
 
-- ~~**Two devices publishing in the same few seconds can lose one side's
-  edit.**~~ Fixed after 1.0.0-beta.9. On beta.9 and earlier, let one device
-  finish syncing before waking the next.
-- **Notes whose names differ only in case can overwrite each other.**
-  `Note.md` and `note.md` are two files on Android and Linux, one file on macOS
-  and Windows. Publish both from a case-sensitive device and the second
-  silently overwrites the first on a case-insensitive one.
-  *Until it is fixed:* avoid names that differ only in case.
-- ~~**A folder excluded by a bare name can be deleted on your other
-  devices.**~~ Fixed after 1.0.0-beta.9. On beta.9 and earlier, write
-  `Archive/**` alongside `Archive`.
+- ~~Two devices publishing in the same few seconds could lose one side's edit.~~
+  Fixed after beta.9. On beta.9 and earlier, let one device finish syncing before
+  waking the next.
+- ~~Notes whose names differ only in case could overwrite each other.~~ Fixed in
+  beta.13: both are kept, the second as a conflicted copy. On beta.12 and
+  earlier, avoid names that differ only in case.
+- ~~A folder excluded by a bare name could be deleted on your other devices.~~
+  Fixed after beta.9.
+- ~~Installed by hand from a release zip, your storage credentials could be
+  uploaded.~~ Fixed after beta.9. On beta.9 and earlier, install with BRAT or
+  keep Obsidian settings sync off.
+- ~~Anyone who could delete objects in your bucket could roll your notes back.~~
+  Fixed after beta.9: a device that has already synced refuses a storage holding
+  an older state, and "Accept the storage as it is" releases it after a
+  deliberate restore. A device that has *never* synced the vault has nothing to
+  compare against — keep bucket versioning on.
+- ~~A storage key scoped to a prefix did not work.~~ Fixed in beta.13: Syncrypt
+  needs List, Get, Put and Delete under the vault's prefix, nothing else.
 
-Security:
+Still true:
 
-- ~~**Installed by hand from a release zip, your storage credentials can be
-  uploaded.**~~ Fixed after 1.0.0-beta.9; if you are on beta.9 or earlier and
-  installed by hand, install with BRAT, rename the folder to `syncrypt`, or
-  leave Obsidian-settings sync off until you update.
-- ~~**Anyone who can delete objects in your bucket can roll your notes
-  back.**~~ Fixed after 1.0.0-beta.9: a device that has already synced refuses
-  a storage holding an older state and says so, and "Accept the storage as it
-  is" releases it after a deliberate restore. On beta.9 and earlier the
-  rollback is applied without a word. A device that has *never* synced the
-  vault still has nothing to compare against — keep bucket versioning on.
 - **A connection ticket never expires**, and is derived with fixed parameters
   rather than your vault's. Treat one like a password: send it, use it, delete
-  it.
+  it. The plugin tells you how old a ticket is when you use it.
 - **Obsidian-settings sync shares one list across your devices.** Any of them
   can add a plugin to it, and that plugin's `data.json` — which may hold API
   tokens — then travels to all of them. You are told after the fact, not asked.
-
-Operational:
-
-- **A storage key scoped to a prefix does not work yet.** The capability probe
-  writes one temporary object at the bucket root, so a key restricted to
-  `bucket/prefix/*` fails at unlock. Give it the whole bucket for now.
-- **The `desktop-only` KDF profile is not safe for Android.** A phone will try
-  to run Argon2id at 128 MiB inside a webview. If any of your devices is a
-  phone, leave the profile on `cross-device`.
-- **A corrupted local state file stops the plugin** until
-  `.obsidian/plugins/syncrypt/sync-state.json` is deleted by hand. Your notes
-  are untouched — that file is a cache and is rebuilt on the next sync.
+- **A vault created with the `desktop-only` KDF profile cannot be joined from a
+  phone.** The phone refuses it with a clear message instead of trying 128 MiB
+  Argon2id in a webview. If any of your devices is a phone, leave the profile on
+  `cross-device`.
+- **The sync log is kept in memory**, the last 500 entries, and is empty after
+  Obsidian restarts. Copy it before you close Obsidian if you want to report a
+  problem.
+- **A device that has been offline for 256 or more sync generations after the
+  storage was rolled back or forked** can no longer prove where its last sync sits
+  in the storage's history, and falls back to the check used before beta.13.
+  That check can, after a fork, trust a base it should not. It needs a
+  rolled-back or forked storage and a device left unsynced that long; sync every
+  device after any restore of the bucket.
+- **Do not put expiration or archive lifecycle rules on the bucket**; see
+  [Configuration](./docs/user-guide/configuration.md#bucket-lifecycle-rules).
 
 ## Status
 
