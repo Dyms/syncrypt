@@ -7,6 +7,11 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.0-beta.15] — 2026-10-07
+
+WebDAV is marked experimental. The live check on R2 still needs repeating on a
+build with the beta.14 and beta.15 changes before 1.0.0.
+
 ### Changed
 - **WebDAV is marked experimental** (ADR-0091): in the provider dropdown, with a
   notice in the settings, and in the README, install guide, FAQ and about page. It
