@@ -391,7 +391,9 @@ const EN = {
     providerDesc:
       "Which kind of storage this vault lives on. Switching keeps the other provider's settings, and locks the vault so the next unlock connects to the new one.",
     providerS3: "S3-compatible (R2, MinIO, Backblaze, AWS…)",
-    providerWebdav: "WebDAV (Nextcloud, ownCloud, Apache…)",
+    providerWebdav: "WebDAV (experimental)",
+    webdavExperimental:
+      "WebDAV support is experimental. It is tested against a built-in test server, not against Nextcloud, ownCloud or other real servers, and a few known limits remain (see the changelog). S3 is the supported, live-tested storage. Keep a copy of important notes outside the synced vault.",
     webdavUrl: "Collection URL",
     webdavUsername: "Username",
     webdavPassword: "Password",
@@ -916,7 +918,9 @@ const RU: Strings = {
     providerDesc:
       "На каком хранилище живёт это хранилище заметок. Переключение сохраняет настройки второго провайдера и блокирует хранилище: следующая разблокировка подключится уже к новому.",
     providerS3: "S3-совместимое (R2, MinIO, Backblaze, AWS…)",
-    providerWebdav: "WebDAV (Nextcloud, ownCloud, Apache…)",
+    providerWebdav: "WebDAV (экспериментально)",
+    webdavExperimental:
+      "Поддержка WebDAV экспериментальная. Она проверена на встроенном тестовом сервере, а не на Nextcloud, ownCloud и других настоящих серверах, и в ней остаются известные ограничения (см. список изменений). Поддерживаемое и проверенное вживую хранилище — S3. Храни копию важных заметок вне синхронизируемого хранилища.",
     webdavUrl: "URL коллекции",
     webdavUsername: "Имя пользователя",
     webdavPassword: "Пароль",

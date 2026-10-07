@@ -45,6 +45,15 @@ describe("language resolution", () => {
 });
 
 describe("translation completeness", () => {
+  it("WebDAV is labelled experimental, in both languages (ADR-0091)", () => {
+    for (const lang of ["en", "ru"] as const) {
+      const t = stringsFor(lang).settings;
+      expect(t.providerWebdav).toMatch(/experimental|экспериментально/);
+      expect(t.webdavExperimental).toMatch(/S3/);
+      expect(t.webdavExperimental.length).toBeGreaterThan(80);
+    }
+  });
+
   it("every ReasonCode is phrased in every language, never left in English", () => {
     const en = stringsFor("en");
     const ru = stringsFor("ru");

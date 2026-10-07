@@ -13,8 +13,9 @@ when they're safe.
 - **End-to-end encryption**: Argon2id + AES-256-GCM, keys only in memory,
   documented format with a tested recovery script —
   [how security works](./docs/security.md).
-- **Storage backends**: any S3-compatible service and WebDAV — both pass the
-  same conformance test suite against real servers.
+- **Storage backends**: any S3-compatible service (live-tested on R2). WebDAV
+  is experimental: it passes the same conformance suite, but against a built-in
+  test server, not real Nextcloud or ownCloud.
 - **Obsidian plugin**: desktop (Windows/macOS) and Android, with a readable
   sync log, Safe-Sync confirmations with a preview of the plan, migration warnings, and
   battery/data-friendly mobile defaults, and optional sync of chosen Obsidian

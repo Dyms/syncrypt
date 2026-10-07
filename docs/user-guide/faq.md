@@ -25,11 +25,12 @@ passphrase in a password manager.
 No. Only the object storage you already have. There is no Syncrypt server.
 
 **Which storage works?**
-Any S3-compatible service (AWS S3, MinIO, R2, REG.RU S3, …) and any **WebDAV**
-server (Nextcloud, ownCloud, Apache mod_dav, …). Both are covered by the same
-conformance suite against real servers, and you pick one in the plugin's storage
-settings. More providers (consumer clouds, local folder) can be added without
-touching the engine.
+Any S3-compatible service (AWS S3, MinIO, R2, REG.RU S3, …). S3 is the supported
+storage and the one checked on live storage. **WebDAV** (Nextcloud, ownCloud,
+Apache mod_dav, …) is **experimental**: it runs against a built-in test server,
+not against real Nextcloud or ownCloud, and has known limits (see the changelog).
+You pick the provider in the plugin's storage settings. More providers can be
+added without touching the engine.
 
 WebDAV differs in one way worth knowing: it has no conditional writes, so two
 devices publishing at the same instant are resolved by the LIST rule after the

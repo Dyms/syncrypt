@@ -24,8 +24,8 @@ newest beta.
 
 ## 3. Prepare storage (once, any device)
 
-You need either an **S3-compatible bucket** or a **WebDAV** server. Both are
-first-class; pick whichever you already own.
+You need an **S3-compatible bucket** (recommended: this is what Syncrypt is
+tested against on live storage) or, experimentally, a **WebDAV** server.
 
 **S3 (AWS, MinIO, Cloudflare R2, hosting-provider S3, …):**
 
@@ -35,7 +35,12 @@ first-class; pick whichever you already own.
 - Strongly recommended: enable **bucket versioning** — it's your safety net
   against anyone (or anything) with write access damaging the ciphertext.
 
-**WebDAV (Nextcloud, ownCloud, Apache mod_dav, …):**
+**WebDAV (Nextcloud, ownCloud, Apache mod_dav, …) — experimental:**
+
+- WebDAV is tested against a built-in test server only, not against real
+  Nextcloud or ownCloud installations, and has known limits (a cut-off upload
+  can leave a truncated object; two devices creating the key file at the same
+  moment can race). Prefer S3 for a vault you care about.
 
 - Create a folder dedicated to this vault and point the URL at it, e.g.
   `https://cloud.example.com/remote.php/dav/files/<user>/syncrypt-vault`.

@@ -7,6 +7,14 @@ All notable changes to this project are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **WebDAV is marked experimental** (ADR-0091): in the provider dropdown, with a
+  notice in the settings, and in the README, install guide, FAQ and about page. It
+  is tested against a built-in test server, not against Nextcloud or ownCloud, and
+  it has the known limits listed below. S3 is the supported storage. Nothing
+  changes in behaviour; existing WebDAV vaults keep working. The docs no longer
+  say both providers were checked "against real servers".
+
 ## [1.0.0-beta.14] — 2026-10-07
 
 Storage-response checks, hash-cache and glob fixes, and a documentation pass.

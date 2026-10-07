@@ -62,6 +62,19 @@ describe("remembering it", () => {
   });
 });
 
+describe("experimental WebDAV notice (ADR-0091)", () => {
+  it("is shown in the WebDAV block, before the URL field", async () => {
+    const src = await readFile(
+      path.resolve(fileURLToPath(import.meta.url), "../../src/settings-tab.ts"),
+      "utf8",
+    );
+    const block = src.slice(src.indexOf("if (webdav) {"));
+    const notice = block.indexOf("t.settings.webdavExperimental");
+    expect(notice).toBeGreaterThan(-1);
+    expect(notice).toBeLessThan(block.indexOf("t.settings.webdavUrl"));
+  });
+});
+
 describe("the rearrangement lost nothing", () => {
   it("every setting sits in a section, and only status and lock stay loose", async () => {
     const src = await readFile(

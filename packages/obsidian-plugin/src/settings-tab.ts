@@ -250,6 +250,10 @@ export class SyncryptSettingTab extends PluginSettingTab {
     };
 
     if (webdav) {
+      storageEl.createEl("div", {
+        text: `⚠ ${t.settings.webdavExperimental}`,
+        cls: "setting-item-description",
+      });
       storageText(t.settings.webdavUrl, () => s.webdav.url, (v) => (s.webdav.url = v), {
         placeholder: "https://cloud.example.com/remote.php/dav/files/user/vault",
       });

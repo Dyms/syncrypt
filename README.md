@@ -9,8 +9,8 @@ thousand of my notes, and I promised myself that would never happen again.
 
 Syncrypt keeps an [Obsidian](https://obsidian.md) vault identical across
 macOS, Windows and Android using storage **you already own** — any
-S3-compatible bucket (AWS, MinIO, R2, a hosting provider's S3) or any **WebDAV**
-server (Nextcloud, ownCloud, Apache mod_dav). Everything is **encrypted on your
+S3-compatible bucket (AWS, MinIO, R2, a hosting provider's S3). **WebDAV**
+(Nextcloud, ownCloud, Apache mod_dav) is available as an *experimental* option. Everything is **encrypted on your
 device before upload**; the storage never sees a single readable byte of your
 notes.
 
